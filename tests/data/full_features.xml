@@ -1,0 +1,362 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Coverage fixture: exercises the full breadth of the XTCE parser.
+     Not a realistic satellite — a deliberate kitchen sink of type kinds,
+     encodings, alarms, calibrators, inheritance, arrays, time types,
+     aggregates, ancillary data, and nested SpaceSystems. -->
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20250214" name="FullFeatures">
+
+  <xtce:TelemetryMetaData>
+    <xtce:ParameterTypeSet>
+
+      <!-- Signed integer with calibrator, valid range, rich unit, alarms + context alarm -->
+      <xtce:IntegerParameterType name="TempType" signed="true">
+        <xtce:UnitSet>
+          <xtce:Unit description="Celsius" power="1">degC</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="-40.0" exponent="0" />
+              <xtce:Term coefficient="0.1" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="-40" maxInclusive="85" />
+        <xtce:DefaultAlarm>
+          <xtce:StaticAlarmRanges>
+            <xtce:WatchRange minInclusive="-30" maxInclusive="70" />
+            <xtce:WarningRange minInclusive="-20" maxInclusive="60" />
+            <xtce:DistressRange minExclusive="-35" maxExclusive="80" />
+            <xtce:CriticalRange minInclusive="-40" maxInclusive="85" />
+          </xtce:StaticAlarmRanges>
+        </xtce:DefaultAlarm>
+        <xtce:ContextAlarmList>
+          <xtce:ContextAlarm>
+            <xtce:ContextMatch>
+              <xtce:Comparison parameterRef="../ModeParam" value="SAFE" comparisonOperator="==" />
+            </xtce:ContextMatch>
+            <xtce:StaticAlarmRanges>
+              <xtce:WarningRange minInclusive="0" maxInclusive="40" />
+            </xtce:StaticAlarmRanges>
+          </xtce:ContextAlarm>
+        </xtce:ContextAlarmList>
+      </xtce:IntegerParameterType>
+
+      <!-- Unsigned integer, simple unit only -->
+      <xtce:IntegerParameterType name="CounterType" signed="false">
+        <xtce:UnitSet><xtce:Unit>count</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <!-- Native float -->
+      <xtce:FloatParameterType name="VoltageType">
+        <xtce:UnitSet><xtce:Unit description="Volts">V</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="12" />
+      </xtce:FloatParameterType>
+
+      <!-- Calibrated float (integer wire encoding) -->
+      <xtce:FloatParameterType name="PressureType">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.0" exponent="0" />
+              <xtce:Term coefficient="0.25" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+
+      <!-- Enumerated with alarms -->
+      <xtce:EnumeratedParameterType name="ModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="NOMINAL" value="0" />
+          <xtce:Enumeration label="SAFE" value="1" />
+          <xtce:Enumeration label="FAULT" value="2" />
+        </xtce:EnumerationList>
+        <xtce:DefaultAlarm>
+          <xtce:StaticAlarmRanges>
+            <xtce:WarningRange minInclusive="1" maxInclusive="1" />
+          </xtce:StaticAlarmRanges>
+        </xtce:DefaultAlarm>
+      </xtce:EnumeratedParameterType>
+
+      <!-- String -->
+      <xtce:StringParameterType name="LabelType">
+        <xtce:StringDataEncoding>
+          <xtce:SizeInBits><xtce:Fixed><xtce:FixedValue>64</xtce:FixedValue></xtce:Fixed></xtce:SizeInBits>
+        </xtce:StringDataEncoding>
+      </xtce:StringParameterType>
+
+      <!-- Binary (correct XTCE form: SizeInBits/FixedValue, no Fixed wrapper) -->
+      <xtce:BinaryParameterType name="BlobType">
+        <xtce:BinaryDataEncoding>
+          <xtce:SizeInBits><xtce:FixedValue>32</xtce:FixedValue></xtce:SizeInBits>
+        </xtce:BinaryDataEncoding>
+      </xtce:BinaryParameterType>
+
+      <!-- Boolean -->
+      <xtce:BooleanParameterType name="FlagType" zeroStringValue="OFF" oneStringValue="ON" initialValue="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" />
+      </xtce:BooleanParameterType>
+
+      <!-- Array (fixed dimension) referencing CounterType -->
+      <xtce:ArrayParameterType name="SamplesType" arrayTypeRef="CounterType">
+        <xtce:DimensionList>
+          <xtce:Dimension>
+            <xtce:StartingIndex><xtce:FixedValue>0</xtce:FixedValue></xtce:StartingIndex>
+            <xtce:EndingIndex><xtce:FixedValue>3</xtce:FixedValue></xtce:EndingIndex>
+          </xtce:Dimension>
+        </xtce:DimensionList>
+      </xtce:ArrayParameterType>
+
+      <!-- Array (dynamic dimension) -->
+      <xtce:ArrayParameterType name="DynSamplesType" arrayTypeRef="CounterType">
+        <xtce:DimensionList>
+          <xtce:Dimension>
+            <xtce:StartingIndex><xtce:FixedValue>0</xtce:FixedValue></xtce:StartingIndex>
+            <xtce:EndingIndex>
+              <xtce:DynamicValue>
+                <xtce:ParameterInstanceRef parameterRef="Counter" />
+              </xtce:DynamicValue>
+            </xtce:EndingIndex>
+          </xtce:Dimension>
+        </xtce:DimensionList>
+      </xtce:ArrayParameterType>
+
+      <!-- Absolute time with reference epoch + offset-from -->
+      <xtce:AbsoluteTimeParameterType name="PktTimeType">
+        <xtce:Encoding scale="1.0" offset="0.0">
+          <xtce:IntegerDataEncoding sizeInBits="32" />
+        </xtce:Encoding>
+        <xtce:ReferenceTime>
+          <xtce:Epoch>1970-01-01T00:00:00</xtce:Epoch>
+          <xtce:OffsetFrom parameterRef="Counter" />
+        </xtce:ReferenceTime>
+        <xtce:UnitSet><xtce:Unit>s</xtce:Unit></xtce:UnitSet>
+      </xtce:AbsoluteTimeParameterType>
+
+      <!-- Relative time -->
+      <xtce:RelativeTimeParameterType name="ElapsedType">
+        <xtce:Encoding scale="0.001" offset="0.0">
+          <xtce:IntegerDataEncoding sizeInBits="32" />
+        </xtce:Encoding>
+        <xtce:UnitSet><xtce:Unit>ms</xtce:Unit></xtce:UnitSet>
+      </xtce:RelativeTimeParameterType>
+
+      <!-- Aggregate (struct) with members + its own alarm ranges -->
+      <xtce:AggregateParameterType name="GPSType">
+        <xtce:MemberList>
+          <xtce:Member name="Lat" typeRef="VoltageType" shortDescription="Latitude" />
+          <xtce:Member name="Lon" typeRef="VoltageType" />
+          <xtce:Member name="Fix" typeRef="ModeType" />
+        </xtce:MemberList>
+        <xtce:DefaultAlarm>
+          <xtce:StaticAlarmRanges>
+            <xtce:WarningRange minInclusive="0" maxInclusive="1" />
+          </xtce:StaticAlarmRanges>
+        </xtce:DefaultAlarm>
+      </xtce:AggregateParameterType>
+
+    </xtce:ParameterTypeSet>
+
+    <xtce:ParameterSet>
+      <xtce:Parameter name="CCSDS_APID" parameterTypeRef="CounterType" />
+      <xtce:Parameter name="Temp" parameterTypeRef="TempType" />
+      <xtce:Parameter name="Counter" parameterTypeRef="CounterType" />
+      <xtce:Parameter name="Voltage" parameterTypeRef="VoltageType" />
+      <xtce:Parameter name="Pressure" parameterTypeRef="PressureType" />
+      <xtce:Parameter name="ModeParam" parameterTypeRef="ModeType" />
+      <xtce:Parameter name="Label" parameterTypeRef="LabelType" />
+      <xtce:Parameter name="Blob" parameterTypeRef="BlobType" />
+      <xtce:Parameter name="Flag" parameterTypeRef="FlagType" />
+      <xtce:Parameter name="Samples" parameterTypeRef="SamplesType" />
+      <xtce:Parameter name="PktTime" parameterTypeRef="PktTimeType" />
+      <xtce:Parameter name="Elapsed" parameterTypeRef="ElapsedType" />
+      <xtce:Parameter name="GPS" parameterTypeRef="GPSType" />
+    </xtce:ParameterSet>
+
+    <xtce:ContainerSet>
+      <!-- Base container (CCSDS header carrier) -->
+      <xtce:SequenceContainer name="CCSDSPacket">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="CCSDS_APID" />
+        </xtce:EntryList>
+      </xtce:SequenceContainer>
+
+      <!-- Concrete packet: inherits base, restricted by a ComparisonList incl. APID,
+           payload references a path-qualified ref and an aggregate -->
+      <xtce:SequenceContainer name="HEALTH">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="Temp" />
+          <xtce:ParameterRefEntry parameterRef="Voltage" />
+          <xtce:ParameterRefEntry parameterRef="Pressure" />
+          <xtce:ParameterRefEntry parameterRef="ModeParam" />
+          <xtce:ParameterRefEntry parameterRef="Flag" />
+          <xtce:ParameterRefEntry parameterRef="Label" />
+          <xtce:ParameterRefEntry parameterRef="Blob" />
+          <xtce:ParameterRefEntry parameterRef="../GPS" />
+          <xtce:ParameterRefEntry parameterRef="PktTime" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="SecHdrFlag" value="0" />
+              <xtce:Comparison parameterRef="CCSDS_APID" value="100" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- Second packet using a single direct Comparison (not a list) -->
+      <xtce:SequenceContainer name="COUNTS">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="Counter" />
+          <xtce:ParameterRefEntry parameterRef="Elapsed" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="101" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+    </xtce:ContainerSet>
+  </xtce:TelemetryMetaData>
+
+  <xtce:CommandMetaData>
+    <xtce:ArgumentTypeSet>
+      <xtce:IntegerArgumentType name="U8Arg" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:UnitSet><xtce:Unit>s</xtce:Unit></xtce:UnitSet>
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="255" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+      <xtce:IntegerArgumentType name="OpcodeArg" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+      <xtce:FloatArgumentType name="F32Arg">
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRange minInclusive="-1.0" maxInclusive="1.0" />
+      </xtce:FloatArgumentType>
+      <xtce:EnumeratedArgumentType name="StateArg">
+        <xtce:IntegerDataEncoding sizeInBits="8" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="ON" value="1" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <!-- Enum without explicit encoding: size derived from max value -->
+      <xtce:EnumeratedArgumentType name="BigEnumArg">
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="A" value="0" />
+          <xtce:Enumeration label="B" value="300" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <xtce:StringArgumentType name="StrArg">
+        <xtce:StringDataEncoding>
+          <xtce:SizeInBits><xtce:Fixed><xtce:FixedValue>16</xtce:FixedValue></xtce:Fixed></xtce:SizeInBits>
+        </xtce:StringDataEncoding>
+      </xtce:StringArgumentType>
+      <xtce:BinaryArgumentType name="BinArg" sizeInBits="16" />
+      <xtce:BooleanArgumentType name="BoolArg" zeroStringValue="NO" oneStringValue="YES" initialValue="true">
+        <xtce:IntegerDataEncoding sizeInBits="8" />
+      </xtce:BooleanArgumentType>
+      <xtce:ArrayArgumentType name="ArrArg" arrayTypeRef="U8Arg">
+        <xtce:DimensionList>
+          <xtce:Dimension>
+            <xtce:StartingIndex><xtce:FixedValue>0</xtce:FixedValue></xtce:StartingIndex>
+            <xtce:EndingIndex><xtce:FixedValue>1</xtce:FixedValue></xtce:EndingIndex>
+          </xtce:Dimension>
+        </xtce:DimensionList>
+      </xtce:ArrayArgumentType>
+      <xtce:AbsoluteTimeArgumentType name="AtArg">
+        <xtce:IntegerDataEncoding sizeInBits="32" />
+        <xtce:ReferenceTime><xtce:Epoch>GPS</xtce:Epoch></xtce:ReferenceTime>
+      </xtce:AbsoluteTimeArgumentType>
+      <xtce:RelativeTimeArgumentType name="RtArg">
+        <xtce:Encoding scale="1.0" offset="0.0">
+          <xtce:IntegerDataEncoding sizeInBits="16" />
+        </xtce:Encoding>
+        <xtce:UnitSet><xtce:Unit>ms</xtce:Unit></xtce:UnitSet>
+      </xtce:RelativeTimeArgumentType>
+      <xtce:AggregateArgumentType name="VecArg">
+        <xtce:MemberList>
+          <xtce:Member name="X" typeRef="F32Arg" />
+          <xtce:Member name="Y" typeRef="F32Arg" />
+        </xtce:MemberList>
+      </xtce:AggregateArgumentType>
+    </xtce:ArgumentTypeSet>
+
+    <xtce:MetaCommandSet>
+      <!-- Abstract base carrying protocol fields (opcode discriminator) -->
+      <xtce:MetaCommand name="BaseCmd" abstract="true">
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeArg" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="BaseCmdContainer">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- Concrete command: inherits base, assigns OPCODE, has user args + ancillary data -->
+      <xtce:MetaCommand name="DO_THING" shortDescription="Do a thing">
+        <xtce:BaseMetaCommand metaCommandRef="BaseCmd">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="10" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="Duration" argumentTypeRef="U8Arg">
+            <xtce:AncillaryDataSet>
+              <xtce:AncillaryData name="tlm_field">Counter</xtce:AncillaryData>
+            </xtce:AncillaryDataSet>
+          </xtce:Argument>
+          <xtce:Argument name="State" argumentTypeRef="StateArg" />
+          <xtce:Argument name="Gain" argumentTypeRef="F32Arg" />
+        </xtce:ArgumentList>
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">Counter=1</xtce:AncillaryData>
+          <xtce:AncillaryData name="tlm_side_effect">ModeParam=SAFE</xtce:AncillaryData>
+          <xtce:AncillaryData name="tlm_func">Voltage:mod.fn:1:2</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:CommandContainer name="DoThingContainer">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="Opcode" binaryValue="0A" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Duration" />
+            <xtce:ParameterRefEntry parameterRef="Counter" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="BaseCmdContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- Concrete command with NO opcode entry -> gets a synthetic opcode -->
+      <xtce:MetaCommand name="NO_OPCODE">
+        <xtce:ArgumentList>
+          <xtce:Argument name="Blob" argumentTypeRef="BinArg" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="NoOpcodeContainer">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="Blob" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+    </xtce:MetaCommandSet>
+  </xtce:CommandMetaData>
+
+  <!-- Nested SpaceSystem: parser recurses and flattens it into the same definition -->
+  <xtce:SpaceSystem name="Subsystem">
+    <xtce:TelemetryMetaData>
+      <xtce:ParameterTypeSet>
+        <xtce:IntegerParameterType name="SubType" signed="false">
+          <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        </xtce:IntegerParameterType>
+      </xtce:ParameterTypeSet>
+      <xtce:ParameterSet>
+        <xtce:Parameter name="SubValue" parameterTypeRef="SubType" />
+      </xtce:ParameterSet>
+    </xtce:TelemetryMetaData>
+  </xtce:SpaceSystem>
+
+</xtce:SpaceSystem>

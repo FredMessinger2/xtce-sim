@@ -1,0 +1,175 @@
+"""
+Resolved simulator definition.
+
+`SimDefinition` is the in-memory model the simulator runs from: a flat list of
+commands (with opcodes and user parameters) and telemetry packets (with APIDs
+and fields). It is built directly from a parsed XTCE file — no generated Python
+source is required to run.
+
+    definition = SimDefinition.from_xtce("spacecraft.xml")
+
+Use `xtce_sim.generate` to dump a definition to disk (cmd_tlm.txt / cmd_tlm.json)
+or emit an optional importable snapshot (generated.py).
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional, Union
+
+
+@dataclass
+class ParamInfo:
+    """A user-configurable command argument."""
+
+    name: str
+    size_bits: int
+    python_type: str  # 'uint8', 'int16', 'float32', 'string', ...
+    unit: Optional[str] = None
+    description: Optional[str] = None
+    valid_min: Optional[float] = None
+    valid_max: Optional[float] = None
+    enumerations: Optional[dict[str, int]] = None
+
+
+@dataclass
+class FieldInfo:
+    """A single field in a telemetry packet payload."""
+
+    name: str
+    size_bits: int
+    python_type: str  # 'uint8', 'int16', 'float32', 'string', ...
+    unit: Optional[str] = None
+    description: Optional[str] = None
+
+
+@dataclass
+class CommandDef:
+    """A concrete command: opcode + the arguments an operator can set."""
+
+    name: str
+    opcode: int
+    description: Optional[str] = None
+    synthetic: bool = False  # opcode assigned by us, not present in the XTCE
+    params: list[ParamInfo] = field(default_factory=list)
+
+
+@dataclass
+class PacketDef:
+    """A concrete telemetry packet: APID + payload fields."""
+
+    name: str
+    apid: int
+    description: Optional[str] = None
+    fields: list[FieldInfo] = field(default_factory=list)
+    struct_format: str = ">"  # big-endian struct format for the payload
+
+
+@dataclass
+class SimDefinition:
+    """Everything the simulator needs to serve one satellite, resolved in memory."""
+
+    space_system_name: str
+    commands: list[CommandDef] = field(default_factory=list)
+    packets: list[PacketDef] = field(default_factory=list)
+
+    # ---- lookups -----------------------------------------------------------
+
+    def command_by_name(self, name: str) -> Optional[CommandDef]:
+        return next((c for c in self.commands if c.name == name), None)
+
+    def command_by_opcode(self, opcode: int) -> Optional[CommandDef]:
+        return next((c for c in self.commands if c.opcode == opcode), None)
+
+    def packet_by_name(self, name: str) -> Optional[PacketDef]:
+        return next((p for p in self.packets if p.name == name), None)
+
+    def packet_by_apid(self, apid: int) -> Optional[PacketDef]:
+        return next((p for p in self.packets if p.apid == apid), None)
+
+    # ---- construction ------------------------------------------------------
+
+    @classmethod
+    def from_xtce(cls, xtce: Union[str, Path, list]) -> "SimDefinition":
+        """Parse one or more XTCE files and build a resolved SimDefinition.
+
+        Accepts a single path or a list of paths. Multiple files are merged
+        additively (later files override earlier ones), matching the parser's
+        `parse_multiple` semantics.
+        """
+        # Imported here to avoid a circular import (generate imports this module).
+        from xtce_sim.generate import build_sim_definition
+        from xtce_sim.parser import XTCEParser
+
+        paths = [xtce] if isinstance(xtce, (str, Path)) else list(xtce)
+        if not paths:
+            raise ValueError("At least one XTCE file is required")
+
+        parser = XTCEParser()
+        if len(paths) == 1:
+            xtce_def = parser.parse(paths[0])
+        else:
+            xtce_def = parser.parse_multiple(paths)
+
+        return build_sim_definition(xtce_def)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SimDefinition":
+        """Reconstruct a SimDefinition from a `generate.to_dict` mapping.
+
+        This lets a client rebuild the definition from a dumped cmd_tlm.json
+        without re-parsing the source XTCE.
+        """
+        commands = [
+            CommandDef(
+                name=c["name"],
+                opcode=c["opcode"],
+                description=c.get("description"),
+                synthetic=c.get("synthetic_opcode", False),
+                params=[
+                    ParamInfo(
+                        name=p["name"],
+                        size_bits=p["size_bits"],
+                        python_type=p["python_type"],
+                        unit=p.get("unit"),
+                        description=p.get("description"),
+                        valid_min=p.get("valid_min"),
+                        valid_max=p.get("valid_max"),
+                        enumerations=p.get("enumerations"),
+                    )
+                    for p in c.get("params", [])
+                ],
+            )
+            for c in data.get("commands", [])
+        ]
+        packets = [
+            PacketDef(
+                name=t["name"],
+                apid=t["apid"],
+                description=t.get("description"),
+                fields=[
+                    FieldInfo(
+                        name=f["name"],
+                        size_bits=f["size_bits"],
+                        python_type=f["python_type"],
+                        unit=f.get("unit"),
+                        description=f.get("description"),
+                    )
+                    for f in t.get("fields", [])
+                ],
+                struct_format=t.get("struct_format", ">"),
+            )
+            for t in data.get("telemetry", [])
+        ]
+        return cls(
+            space_system_name=data.get("space_system", "Unknown"),
+            commands=commands,
+            packets=packets,
+        )
+
+    @classmethod
+    def from_json(cls, path: Union[str, Path]) -> "SimDefinition":
+        """Load a SimDefinition from a dumped cmd_tlm.json file."""
+        return cls.from_dict(json.loads(Path(path).read_text()))

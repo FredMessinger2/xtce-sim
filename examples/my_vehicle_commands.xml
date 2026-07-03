@@ -1,0 +1,1302 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20250214" name="MyVehicle">
+
+  <xtce:Header version="1.0" date="2025-01-10" validationStatus="Working">
+    <xtce:AuthorSet>
+      <xtce:Author>XTCE Framework Generator</xtce:Author>
+    </xtce:AuthorSet>
+  </xtce:Header>
+
+  <xtce:CommandMetaData>
+
+    
+    <xtce:ArgumentTypeSet>
+
+      
+
+      
+      <xtce:IntegerArgumentType name="OpcodeType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="255" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="SubsystemIdType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="15" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="DurationSecondsType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>s</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="65535" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="TimestampType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>s</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="MemoryAddressType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="MemoryLengthType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>bytes</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="4096" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="ByteType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="WordType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      
+
+      
+      <xtce:EnumeratedArgumentType name="PowerStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="ON" value="1" />
+          <xtce:Enumeration label="STANDBY" value="2" />
+          <xtce:Enumeration label="LOW_POWER" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="CollectionModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="IDLE" value="0" />
+          <xtce:Enumeration label="NORMAL" value="1" />
+          <xtce:Enumeration label="BURST" value="2" />
+          <xtce:Enumeration label="DIAGNOSTIC" value="3" />
+          <xtce:Enumeration label="CALIBRATION" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="PowerModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="NOMINAL" value="0" />
+          <xtce:Enumeration label="LOW_POWER" value="1" />
+          <xtce:Enumeration label="SAFE" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="AttitudeModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="DETUMBLE" value="0" />
+          <xtce:Enumeration label="SUN_POINTING" value="1" />
+          <xtce:Enumeration label="NADIR" value="2" />
+          <xtce:Enumeration label="INERTIAL" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="ResetTypeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SOFT" value="0" />
+          <xtce:Enumeration label="HARD" value="1" />
+          <xtce:Enumeration label="FACTORY" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="SelfTestTypeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="QUICK" value="0" />
+          <xtce:Enumeration label="STANDARD" value="1" />
+          <xtce:Enumeration label="EXTENDED" value="2" />
+          <xtce:Enumeration label="MEMORY" value="3" />
+          <xtce:Enumeration label="COMMUNICATION" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="ConfigSlotType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="ACTIVE" value="0" />
+          <xtce:Enumeration label="BACKUP" value="1" />
+          <xtce:Enumeration label="FACTORY" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="BooleanType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="FALSE" value="0" />
+          <xtce:Enumeration label="TRUE" value="1" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="EnableType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      
+
+      
+      <xtce:EnumeratedArgumentType name="FaultTypeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SENSOR_STUCK" value="0" />
+          <xtce:Enumeration label="SENSOR_NOISY" value="1" />
+          <xtce:Enumeration label="SENSOR_OFFSET" value="2" />
+          <xtce:Enumeration label="SENSOR_DRIFT" value="3" />
+          <xtce:Enumeration label="COMM_DROPOUT" value="4" />
+          <xtce:Enumeration label="POWER_BUS_FAULT" value="5" />
+          <xtce:Enumeration label="THERMAL_RUNAWAY" value="6" />
+          <xtce:Enumeration label="WHEEL_FAILURE" value="7" />
+          <xtce:Enumeration label="BATTERY_DEGRADED" value="8" />
+          <xtce:Enumeration label="SOLAR_PANEL_FAIL" value="9" />
+          <xtce:Enumeration label="MEMORY_CORRUPTION" value="10" />
+          <xtce:Enumeration label="WATCHDOG_TIMEOUT" value="11" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="FaultTargetType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="15" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="FaultSeverityType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="MINOR" value="1" />
+          <xtce:Enumeration label="MAJOR" value="2" />
+          <xtce:Enumeration label="CRITICAL" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:FloatArgumentType name="FaultParamType">
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="FaultIdType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="255" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+
+      
+      <xtce:EnumeratedArgumentType name="PropulsionModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SAFE" value="0" />
+          <xtce:Enumeration label="STANDBY" value="1" />
+          <xtce:Enumeration label="READY" value="2" />
+          <xtce:Enumeration label="FIRING" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="ThrusterIdType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="4" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="BurnDurationMsType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>ms</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="10" maxInclusive="60000" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="ThrustPercentType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>%</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="100" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+
+      
+      <xtce:IntegerArgumentType name="IntegrationTimeType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>ms</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="10" maxInclusive="10000" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="GainType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="8" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+
+      
+      <xtce:FloatArgumentType name="VoltageType">
+        <xtce:UnitSet>
+          <xtce:Unit>V</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0.0" maxInclusive="50.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:FloatArgumentType name="CurrentType">
+        <xtce:UnitSet>
+          <xtce:Unit>A</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0.0" maxInclusive="100.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:IntegerArgumentType name="TemperatureType" signed="true">
+        <xtce:UnitSet>
+          <xtce:Unit>degC</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-40" maxInclusive="125" />
+      </xtce:ValidRangeSet></xtce:IntegerArgumentType>
+
+      
+      <xtce:FloatArgumentType name="RateHzType">
+        <xtce:UnitSet>
+          <xtce:Unit>Hz</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0.1" maxInclusive="100.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:FloatArgumentType name="TemperatureSetpointType">
+        <xtce:UnitSet>
+          <xtce:Unit>degC</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-40.0" maxInclusive="85.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+
+      
+      <xtce:StringArgumentType name="FilenameType">
+        <xtce:StringDataEncoding encoding="UTF-8">
+          <xtce:SizeInBits>
+            <xtce:Fixed><xtce:FixedValue>512</xtce:FixedValue>
+            </xtce:Fixed></xtce:SizeInBits>
+        </xtce:StringDataEncoding>
+      </xtce:StringArgumentType>
+
+      
+
+      
+      <xtce:BinaryArgumentType name="DataBlockType">
+        <xtce:BinaryDataEncoding>
+          <xtce:SizeInBits>
+            <xtce:FixedValue>2048</xtce:FixedValue>
+            </xtce:SizeInBits>
+        </xtce:BinaryDataEncoding>
+      </xtce:BinaryArgumentType>
+
+      
+
+      
+      <xtce:EnumeratedArgumentType name="TransponderStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="STANDBY" value="1" />
+          <xtce:Enumeration label="ACTIVE" value="2" />
+          <xtce:Enumeration label="TX_ONLY" value="3" />
+          <xtce:Enumeration label="RX_ONLY" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:EnumeratedArgumentType name="ModulationType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="BPSK" value="0" />
+          <xtce:Enumeration label="QPSK" value="1" />
+          <xtce:Enumeration label="OQPSK" value="2" />
+          <xtce:Enumeration label="8PSK" value="3" />
+          <xtce:Enumeration label="FSK" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:FloatArgumentType name="TxPowerDbmType">
+        <xtce:UnitSet>
+          <xtce:Unit>dBm</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0.0" maxInclusive="40.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:FloatArgumentType name="FrequencyMhzType">
+        <xtce:UnitSet>
+          <xtce:Unit>MHz</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1000.0" maxInclusive="3000.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:FloatArgumentType name="DataRateKbpsType">
+        <xtce:UnitSet>
+          <xtce:Unit>kbps</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0.1" maxInclusive="10000.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+
+      
+      <xtce:EnumeratedArgumentType name="OrbitRegimeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="LEO" value="0" />
+          <xtce:Enumeration label="MEO" value="1" />
+          <xtce:Enumeration label="GEO" value="2" />
+          <xtce:Enumeration label="HEO" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      
+      <xtce:FloatArgumentType name="AltitudeKmType">
+        <xtce:UnitSet>
+          <xtce:Unit>km</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="160.0" maxInclusive="400000.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:FloatArgumentType name="InclinationType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0.0" maxInclusive="180.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:FloatArgumentType name="LatitudeType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-90.0" maxInclusive="90.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:FloatArgumentType name="LongitudeType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-180.0" maxInclusive="180.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+      
+      <xtce:FloatArgumentType name="ElevationAngleType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0.0" maxInclusive="90.0" />
+      </xtce:ValidRangeSet></xtce:FloatArgumentType>
+
+    </xtce:ArgumentTypeSet>
+
+    
+    <xtce:MetaCommandSet>
+
+      
+      <xtce:MetaCommand name="CCSDSCommand" abstract="true">
+        <xtce:CommandContainer name="CCSDSCommandPacket">
+          <xtce:EntryList>
+            
+            <xtce:FixedValueEntry name="VersionType" binaryValue="00" sizeInBits="3" />
+            <xtce:FixedValueEntry name="PacketType" binaryValue="01" sizeInBits="1" />
+            <xtce:FixedValueEntry name="SecHdrFlag" binaryValue="00" sizeInBits="1" />
+            <xtce:FixedValueEntry name="APID" binaryValue="0001" sizeInBits="11" />
+            <xtce:FixedValueEntry name="SeqFlags" binaryValue="11" sizeInBits="2" />
+            <xtce:FixedValueEntry name="SeqCount" binaryValue="00000000000000" sizeInBits="14" />
+            <xtce:FixedValueEntry name="PacketLength" binaryValue="0000000000000000" sizeInBits="16" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="NOOP" shortDescription="No operation command for link verification">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="NOOP_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="00" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="RESET" shortDescription="Reset a vehicle subsystem">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="SubsystemId" argumentTypeRef="SubsystemIdType" />
+          <xtce:Argument name="ResetType" argumentTypeRef="ResetTypeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="RESET_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="01" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="SubsystemId" />
+            <xtce:ArgumentRefEntry argumentRef="ResetType" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_TIME" shortDescription="Set vehicle system time">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Timestamp" argumentTypeRef="TimestampType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_TIME_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="02" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Timestamp" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="GET_STATUS" shortDescription="Request immediate status telemetry">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="GET_STATUS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="03" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="SET_POWER" shortDescription="Set power state of a subsystem">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="SubsystemId" argumentTypeRef="SubsystemIdType" />
+          <xtce:Argument name="PowerState" argumentTypeRef="PowerStateType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_POWER_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="10" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="SubsystemId" />
+            <xtce:ArgumentRefEntry argumentRef="PowerState" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="GET_POWER_STATUS" shortDescription="Request power subsystem status">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="SubsystemId" argumentTypeRef="SubsystemIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="GET_POWER_STATUS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="11" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="SubsystemId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="START_COLLECTION" shortDescription="Start telemetry data collection">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Mode" argumentTypeRef="CollectionModeType" />
+          <xtce:Argument name="Duration" argumentTypeRef="DurationSecondsType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="START_COLLECTION_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="20" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Mode" />
+            <xtce:ArgumentRefEntry argumentRef="Duration" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="STOP_COLLECTION" shortDescription="Stop telemetry data collection">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="STOP_COLLECTION_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="21" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_MODE" shortDescription="Set data collection mode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Mode" argumentTypeRef="CollectionModeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_MODE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="22" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Mode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_TELEMETRY_RATE" shortDescription="Set telemetry output rate">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Rate" argumentTypeRef="RateHzType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_TELEMETRY_RATE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="23" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Rate" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="SET_VOLTAGE_THRESHOLD" shortDescription="Set battery voltage warning threshold">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="LowThreshold" argumentTypeRef="VoltageType" />
+          <xtce:Argument name="HighThreshold" argumentTypeRef="VoltageType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_VOLTAGE_THRESHOLD_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="30" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="LowThreshold" />
+            <xtce:ArgumentRefEntry argumentRef="HighThreshold" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_TEMP_LIMITS" shortDescription="Set temperature alarm thresholds">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="LowLimit" argumentTypeRef="TemperatureType" />
+          <xtce:Argument name="HighLimit" argumentTypeRef="TemperatureType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_TEMP_LIMITS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="31" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="LowLimit" />
+            <xtce:ArgumentRefEntry argumentRef="HighLimit" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_CURRENT_LIMITS" shortDescription="Set current alarm thresholds">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="LowLimit" argumentTypeRef="CurrentType" />
+          <xtce:Argument name="HighLimit" argumentTypeRef="CurrentType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_CURRENT_LIMITS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="32" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="LowLimit" />
+            <xtce:ArgumentRefEntry argumentRef="HighLimit" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="LOAD_CONFIG" shortDescription="Load configuration from storage slot">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Slot" argumentTypeRef="ConfigSlotType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="LOAD_CONFIG_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="33" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Slot" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SAVE_CONFIG" shortDescription="Save current configuration to storage slot">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Slot" argumentTypeRef="ConfigSlotType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SAVE_CONFIG_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="34" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Slot" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="MEM_READ" shortDescription="Read memory at specified address">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Address" argumentTypeRef="MemoryAddressType" />
+          <xtce:Argument name="Length" argumentTypeRef="MemoryLengthType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="MEM_READ_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="40" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Address" />
+            <xtce:ArgumentRefEntry argumentRef="Length" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="MEM_WRITE" shortDescription="Write data to memory address">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Address" argumentTypeRef="MemoryAddressType" />
+          <xtce:Argument name="Data" argumentTypeRef="DataBlockType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="MEM_WRITE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="41" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Address" />
+            <xtce:ArgumentRefEntry argumentRef="Data" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="MEM_DUMP" shortDescription="Dump memory range to telemetry">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="StartAddress" argumentTypeRef="MemoryAddressType" />
+          <xtce:Argument name="Length" argumentTypeRef="MemoryLengthType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="MEM_DUMP_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="42" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="StartAddress" />
+            <xtce:ArgumentRefEntry argumentRef="Length" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="FILE_LIST" shortDescription="List files in onboard storage">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="FILE_LIST_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="50" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="FILE_DOWNLOAD" shortDescription="Request file download">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Filename" argumentTypeRef="FilenameType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="FILE_DOWNLOAD_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="51" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Filename" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="FILE_DELETE" shortDescription="Delete file from onboard storage">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Filename" argumentTypeRef="FilenameType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="FILE_DELETE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="52" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Filename" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="RUN_SELF_TEST" shortDescription="Execute onboard self-test">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="TestType" argumentTypeRef="SelfTestTypeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="RUN_SELF_TEST_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="60" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="TestType" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="GET_ERROR_LOG" shortDescription="Request error log telemetry">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="GET_ERROR_LOG_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="61" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="CLEAR_ERROR_LOG" shortDescription="Clear onboard error log">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="CLEAR_ERROR_LOG_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="62" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="ENABLE_DEBUG" shortDescription="Enable or disable debug telemetry">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Enable" argumentTypeRef="BooleanType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ENABLE_DEBUG_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="63" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Enable" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="HEATER_ON" shortDescription="Enable thermal heater">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="HEATER_ON_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="70" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="HEATER_OFF" shortDescription="Disable thermal heater">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="HEATER_OFF_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="71" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_HEATER_SETPOINT" shortDescription="Set heater target temperature">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Setpoint" argumentTypeRef="TemperatureSetpointType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_HEATER_SETPOINT_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="72" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Setpoint" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="SET_POWER_MODE" shortDescription="Set spacecraft power mode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Mode" argumentTypeRef="PowerModeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_POWER_MODE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="12" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Mode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_SOLAR_SIM" shortDescription="Set solar illumination simulation">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Illuminated" argumentTypeRef="EnableType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_SOLAR_SIM_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="13" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Illuminated" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="SET_ATTITUDE_MODE" shortDescription="Set ADCS attitude mode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Mode" argumentTypeRef="AttitudeModeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_ATTITUDE_MODE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="80" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Mode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="PAYLOAD_ON" shortDescription="Power on payload and begin data collection">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="PAYLOAD_ON_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="90" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="PAYLOAD_OFF" shortDescription="Power down payload and stop data collection">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="PAYLOAD_OFF_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="91" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="PAYLOAD_CONFIG" shortDescription="Configure payload integration time and gain">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="IntegrationTime" argumentTypeRef="IntegrationTimeType" />
+          <xtce:Argument name="Gain" argumentTypeRef="GainType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="PAYLOAD_CONFIG_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="92" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="IntegrationTime" />
+            <xtce:ArgumentRefEntry argumentRef="Gain" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="PAYLOAD_CAPTURE" shortDescription="Trigger immediate payload data capture">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="PAYLOAD_CAPTURE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="93" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="PAYLOAD_FLUSH" shortDescription="Flush payload data buffer to telemetry stream">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="PAYLOAD_FLUSH_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="94" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="INJECT_FAULT" shortDescription="Inject a simulated fault into the vehicle">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="FaultType" argumentTypeRef="FaultTypeType" />
+          <xtce:Argument name="FaultTarget" argumentTypeRef="FaultTargetType" />
+          <xtce:Argument name="FaultSeverity" argumentTypeRef="FaultSeverityType" />
+          <xtce:Argument name="FaultParam" argumentTypeRef="FaultParamType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="INJECT_FAULT_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="A0" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="FaultType" />
+            <xtce:ArgumentRefEntry argumentRef="FaultTarget" />
+            <xtce:ArgumentRefEntry argumentRef="FaultSeverity" />
+            <xtce:ArgumentRefEntry argumentRef="FaultParam" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="CLEAR_FAULT" shortDescription="Clear an active fault">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="FaultId" argumentTypeRef="FaultIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="CLEAR_FAULT_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="A1" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="FaultId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="GET_FAULT_STATUS" shortDescription="Request fault status telemetry">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="GET_FAULT_STATUS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="A2" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="ARM_THRUSTER" shortDescription="Arm a thruster for firing">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="ThrusterId" argumentTypeRef="ThrusterIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ARM_THRUSTER_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="B0" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="ThrusterId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="DISARM_THRUSTER" shortDescription="Disarm a thruster">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="ThrusterId" argumentTypeRef="ThrusterIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="DISARM_THRUSTER_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="B1" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="ThrusterId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="FIRE_THRUSTER" shortDescription="Execute a thruster burn">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="ThrusterId" argumentTypeRef="ThrusterIdType" />
+          <xtce:Argument name="DurationMs" argumentTypeRef="BurnDurationMsType" />
+          <xtce:Argument name="ThrustPercent" argumentTypeRef="ThrustPercentType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="FIRE_THRUSTER_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="B2" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="ThrusterId" />
+            <xtce:ArgumentRefEntry argumentRef="DurationMs" />
+            <xtce:ArgumentRefEntry argumentRef="ThrustPercent" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="ABORT_MANEUVER" shortDescription="Emergency abort all thruster operations">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="ABORT_MANEUVER_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="B3" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_PROPULSION_MODE" shortDescription="Set propulsion system operating mode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Mode" argumentTypeRef="PropulsionModeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_PROPULSION_MODE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="B4" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Mode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="SET_TX_POWER" shortDescription="Set transmitter power level">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="TxPowerDbm" argumentTypeRef="TxPowerDbmType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_TX_POWER_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="D0" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="TxPowerDbm" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="ENABLE_TRANSPONDER" shortDescription="Set transponder operating state">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="State" argumentTypeRef="TransponderStateType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ENABLE_TRANSPONDER_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="D1" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="State" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_FREQUENCY" shortDescription="Set TX and RX frequencies">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="TxFreqMhz" argumentTypeRef="FrequencyMhzType" />
+          <xtce:Argument name="RxFreqMhz" argumentTypeRef="FrequencyMhzType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_FREQUENCY_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="D2" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="TxFreqMhz" />
+            <xtce:ArgumentRefEntry argumentRef="RxFreqMhz" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="GET_COMM_STATUS" shortDescription="Request communication status telemetry">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="GET_COMM_STATUS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="D3" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_DATA_RATE" shortDescription="Set telemetry data rate">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="DataRateKbps" argumentTypeRef="DataRateKbpsType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_DATA_RATE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="D4" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="DataRateKbps" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_MODULATION" shortDescription="Set RF modulation scheme">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="ModType" argumentTypeRef="ModulationType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_MODULATION_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="D5" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="ModType" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      <xtce:MetaCommand name="SET_ORBIT_EPOCH" shortDescription="Reset orbit epoch time to start fresh propagation">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Epoch" argumentTypeRef="TimestampType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_ORBIT_EPOCH_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="C0" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Epoch" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_ORBIT_ELEMENTS" shortDescription="Set orbital regime, altitude, and inclination">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Regime" argumentTypeRef="OrbitRegimeType" />
+          <xtce:Argument name="Altitude" argumentTypeRef="AltitudeKmType" />
+          <xtce:Argument name="Inclination" argumentTypeRef="InclinationType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_ORBIT_ELEMENTS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="C1" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Regime" />
+            <xtce:ArgumentRefEntry argumentRef="Altitude" />
+            <xtce:ArgumentRefEntry argumentRef="Inclination" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="GET_ORBIT_STATUS" shortDescription="Request orbit status telemetry packet">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="GET_ORBIT_STATUS_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="C2" sizeInBits="8" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+      <xtce:MetaCommand name="SET_GROUND_STATION" shortDescription="Set ground station coordinates for contact prediction">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Latitude" argumentTypeRef="LatitudeType" />
+          <xtce:Argument name="Longitude" argumentTypeRef="LongitudeType" />
+          <xtce:Argument name="MinElevation" argumentTypeRef="ElevationAngleType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_GROUND_STATION_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="C3" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Latitude" />
+            <xtce:ArgumentRefEntry argumentRef="Longitude" />
+            <xtce:ArgumentRefEntry argumentRef="MinElevation" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      
+
+      
+      
+      <xtce:MetaCommand name="RAW_CMD" shortDescription="Send raw command opcode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="RawOpcode" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="RAW_CMD_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="RawOpcode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+    </xtce:MetaCommandSet>
+
+  </xtce:CommandMetaData>
+
+</xtce:SpaceSystem>

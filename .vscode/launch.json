@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Server: run example (--live)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "xtce_sim.cli",
+      "args": ["run", "examples/my_vehicle.xml", "--id", "sat-a", "--port", "5000", "--live"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Monitor: sat-a",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "xtce_sim.cli",
+      "args": ["monitor", "--id", "sat-a", "--port", "5000"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Send: SET_POWER",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "xtce_sim.cli",
+      "args": [
+        "send", "--id", "sat-a", "--port", "5000",
+        "SET_POWER", "SubsystemId=2", "PowerState=ON"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Pytest: current file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

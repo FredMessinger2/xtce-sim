@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "uv run pytest -q",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "test (coverage)",
+      "type": "shell",
+      "command": "uv run pytest --cov=xtce_sim --cov-report=term-missing",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "lint",
+      "type": "shell",
+      "command": "uv run ruff check xtce_sim tests",
+      "problemMatcher": []
+    },
+    {
+      "label": "run server (example)",
+      "type": "shell",
+      "command": "uv run xtce-sim run examples/my_vehicle.xml --id sat-a --port 5000 --live",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

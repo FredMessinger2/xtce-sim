@@ -1,0 +1,1252 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20250214" name="MyVehicle">
+
+  <xtce:Header version="1.0" date="2025-01-10" validationStatus="Working">
+    <xtce:AuthorSet>
+      <xtce:Author>XTCE Framework Generator</xtce:Author>
+    </xtce:AuthorSet>
+  </xtce:Header>
+
+  <xtce:TelemetryMetaData>
+
+    
+    <xtce:ParameterTypeSet>
+
+      
+
+      
+      <xtce:IntegerParameterType name="VersionType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="3" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="PacketTypeType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="SecHdrFlagType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="APIDType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="11" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="SeqFlagsType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="2" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="SeqCountType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="14" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="PacketLengthType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+
+      
+      <xtce:IntegerParameterType name="ByteType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="UInt16Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="UInt32Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="TimestampType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>s</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="MemoryAddressType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+
+      
+      <xtce:FloatParameterType name="BatteryVoltageType">
+        <xtce:UnitSet>
+          <xtce:Unit>V</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.125" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="0" maxInclusive="32" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="SolarCurrentType">
+        <xtce:UnitSet>
+          <xtce:Unit>A</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.000152588" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="0" maxInclusive="10" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="BusCurrentType">
+        <xtce:UnitSet>
+          <xtce:Unit>A</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.000762939" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="0" maxInclusive="50" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="TemperatureType">
+        <xtce:UnitSet>
+          <xtce:Unit>degC</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="-40" maxInclusive="125" />
+      </xtce:FloatParameterType>
+
+      
+      
+      
+      <xtce:FloatParameterType name="ThermistorTempType">
+        <xtce:UnitSet>
+          <xtce:Unit>degC</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:SplineCalibrator>
+              <xtce:SplinePoint raw="0" calibrated="-40.0" />
+              <xtce:SplinePoint raw="1024" calibrated="0.0" />
+              <xtce:SplinePoint raw="2048" calibrated="25.0" />
+              <xtce:SplinePoint raw="3072" calibrated="50.0" />
+              <xtce:SplinePoint raw="4095" calibrated="125.0" />
+            </xtce:SplineCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="-40" maxInclusive="125" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="Float32Type">
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+
+      
+      <xtce:EnumeratedParameterType name="SystemStatusType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="BOOT" value="0" />
+          <xtce:Enumeration label="INIT" value="1" />
+          <xtce:Enumeration label="NOMINAL" value="2" />
+          <xtce:Enumeration label="SAFE_MODE" value="3" />
+          <xtce:Enumeration label="ERROR" value="4" />
+          <xtce:Enumeration label="SHUTDOWN" value="5" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="PowerStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="ON" value="1" />
+          <xtce:Enumeration label="STANDBY" value="2" />
+          <xtce:Enumeration label="LOW_POWER" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="CollectionModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="IDLE" value="0" />
+          <xtce:Enumeration label="NORMAL" value="1" />
+          <xtce:Enumeration label="BURST" value="2" />
+          <xtce:Enumeration label="DIAGNOSTIC" value="3" />
+          <xtce:Enumeration label="CALIBRATION" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="EventSeverityType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="DEBUG" value="0" />
+          <xtce:Enumeration label="INFO" value="1" />
+          <xtce:Enumeration label="WARNING" value="2" />
+          <xtce:Enumeration label="ERROR" value="3" />
+          <xtce:Enumeration label="CRITICAL" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="TestResultType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="NOT_RUN" value="0" />
+          <xtce:Enumeration label="PASS" value="1" />
+          <xtce:Enumeration label="FAIL" value="2" />
+          <xtce:Enumeration label="RUNNING" value="3" />
+          <xtce:Enumeration label="ABORTED" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="BooleanType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="FALSE" value="0" />
+          <xtce:Enumeration label="TRUE" value="1" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="AttitudeModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="DETUMBLE" value="0" />
+          <xtce:Enumeration label="SUN_POINTING" value="1" />
+          <xtce:Enumeration label="NADIR" value="2" />
+          <xtce:Enumeration label="INERTIAL" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:FloatParameterType name="AngularRateType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg/s</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="-327.68" maxInclusive="327.67" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="WheelSpeedType">
+        <xtce:UnitSet>
+          <xtce:Unit>RPM</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement" />
+        <xtce:ValidRange minInclusive="-6000" maxInclusive="6000" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="PointingErrorType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="0" maxInclusive="180" />
+      </xtce:FloatParameterType>
+
+      
+
+      
+      <xtce:EnumeratedParameterType name="PayloadStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="STANDBY" value="1" />
+          <xtce:Enumeration label="ACTIVE" value="2" />
+          <xtce:Enumeration label="CALIBRATING" value="3" />
+          <xtce:Enumeration label="ERROR" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:FloatParameterType name="DetectorTempType">
+        <xtce:UnitSet>
+          <xtce:Unit>degC</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.1" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:ValidRange minInclusive="-50" maxInclusive="50" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:IntegerParameterType name="PercentType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>%</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="100" />
+      </xtce:IntegerParameterType>
+
+      
+
+      
+      <xtce:StringParameterType name="String64Type">
+        <xtce:StringDataEncoding encoding="UTF-8">
+          <xtce:SizeInBits>
+            <xtce:Fixed>
+              <xtce:FixedValue>512</xtce:FixedValue>
+            </xtce:Fixed>
+          </xtce:SizeInBits>
+        </xtce:StringDataEncoding>
+      </xtce:StringParameterType>
+
+      
+
+      
+      <xtce:BinaryParameterType name="DataBlockType">
+        <xtce:BinaryDataEncoding>
+          <xtce:SizeInBits>
+            <xtce:FixedValue>2048</xtce:FixedValue>
+            </xtce:SizeInBits>
+        </xtce:BinaryDataEncoding>
+      </xtce:BinaryParameterType>
+
+      
+      <xtce:BinaryParameterType name="PDUDataBlockType">
+        <xtce:BinaryDataEncoding>
+          <xtce:SizeInBits>
+            <xtce:FixedValue>2080</xtce:FixedValue>
+            </xtce:SizeInBits>
+        </xtce:BinaryDataEncoding>
+      </xtce:BinaryParameterType>
+
+      
+
+      
+      <xtce:EnumeratedParameterType name="PDUTypeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="METADATA" value="0" />
+          <xtce:Enumeration label="FILE_DATA" value="1" />
+          <xtce:Enumeration label="EOF" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+
+      
+      <xtce:EnumeratedParameterType name="FaultModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="DISABLED" value="0" />
+          <xtce:Enumeration label="ENABLED" value="1" />
+          <xtce:Enumeration label="SUSPENDED" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="FaultTypeStatusType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="NONE" value="0" />
+          <xtce:Enumeration label="SENSOR_STUCK" value="1" />
+          <xtce:Enumeration label="SENSOR_NOISY" value="2" />
+          <xtce:Enumeration label="SENSOR_OFFSET" value="3" />
+          <xtce:Enumeration label="SENSOR_DRIFT" value="4" />
+          <xtce:Enumeration label="COMM_DROPOUT" value="5" />
+          <xtce:Enumeration label="POWER_BUS_FAULT" value="6" />
+          <xtce:Enumeration label="THERMAL_RUNAWAY" value="7" />
+          <xtce:Enumeration label="WHEEL_FAILURE" value="8" />
+          <xtce:Enumeration label="BATTERY_DEGRADED" value="9" />
+          <xtce:Enumeration label="SOLAR_PANEL_FAIL" value="10" />
+          <xtce:Enumeration label="MEMORY_CORRUPTION" value="11" />
+          <xtce:Enumeration label="WATCHDOG_TIMEOUT" value="12" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="FaultSeverityStatusType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="NONE" value="0" />
+          <xtce:Enumeration label="MINOR" value="1" />
+          <xtce:Enumeration label="MAJOR" value="2" />
+          <xtce:Enumeration label="CRITICAL" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+
+      
+      <xtce:EnumeratedParameterType name="PropulsionModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SAFE" value="0" />
+          <xtce:Enumeration label="STANDBY" value="1" />
+          <xtce:Enumeration label="READY" value="2" />
+          <xtce:Enumeration label="FIRING" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="ThrusterArmedType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="DISARMED" value="0" />
+          <xtce:Enumeration label="ARMED" value="1" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:IntegerParameterType name="FuelPercentType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>%</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="100" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:FloatParameterType name="FuelMassType">
+        <xtce:UnitSet>
+          <xtce:Unit>g</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="DeltaVType">
+        <xtce:UnitSet>
+          <xtce:Unit>m/s</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="TankPressureType">
+        <xtce:UnitSet>
+          <xtce:Unit>psi</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:IntegerParameterType name="BurnDurationMsType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>ms</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="ThrusterIdType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="4" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="ManeuverCountType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="AbortCountType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+
+      
+      <xtce:EnumeratedParameterType name="TransponderStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="STANDBY" value="1" />
+          <xtce:Enumeration label="ACTIVE" value="2" />
+          <xtce:Enumeration label="TX_ONLY" value="3" />
+          <xtce:Enumeration label="RX_ONLY" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="ModulationParamType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="BPSK" value="0" />
+          <xtce:Enumeration label="QPSK" value="1" />
+          <xtce:Enumeration label="OQPSK" value="2" />
+          <xtce:Enumeration label="8PSK" value="3" />
+          <xtce:Enumeration label="FSK" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:EnumeratedParameterType name="LinkStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="NO_LINK" value="0" />
+          <xtce:Enumeration label="ACQUIRING" value="1" />
+          <xtce:Enumeration label="LOCKED" value="2" />
+          <xtce:Enumeration label="DEGRADED" value="3" />
+          <xtce:Enumeration label="LOST" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:FloatParameterType name="PowerDbmType">
+        <xtce:UnitSet>
+          <xtce:Unit>dBm</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="FrequencyMhzType">
+        <xtce:UnitSet>
+          <xtce:Unit>MHz</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="DataRateKbpsType">
+        <xtce:UnitSet>
+          <xtce:Unit>kbps</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="SnrDbType">
+        <xtce:UnitSet>
+          <xtce:Unit>dB</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="RatioType">
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:IntegerParameterType name="PacketCounterType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="ByteCounterType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+
+      
+      <xtce:EnumeratedParameterType name="OrbitRegimeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="LEO" value="0" />
+          <xtce:Enumeration label="MEO" value="1" />
+          <xtce:Enumeration label="GEO" value="2" />
+          <xtce:Enumeration label="HEO" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      
+      <xtce:FloatParameterType name="AltitudeKmType">
+        <xtce:UnitSet>
+          <xtce:Unit>km</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="OrbitalPeriodMinType">
+        <xtce:UnitSet>
+          <xtce:Unit>min</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="VelocityKmsType">
+        <xtce:UnitSet>
+          <xtce:Unit>km/s</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="AngleDegreesType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="OrbitalPhaseType">
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRange minInclusive="0" maxInclusive="1" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="LatitudeType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRange minInclusive="-90" maxInclusive="90" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:FloatParameterType name="LongitudeType">
+        <xtce:UnitSet>
+          <xtce:Unit>deg</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" encoding="IEEE754_1985" />
+        <xtce:ValidRange minInclusive="-180" maxInclusive="180" />
+      </xtce:FloatParameterType>
+
+      
+      <xtce:IntegerParameterType name="DurationSecondsType" signed="false">
+        <xtce:UnitSet>
+          <xtce:Unit>s</xtce:Unit>
+        </xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      
+      <xtce:IntegerParameterType name="EventCountType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+    </xtce:ParameterTypeSet>
+
+    
+    <xtce:ParameterSet>
+
+      
+      <xtce:Parameter name="CCSDS_VERSION" parameterTypeRef="VersionType" />
+      <xtce:Parameter name="CCSDS_TYPE" parameterTypeRef="PacketTypeType" />
+      <xtce:Parameter name="CCSDS_SEC_HDR" parameterTypeRef="SecHdrFlagType" />
+      <xtce:Parameter name="CCSDS_APID" parameterTypeRef="APIDType" />
+      <xtce:Parameter name="CCSDS_SEQ_FLAGS" parameterTypeRef="SeqFlagsType" />
+      <xtce:Parameter name="CCSDS_SEQ_COUNT" parameterTypeRef="SeqCountType" />
+      <xtce:Parameter name="CCSDS_LENGTH" parameterTypeRef="PacketLengthType" />
+
+      
+      <xtce:Parameter name="HK_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="HK_SYSTEM_STATUS" parameterTypeRef="SystemStatusType" />
+      <xtce:Parameter name="HK_COLLECTION_MODE" parameterTypeRef="CollectionModeType" />
+      <xtce:Parameter name="HK_CMD_RECV_COUNT" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="HK_CMD_REJECT_COUNT" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="HK_BATTERY_VOLTAGE" parameterTypeRef="BatteryVoltageType" />
+      <xtce:Parameter name="HK_SOLAR_CURRENT" parameterTypeRef="SolarCurrentType" />
+      <xtce:Parameter name="HK_BUS_CURRENT" parameterTypeRef="BusCurrentType" />
+      <xtce:Parameter name="HK_TEMP_BOARD" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="HK_TEMP_SENSOR1" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="HK_TEMP_SENSOR2" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="HK_TEMP_THERMISTOR" parameterTypeRef="ThermistorTempType" />
+      <xtce:Parameter name="HK_UPTIME" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="HK_ERROR_COUNT" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="HK_LAST_CMD_OPCODE" parameterTypeRef="ByteType" />
+
+      
+      <xtce:Parameter name="HK_ATTITUDE_MODE" parameterTypeRef="AttitudeModeType" />
+      <xtce:Parameter name="HK_ANGULAR_RATE_X" parameterTypeRef="AngularRateType" />
+      <xtce:Parameter name="HK_ANGULAR_RATE_Y" parameterTypeRef="AngularRateType" />
+      <xtce:Parameter name="HK_ANGULAR_RATE_Z" parameterTypeRef="AngularRateType" />
+      <xtce:Parameter name="HK_WHEEL_SPEED_1" parameterTypeRef="WheelSpeedType" />
+      <xtce:Parameter name="HK_WHEEL_SPEED_2" parameterTypeRef="WheelSpeedType" />
+      <xtce:Parameter name="HK_WHEEL_SPEED_3" parameterTypeRef="WheelSpeedType" />
+      <xtce:Parameter name="HK_POINTING_ERROR" parameterTypeRef="PointingErrorType" />
+
+      
+      <xtce:Parameter name="EVT_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="EVT_SEVERITY" parameterTypeRef="EventSeverityType" />
+      <xtce:Parameter name="EVT_EVENT_ID" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="EVT_MESSAGE" parameterTypeRef="String64Type" />
+
+      
+      <xtce:Parameter name="SCI_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="SCI_SEQUENCE_NUM" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="SCI_CHANNEL_1" parameterTypeRef="Float32Type" />
+      <xtce:Parameter name="SCI_CHANNEL_2" parameterTypeRef="Float32Type" />
+      <xtce:Parameter name="SCI_CHANNEL_3" parameterTypeRef="Float32Type" />
+      <xtce:Parameter name="SCI_CHANNEL_4" parameterTypeRef="Float32Type" />
+      <xtce:Parameter name="SCI_QUALITY_FLAG" parameterTypeRef="ByteType" />
+
+      
+      <xtce:Parameter name="MEM_ADDRESS" parameterTypeRef="MemoryAddressType" />
+      <xtce:Parameter name="MEM_LENGTH" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="MEM_DATA" parameterTypeRef="DataBlockType" />
+
+      
+      <xtce:Parameter name="DIAG_TEST_TYPE" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="DIAG_RESULT" parameterTypeRef="TestResultType" />
+      <xtce:Parameter name="DIAG_DURATION_MS" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="DIAG_ERROR_CODE" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="DIAG_DETAILS" parameterTypeRef="String64Type" />
+
+      
+      <xtce:Parameter name="PWR_SUBSYS_ID" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="PWR_STATE" parameterTypeRef="PowerStateType" />
+      <xtce:Parameter name="PWR_VOLTAGE" parameterTypeRef="BatteryVoltageType" />
+      <xtce:Parameter name="PWR_CURRENT" parameterTypeRef="BusCurrentType" />
+      <xtce:Parameter name="PWR_TEMPERATURE" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="PWR_ENABLED" parameterTypeRef="BooleanType" />
+
+      
+      <xtce:Parameter name="FILE_COUNT" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="FILE_NAME" parameterTypeRef="String64Type" />
+      <xtce:Parameter name="FILE_SIZE" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="FILE_TIMESTAMP" parameterTypeRef="TimestampType" />
+
+      
+      <xtce:Parameter name="ERR_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="ERR_CODE" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="ERR_SUBSYSTEM" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="ERR_MESSAGE" parameterTypeRef="String64Type" />
+
+      
+      <xtce:Parameter name="PL_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="PL_STATE" parameterTypeRef="PayloadStateType" />
+      <xtce:Parameter name="PL_ENABLED" parameterTypeRef="BooleanType" />
+      <xtce:Parameter name="PL_INTEGRATION_TIME" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="PL_GAIN" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="PL_DETECTOR_TEMP" parameterTypeRef="DetectorTempType" />
+      <xtce:Parameter name="PL_BUFFER_LEVEL" parameterTypeRef="PercentType" />
+      <xtce:Parameter name="PL_CAPTURE_COUNT" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="PL_ERROR_CODE" parameterTypeRef="UInt16Type" />
+
+      
+      <xtce:Parameter name="PL_SCI_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="PL_SCI_SEQUENCE" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="PL_SCI_INT_TIME" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="PL_SCI_GAIN" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="PL_SCI_DET_TEMP" parameterTypeRef="DetectorTempType" />
+      <xtce:Parameter name="PL_SCI_QUALITY" parameterTypeRef="Float32Type" />
+      <xtce:Parameter name="PL_SCI_CHANNEL_A" parameterTypeRef="Float32Type" />
+      <xtce:Parameter name="PL_SCI_CHANNEL_B" parameterTypeRef="Float32Type" />
+      <xtce:Parameter name="PL_SCI_CHANNEL_C" parameterTypeRef="Float32Type" />
+      <xtce:Parameter name="PL_SCI_CHANNEL_D" parameterTypeRef="Float32Type" />
+
+      
+      <xtce:Parameter name="PDU_TYPE" parameterTypeRef="PDUTypeType" />
+      <xtce:Parameter name="TRANSACTION_ID" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="PDU_DATA" parameterTypeRef="PDUDataBlockType" />
+
+      
+      <xtce:Parameter name="FAULT_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="ACTIVE_FAULT_COUNT" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="TOTAL_FAULTS_INJECTED" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="TOTAL_FAULTS_CLEARED" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="FAULT_MODE" parameterTypeRef="FaultModeType" />
+
+      
+      <xtce:Parameter name="FAULT1_ID" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="FAULT1_TYPE" parameterTypeRef="FaultTypeStatusType" />
+      <xtce:Parameter name="FAULT1_TARGET" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="FAULT1_SEVERITY" parameterTypeRef="FaultSeverityStatusType" />
+      <xtce:Parameter name="FAULT1_ACTIVE_TIME" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="FAULT1_EFFECT" parameterTypeRef="Float32Type" />
+
+      
+      <xtce:Parameter name="FAULT2_ID" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="FAULT2_TYPE" parameterTypeRef="FaultTypeStatusType" />
+      <xtce:Parameter name="FAULT2_TARGET" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="FAULT2_SEVERITY" parameterTypeRef="FaultSeverityStatusType" />
+      <xtce:Parameter name="FAULT2_ACTIVE_TIME" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="FAULT2_EFFECT" parameterTypeRef="Float32Type" />
+
+      
+      <xtce:Parameter name="FAULT3_ID" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="FAULT3_TYPE" parameterTypeRef="FaultTypeStatusType" />
+      <xtce:Parameter name="FAULT3_TARGET" parameterTypeRef="ByteType" />
+      <xtce:Parameter name="FAULT3_SEVERITY" parameterTypeRef="FaultSeverityStatusType" />
+      <xtce:Parameter name="FAULT3_ACTIVE_TIME" parameterTypeRef="UInt32Type" />
+      <xtce:Parameter name="FAULT3_EFFECT" parameterTypeRef="Float32Type" />
+
+      
+      <xtce:Parameter name="HEALTH_IMPACT_FLAGS" parameterTypeRef="UInt16Type" />
+      <xtce:Parameter name="TELEMETRY_DEGRADED" parameterTypeRef="BooleanType" />
+      <xtce:Parameter name="SAFE_MODE_TRIGGERED" parameterTypeRef="BooleanType" />
+
+      
+      <xtce:Parameter name="PROP_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="PROP_MODE" parameterTypeRef="PropulsionModeType" />
+      <xtce:Parameter name="FUEL_REMAINING" parameterTypeRef="FuelPercentType" />
+      <xtce:Parameter name="FUEL_USED" parameterTypeRef="FuelMassType" />
+      <xtce:Parameter name="DELTA_V_TOTAL" parameterTypeRef="DeltaVType" />
+      <xtce:Parameter name="THRUSTER1_ARMED" parameterTypeRef="ThrusterArmedType" />
+      <xtce:Parameter name="THRUSTER2_ARMED" parameterTypeRef="ThrusterArmedType" />
+      <xtce:Parameter name="THRUSTER3_ARMED" parameterTypeRef="ThrusterArmedType" />
+      <xtce:Parameter name="THRUSTER4_ARMED" parameterTypeRef="ThrusterArmedType" />
+      <xtce:Parameter name="THRUSTER1_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="THRUSTER2_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="THRUSTER3_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="THRUSTER4_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="TANK_PRESSURE" parameterTypeRef="TankPressureType" />
+      <xtce:Parameter name="TANK_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="LAST_BURN_THRUSTER" parameterTypeRef="ThrusterIdType" />
+      <xtce:Parameter name="LAST_BURN_DURATION" parameterTypeRef="BurnDurationMsType" />
+      <xtce:Parameter name="LAST_BURN_DELTA_V" parameterTypeRef="DeltaVType" />
+      <xtce:Parameter name="MANEUVER_COUNT" parameterTypeRef="ManeuverCountType" />
+      <xtce:Parameter name="ABORT_COUNT" parameterTypeRef="AbortCountType" />
+
+      
+      <xtce:Parameter name="COMM_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="TRANSPONDER_STATE" parameterTypeRef="TransponderStateType" />
+      <xtce:Parameter name="TX_POWER_DBM" parameterTypeRef="PowerDbmType" />
+      <xtce:Parameter name="TX_FREQ_MHZ" parameterTypeRef="FrequencyMhzType" />
+      <xtce:Parameter name="RX_FREQ_MHZ" parameterTypeRef="FrequencyMhzType" />
+      <xtce:Parameter name="DATA_RATE_KBPS" parameterTypeRef="DataRateKbpsType" />
+      <xtce:Parameter name="MODULATION" parameterTypeRef="ModulationParamType" />
+      <xtce:Parameter name="LINK_STATE" parameterTypeRef="LinkStateType" />
+      <xtce:Parameter name="SIGNAL_STRENGTH_DBM" parameterTypeRef="PowerDbmType" />
+      <xtce:Parameter name="SNR_DB" parameterTypeRef="SnrDbType" />
+      <xtce:Parameter name="BER" parameterTypeRef="RatioType" />
+      <xtce:Parameter name="PER" parameterTypeRef="RatioType" />
+      <xtce:Parameter name="PATH_LOSS_DB" parameterTypeRef="SnrDbType" />
+      <xtce:Parameter name="ANTENNA_GAIN_DB" parameterTypeRef="SnrDbType" />
+      <xtce:Parameter name="GS_ANTENNA_GAIN_DB" parameterTypeRef="SnrDbType" />
+      <xtce:Parameter name="LINK_MARGIN_DB" parameterTypeRef="SnrDbType" />
+      <xtce:Parameter name="PACKETS_SENT" parameterTypeRef="PacketCounterType" />
+      <xtce:Parameter name="PACKETS_RECEIVED" parameterTypeRef="PacketCounterType" />
+      <xtce:Parameter name="PACKETS_LOST" parameterTypeRef="PacketCounterType" />
+      <xtce:Parameter name="BYTES_TX" parameterTypeRef="ByteCounterType" />
+      <xtce:Parameter name="BYTES_RX" parameterTypeRef="ByteCounterType" />
+      <xtce:Parameter name="LAST_CMD_RSSI" parameterTypeRef="PowerDbmType" />
+      <xtce:Parameter name="LAST_CMD_TIME" parameterTypeRef="TimestampType" />
+
+      
+      <xtce:Parameter name="ORB_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="ORB_REGIME" parameterTypeRef="OrbitRegimeType" />
+      
+      <xtce:Parameter name="ORB_ALTITUDE" parameterTypeRef="AltitudeKmType" />
+      <xtce:Parameter name="ORB_PERIOD" parameterTypeRef="OrbitalPeriodMinType" />
+      <xtce:Parameter name="ORB_VELOCITY" parameterTypeRef="VelocityKmsType" />
+      
+      <xtce:Parameter name="ORB_INCLINATION" parameterTypeRef="AngleDegreesType" />
+      <xtce:Parameter name="ORB_MEAN_ANOMALY" parameterTypeRef="AngleDegreesType" />
+      <xtce:Parameter name="ORB_TRUE_ANOMALY" parameterTypeRef="AngleDegreesType" />
+      <xtce:Parameter name="ORB_PHASE" parameterTypeRef="OrbitalPhaseType" />
+      
+      <xtce:Parameter name="ORB_LATITUDE" parameterTypeRef="LatitudeType" />
+      <xtce:Parameter name="ORB_LONGITUDE" parameterTypeRef="LongitudeType" />
+      <xtce:Parameter name="ORB_ALTITUDE_CURRENT" parameterTypeRef="AltitudeKmType" />
+      
+      <xtce:Parameter name="ORB_IN_ECLIPSE" parameterTypeRef="BooleanType" />
+      <xtce:Parameter name="ORB_ECLIPSE_ENTRY" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="ORB_ECLIPSE_EXIT" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="ORB_ECLIPSE_DURATION" parameterTypeRef="DurationSecondsType" />
+      <xtce:Parameter name="ORB_ECLIPSE_COUNT" parameterTypeRef="EventCountType" />
+      
+      <xtce:Parameter name="ORB_IN_CONTACT" parameterTypeRef="BooleanType" />
+      <xtce:Parameter name="ORB_CONTACT_ENTRY" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="ORB_CONTACT_EXIT" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="ORB_CONTACT_DURATION" parameterTypeRef="DurationSecondsType" />
+      <xtce:Parameter name="ORB_CONTACT_COUNT" parameterTypeRef="EventCountType" />
+      <xtce:Parameter name="ORB_NEXT_CONTACT" parameterTypeRef="TimestampType" />
+
+    </xtce:ParameterSet>
+
+    
+    <xtce:ContainerSet>
+
+      
+      <xtce:SequenceContainer name="CCSDSPacket">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="CCSDS_VERSION" />
+          <xtce:ParameterRefEntry parameterRef="CCSDS_TYPE" />
+          <xtce:ParameterRefEntry parameterRef="CCSDS_SEC_HDR" />
+          <xtce:ParameterRefEntry parameterRef="CCSDS_APID" />
+          <xtce:ParameterRefEntry parameterRef="CCSDS_SEQ_FLAGS" />
+          <xtce:ParameterRefEntry parameterRef="CCSDS_SEQ_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="CCSDS_LENGTH" />
+        </xtce:EntryList>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="HOUSEKEEPING">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="HK_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="HK_SYSTEM_STATUS" />
+          <xtce:ParameterRefEntry parameterRef="HK_COLLECTION_MODE" />
+          <xtce:ParameterRefEntry parameterRef="HK_CMD_RECV_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="HK_CMD_REJECT_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="HK_BATTERY_VOLTAGE" />
+          <xtce:ParameterRefEntry parameterRef="HK_SOLAR_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="HK_BUS_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="HK_TEMP_BOARD" />
+          <xtce:ParameterRefEntry parameterRef="HK_TEMP_SENSOR1" />
+          <xtce:ParameterRefEntry parameterRef="HK_TEMP_SENSOR2" />
+          <xtce:ParameterRefEntry parameterRef="HK_TEMP_THERMISTOR" />
+          <xtce:ParameterRefEntry parameterRef="HK_UPTIME" />
+          <xtce:ParameterRefEntry parameterRef="HK_ERROR_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="HK_LAST_CMD_OPCODE" />
+          
+          <xtce:ParameterRefEntry parameterRef="HK_ATTITUDE_MODE" />
+          <xtce:ParameterRefEntry parameterRef="HK_ANGULAR_RATE_X" />
+          <xtce:ParameterRefEntry parameterRef="HK_ANGULAR_RATE_Y" />
+          <xtce:ParameterRefEntry parameterRef="HK_ANGULAR_RATE_Z" />
+          <xtce:ParameterRefEntry parameterRef="HK_WHEEL_SPEED_1" />
+          <xtce:ParameterRefEntry parameterRef="HK_WHEEL_SPEED_2" />
+          <xtce:ParameterRefEntry parameterRef="HK_WHEEL_SPEED_3" />
+          <xtce:ParameterRefEntry parameterRef="HK_POINTING_ERROR" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="1" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="EVENTS">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="EVT_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="EVT_SEVERITY" />
+          <xtce:ParameterRefEntry parameterRef="EVT_EVENT_ID" />
+          <xtce:ParameterRefEntry parameterRef="EVT_MESSAGE" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="2" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="SCIENCE">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="SCI_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="SCI_SEQUENCE_NUM" />
+          <xtce:ParameterRefEntry parameterRef="SCI_CHANNEL_1" />
+          <xtce:ParameterRefEntry parameterRef="SCI_CHANNEL_2" />
+          <xtce:ParameterRefEntry parameterRef="SCI_CHANNEL_3" />
+          <xtce:ParameterRefEntry parameterRef="SCI_CHANNEL_4" />
+          <xtce:ParameterRefEntry parameterRef="SCI_QUALITY_FLAG" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="3" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="MEMORY_DUMP">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="MEM_ADDRESS" />
+          <xtce:ParameterRefEntry parameterRef="MEM_LENGTH" />
+          <xtce:ParameterRefEntry parameterRef="MEM_DATA" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="4" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="DIAGNOSTIC">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="DIAG_TEST_TYPE" />
+          <xtce:ParameterRefEntry parameterRef="DIAG_RESULT" />
+          <xtce:ParameterRefEntry parameterRef="DIAG_DURATION_MS" />
+          <xtce:ParameterRefEntry parameterRef="DIAG_ERROR_CODE" />
+          <xtce:ParameterRefEntry parameterRef="DIAG_DETAILS" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="5" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="POWER_STATUS">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="PWR_SUBSYS_ID" />
+          <xtce:ParameterRefEntry parameterRef="PWR_STATE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_VOLTAGE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="PWR_TEMPERATURE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_ENABLED" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="6" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="FILE_INFO">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="FILE_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="FILE_NAME" />
+          <xtce:ParameterRefEntry parameterRef="FILE_SIZE" />
+          <xtce:ParameterRefEntry parameterRef="FILE_TIMESTAMP" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="7" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="ERROR_LOG">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ERR_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ERR_CODE" />
+          <xtce:ParameterRefEntry parameterRef="ERR_SUBSYSTEM" />
+          <xtce:ParameterRefEntry parameterRef="ERR_MESSAGE" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="8" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="PAYLOAD_DATA">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="PL_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="PL_STATE" />
+          <xtce:ParameterRefEntry parameterRef="PL_ENABLED" />
+          <xtce:ParameterRefEntry parameterRef="PL_INTEGRATION_TIME" />
+          <xtce:ParameterRefEntry parameterRef="PL_GAIN" />
+          <xtce:ParameterRefEntry parameterRef="PL_DETECTOR_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="PL_BUFFER_LEVEL" />
+          <xtce:ParameterRefEntry parameterRef="PL_CAPTURE_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="PL_ERROR_CODE" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="9" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="FILE_DATA">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="PDU_TYPE" />
+          <xtce:ParameterRefEntry parameterRef="TRANSACTION_ID" />
+          <xtce:ParameterRefEntry parameterRef="PDU_DATA" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="10" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="FAULT_STATUS">
+        <xtce:EntryList>
+          
+          <xtce:ParameterRefEntry parameterRef="FAULT_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ACTIVE_FAULT_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="TOTAL_FAULTS_INJECTED" />
+          <xtce:ParameterRefEntry parameterRef="TOTAL_FAULTS_CLEARED" />
+          <xtce:ParameterRefEntry parameterRef="FAULT_MODE" />
+          
+          <xtce:ParameterRefEntry parameterRef="FAULT1_ID" />
+          <xtce:ParameterRefEntry parameterRef="FAULT1_TYPE" />
+          <xtce:ParameterRefEntry parameterRef="FAULT1_TARGET" />
+          <xtce:ParameterRefEntry parameterRef="FAULT1_SEVERITY" />
+          <xtce:ParameterRefEntry parameterRef="FAULT1_ACTIVE_TIME" />
+          <xtce:ParameterRefEntry parameterRef="FAULT1_EFFECT" />
+          
+          <xtce:ParameterRefEntry parameterRef="FAULT2_ID" />
+          <xtce:ParameterRefEntry parameterRef="FAULT2_TYPE" />
+          <xtce:ParameterRefEntry parameterRef="FAULT2_TARGET" />
+          <xtce:ParameterRefEntry parameterRef="FAULT2_SEVERITY" />
+          <xtce:ParameterRefEntry parameterRef="FAULT2_ACTIVE_TIME" />
+          <xtce:ParameterRefEntry parameterRef="FAULT2_EFFECT" />
+          
+          <xtce:ParameterRefEntry parameterRef="FAULT3_ID" />
+          <xtce:ParameterRefEntry parameterRef="FAULT3_TYPE" />
+          <xtce:ParameterRefEntry parameterRef="FAULT3_TARGET" />
+          <xtce:ParameterRefEntry parameterRef="FAULT3_SEVERITY" />
+          <xtce:ParameterRefEntry parameterRef="FAULT3_ACTIVE_TIME" />
+          <xtce:ParameterRefEntry parameterRef="FAULT3_EFFECT" />
+          
+          <xtce:ParameterRefEntry parameterRef="HEALTH_IMPACT_FLAGS" />
+          <xtce:ParameterRefEntry parameterRef="TELEMETRY_DEGRADED" />
+          <xtce:ParameterRefEntry parameterRef="SAFE_MODE_TRIGGERED" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="11" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="PROPULSION_STATUS">
+        <xtce:EntryList>
+          
+          <xtce:ParameterRefEntry parameterRef="PROP_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="PROP_MODE" />
+          <xtce:ParameterRefEntry parameterRef="FUEL_REMAINING" />
+          <xtce:ParameterRefEntry parameterRef="FUEL_USED" />
+          <xtce:ParameterRefEntry parameterRef="DELTA_V_TOTAL" />
+          
+          <xtce:ParameterRefEntry parameterRef="THRUSTER1_ARMED" />
+          <xtce:ParameterRefEntry parameterRef="THRUSTER2_ARMED" />
+          <xtce:ParameterRefEntry parameterRef="THRUSTER3_ARMED" />
+          <xtce:ParameterRefEntry parameterRef="THRUSTER4_ARMED" />
+          
+          <xtce:ParameterRefEntry parameterRef="THRUSTER1_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="THRUSTER2_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="THRUSTER3_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="THRUSTER4_TEMP" />
+          
+          <xtce:ParameterRefEntry parameterRef="TANK_PRESSURE" />
+          <xtce:ParameterRefEntry parameterRef="TANK_TEMP" />
+          
+          <xtce:ParameterRefEntry parameterRef="LAST_BURN_THRUSTER" />
+          <xtce:ParameterRefEntry parameterRef="LAST_BURN_DURATION" />
+          <xtce:ParameterRefEntry parameterRef="LAST_BURN_DELTA_V" />
+          
+          <xtce:ParameterRefEntry parameterRef="MANEUVER_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="ABORT_COUNT" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="12" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="ORBIT_STATUS">
+        <xtce:EntryList>
+          
+          <xtce:ParameterRefEntry parameterRef="ORB_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ORB_REGIME" />
+          
+          <xtce:ParameterRefEntry parameterRef="ORB_ALTITUDE" />
+          <xtce:ParameterRefEntry parameterRef="ORB_PERIOD" />
+          <xtce:ParameterRefEntry parameterRef="ORB_VELOCITY" />
+          
+          <xtce:ParameterRefEntry parameterRef="ORB_INCLINATION" />
+          <xtce:ParameterRefEntry parameterRef="ORB_MEAN_ANOMALY" />
+          <xtce:ParameterRefEntry parameterRef="ORB_TRUE_ANOMALY" />
+          <xtce:ParameterRefEntry parameterRef="ORB_PHASE" />
+          
+          <xtce:ParameterRefEntry parameterRef="ORB_LATITUDE" />
+          <xtce:ParameterRefEntry parameterRef="ORB_LONGITUDE" />
+          <xtce:ParameterRefEntry parameterRef="ORB_ALTITUDE_CURRENT" />
+          
+          <xtce:ParameterRefEntry parameterRef="ORB_IN_ECLIPSE" />
+          <xtce:ParameterRefEntry parameterRef="ORB_ECLIPSE_ENTRY" />
+          <xtce:ParameterRefEntry parameterRef="ORB_ECLIPSE_EXIT" />
+          <xtce:ParameterRefEntry parameterRef="ORB_ECLIPSE_DURATION" />
+          <xtce:ParameterRefEntry parameterRef="ORB_ECLIPSE_COUNT" />
+          
+          <xtce:ParameterRefEntry parameterRef="ORB_IN_CONTACT" />
+          <xtce:ParameterRefEntry parameterRef="ORB_CONTACT_ENTRY" />
+          <xtce:ParameterRefEntry parameterRef="ORB_CONTACT_EXIT" />
+          <xtce:ParameterRefEntry parameterRef="ORB_CONTACT_DURATION" />
+          <xtce:ParameterRefEntry parameterRef="ORB_CONTACT_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="ORB_NEXT_CONTACT" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="13" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      
+      <xtce:SequenceContainer name="COMM_STATUS">
+        <xtce:EntryList>
+          
+          <xtce:ParameterRefEntry parameterRef="COMM_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="TRANSPONDER_STATE" />
+          
+          <xtce:ParameterRefEntry parameterRef="TX_POWER_DBM" />
+          <xtce:ParameterRefEntry parameterRef="TX_FREQ_MHZ" />
+          <xtce:ParameterRefEntry parameterRef="RX_FREQ_MHZ" />
+          <xtce:ParameterRefEntry parameterRef="DATA_RATE_KBPS" />
+          <xtce:ParameterRefEntry parameterRef="MODULATION" />
+          <xtce:ParameterRefEntry parameterRef="LINK_STATE" />
+          
+          <xtce:ParameterRefEntry parameterRef="SIGNAL_STRENGTH_DBM" />
+          <xtce:ParameterRefEntry parameterRef="SNR_DB" />
+          <xtce:ParameterRefEntry parameterRef="BER" />
+          <xtce:ParameterRefEntry parameterRef="PER" />
+          
+          <xtce:ParameterRefEntry parameterRef="PATH_LOSS_DB" />
+          <xtce:ParameterRefEntry parameterRef="ANTENNA_GAIN_DB" />
+          <xtce:ParameterRefEntry parameterRef="GS_ANTENNA_GAIN_DB" />
+          <xtce:ParameterRefEntry parameterRef="LINK_MARGIN_DB" />
+          
+          <xtce:ParameterRefEntry parameterRef="PACKETS_SENT" />
+          <xtce:ParameterRefEntry parameterRef="PACKETS_RECEIVED" />
+          <xtce:ParameterRefEntry parameterRef="PACKETS_LOST" />
+          <xtce:ParameterRefEntry parameterRef="BYTES_TX" />
+          <xtce:ParameterRefEntry parameterRef="BYTES_RX" />
+          
+          <xtce:ParameterRefEntry parameterRef="LAST_CMD_RSSI" />
+          <xtce:ParameterRefEntry parameterRef="LAST_CMD_TIME" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="14" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+    </xtce:ContainerSet>
+
+  </xtce:TelemetryMetaData>
+
+</xtce:SpaceSystem>
