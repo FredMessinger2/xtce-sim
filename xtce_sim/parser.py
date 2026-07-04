@@ -495,41 +495,44 @@ class XTCEParser:
         name = self._get_attr(elem, "name")
         return BinaryArgumentType(name=name, size_in_bits=self._binary_size_in_bits(elem))
 
+    def _string_size_and_length(self, elem: ET.Element) -> tuple[int, Optional[int]]:
+        """Fixed size and byte length from a String type's StringDataEncoding.
+
+        Returns ``(size_in_bits, max_length)`` where max_length is
+        ``size_in_bits // 8``; ``(0, None)`` when no fixed size is declared.
+        """
+        str_enc = self._find(elem, "StringDataEncoding")
+        if str_enc is None:
+            return 0, None
+        size_bits = self._find(str_enc, "SizeInBits")
+        if size_bits is None:
+            return 0, None
+        bits = self._fixed_size_in_bits(size_bits)
+        if bits is None:
+            return 0, None
+        return bits, bits // 8
+
     def _parse_string_argument_type(self, elem: ET.Element) -> StringArgumentType:
         """Parse StringArgumentType element."""
         name = self._get_attr(elem, "name")
-
-        # Try to get max length from encoding
-        max_length = None
-        size_in_bits = 0
-        str_enc = self._find(elem, "StringDataEncoding")
-        if str_enc is not None:
-            size_bits = self._find(str_enc, "SizeInBits")
-            if size_bits is not None:
-                bits = self._fixed_size_in_bits(size_bits)
-                if bits is not None:
-                    size_in_bits = bits
-                    max_length = size_in_bits // 8
-
+        size_in_bits, max_length = self._string_size_and_length(elem)
         return StringArgumentType(name=name, size_in_bits=size_in_bits, max_length=max_length)
 
-    def _parse_boolean_argument_type(self, elem: ET.Element) -> BooleanArgumentType:
-        """
-        Parse BooleanArgumentType element.
+    def _parse_boolean_fields(
+        self, elem: ET.Element
+    ) -> tuple[str, str, str, Optional[bool], int]:
+        """Shared parsing for Boolean argument/parameter types.
 
-        XTCE Boolean types can specify:
-        - zeroStringValue: String to display for false (default "False")
-        - oneStringValue: String to display for true (default "True")
-        - initialValue: Default value as "true" or "false"
-        - IntegerDataEncoding: Bit size (typically 1)
+        Returns ``(name, zero_string, one_string, initial_value, size_in_bits)``.
+        XTCE Boolean types specify zero/one display strings, an optional
+        initial "true"/"false", and a bit size (default 1). An
+        IntegerDataEncoding ``sizeInBits`` takes precedence; otherwise a
+        BinaryDataEncoding fixed size is used if present.
         """
         name = self._get_attr(elem, "name")
-
-        # Get string representations of true/false
         zero_str = self._get_attr(elem, "zeroStringValue", "False")
         one_str = self._get_attr(elem, "oneStringValue", "True")
 
-        # Get initial value if specified
         initial_value = None
         init_str = self._get_attr(elem, "initialValue", "")
         if init_str.lower() == "true":
@@ -537,18 +540,20 @@ class XTCEParser:
         elif init_str.lower() == "false":
             initial_value = False
 
-        # Boolean defaults to 1 bit, but can be encoded as larger integer
         size_in_bits = 1
         data_enc = self._find(elem, "IntegerDataEncoding")
         if data_enc is not None:
             size_in_bits = int(self._get_attr(data_enc, "sizeInBits", "1"))
-
-        # Also check for BinaryDataEncoding (some implementations use this)
-        if data_enc is None:
+        else:
             bits = self._binary_encoding_size_bits(elem)
             if bits is not None:
                 size_in_bits = bits
 
+        return name, zero_str, one_str, initial_value, size_in_bits
+
+    def _parse_boolean_argument_type(self, elem: ET.Element) -> BooleanArgumentType:
+        """Parse BooleanArgumentType element."""
+        name, zero_str, one_str, initial_value, size_in_bits = self._parse_boolean_fields(elem)
         return BooleanArgumentType(
             name=name,
             size_in_bits=size_in_bits,
@@ -612,6 +617,25 @@ class XTCEParser:
             dimensions=dimensions,
         )
 
+    def _parse_index_element(self, idx_elem: ET.Element) -> tuple[int, Optional[str]]:
+        """Read one array-dimension index (``<StartingIndex>``/``<EndingIndex>``).
+
+        Returns ``(index, dynamic_ref)``: the fixed index value (0 if not
+        given) and, when the index is a DynamicValue/ParameterInstanceRef, the
+        referenced parameter name — else None.
+        """
+        index = 0
+        fixed = self._find(idx_elem, "FixedValue")
+        if fixed is not None and fixed.text:
+            index = int(fixed.text)
+        dynamic_ref = None
+        dyn_val = self._find(idx_elem, "DynamicValue")
+        if dyn_val is not None:
+            param_ref = self._find(dyn_val, "ParameterInstanceRef")
+            if param_ref is not None:
+                dynamic_ref = self._strip_path_ref(self._get_attr(param_ref, "parameterRef"))
+        return index, dynamic_ref
+
     def _parse_dimension(self, dim: ET.Element) -> tuple[int, bool, Optional[str]]:
         """
         Parse a Dimension element for array types.
@@ -626,33 +650,22 @@ class XTCEParser:
         is_dynamic = False
         dynamic_ref = None
 
-        # Parse StartingIndex
+        # StartingIndex / EndingIndex share the same shape: a fixed value or a
+        # DynamicValue/ParameterInstanceRef. Either index being dynamic makes
+        # the whole dimension dynamic.
         start_elem = self._find(dim, "StartingIndex")
         if start_elem is not None:
-            fixed = self._find(start_elem, "FixedValue")
-            if fixed is not None and fixed.text:
-                start_idx = int(fixed.text)
-            # Check for DynamicValue (size from parameter)
-            dyn_val = self._find(start_elem, "DynamicValue")
-            if dyn_val is not None:
-                param_ref = self._find(dyn_val, "ParameterInstanceRef")
-                if param_ref is not None:
-                    is_dynamic = True
-                    dynamic_ref = self._strip_path_ref(self._get_attr(param_ref, "parameterRef"))
+            start_idx, ref = self._parse_index_element(start_elem)
+            if ref is not None:
+                is_dynamic = True
+                dynamic_ref = ref
 
-        # Parse EndingIndex
         end_elem = self._find(dim, "EndingIndex")
         if end_elem is not None:
-            fixed = self._find(end_elem, "FixedValue")
-            if fixed is not None and fixed.text:
-                end_idx = int(fixed.text)
-            # Check for DynamicValue
-            dyn_val = self._find(end_elem, "DynamicValue")
-            if dyn_val is not None:
-                param_ref = self._find(dyn_val, "ParameterInstanceRef")
-                if param_ref is not None:
-                    is_dynamic = True
-                    dynamic_ref = self._strip_path_ref(self._get_attr(param_ref, "parameterRef"))
+            end_idx, ref = self._parse_index_element(end_elem)
+            if ref is not None:
+                is_dynamic = True
+                dynamic_ref = ref
 
         # Size is end - start + 1 (inclusive range)
         size = end_idx - start_idx + 1 if not is_dynamic else 0
@@ -1409,22 +1422,9 @@ class XTCEParser:
     def _parse_string_parameter_type(self, elem: ET.Element) -> StringParameterType:
         """Parse StringParameterType element."""
         name = self._get_attr(elem, "name")
-
-        max_length = None
-        size_in_bits = 0
-        str_enc = self._find(elem, "StringDataEncoding")
-        if str_enc is not None:
-            size_bits = self._find(str_enc, "SizeInBits")
-            if size_bits is not None:
-                bits = self._fixed_size_in_bits(size_bits)
-                if bits is not None:
-                    size_in_bits = bits
-                    max_length = size_in_bits // 8
-
-        # Parse alarm ranges
+        size_in_bits, max_length = self._string_size_and_length(elem)
         alarm_ranges = self._parse_static_alarm_ranges(elem)
         context_alarms = self._parse_context_alarm_list(elem)
-
         return StringParameterType(
             name=name,
             size_in_bits=size_in_bits,
@@ -1450,41 +1450,10 @@ class XTCEParser:
         )
 
     def _parse_boolean_parameter_type(self, elem: ET.Element) -> BooleanParameterType:
-        """
-        Parse BooleanParameterType element for telemetry.
-
-        Similar to BooleanArgumentType but for telemetry parameters.
-        """
-        name = self._get_attr(elem, "name")
-
-        # Get string representations of true/false
-        zero_str = self._get_attr(elem, "zeroStringValue", "False")
-        one_str = self._get_attr(elem, "oneStringValue", "True")
-
-        # Get initial value if specified
-        initial_value = None
-        init_str = self._get_attr(elem, "initialValue", "")
-        if init_str.lower() == "true":
-            initial_value = True
-        elif init_str.lower() == "false":
-            initial_value = False
-
-        # Boolean defaults to 1 bit
-        size_in_bits = 1
-        data_enc = self._find(elem, "IntegerDataEncoding")
-        if data_enc is not None:
-            size_in_bits = int(self._get_attr(data_enc, "sizeInBits", "1"))
-
-        # Check for BinaryDataEncoding
-        if data_enc is None:
-            bits = self._binary_encoding_size_bits(elem)
-            if bits is not None:
-                size_in_bits = bits
-
-        # Parse alarm ranges
+        """Parse BooleanParameterType element for telemetry (boolean fields + alarms)."""
+        name, zero_str, one_str, initial_value, size_in_bits = self._parse_boolean_fields(elem)
         alarm_ranges = self._parse_static_alarm_ranges(elem)
         context_alarms = self._parse_context_alarm_list(elem)
-
         return BooleanParameterType(
             name=name,
             size_in_bits=size_in_bits,
