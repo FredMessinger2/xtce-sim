@@ -446,26 +446,47 @@ class XTCEParser:
             name=name, size_in_bits=size_in_bits, enumerations=enumerations
         )
 
+    def _fixed_size_in_bits(self, size_bits: ET.Element) -> Optional[int]:
+        """Read a fixed bit count from a ``<SizeInBits>`` element.
+
+        Accepts either ``<SizeInBits><FixedValue>N</FixedValue></SizeInBits>``
+        or the ``<SizeInBits><Fixed><FixedValue>N</FixedValue></Fixed>`` wrapper
+        (the form StringDataEncoding uses). Returns None when no numeric fixed
+        value is present.
+        """
+        fixed_val = self._find(size_bits, "FixedValue")
+        if fixed_val is None:
+            fixed = self._find(size_bits, "Fixed")
+            if fixed is not None:
+                fixed_val = self._find(fixed, "FixedValue")
+        if fixed_val is not None and (fixed_val.text or "").strip().isdigit():
+            return int(fixed_val.text)
+        return None
+
+    def _binary_encoding_size_bits(self, elem: ET.Element) -> Optional[int]:
+        """Fixed bit count from an element's ``<BinaryDataEncoding><SizeInBits>``.
+
+        Returns None when there is no BinaryDataEncoding, no SizeInBits, or no
+        numeric fixed value declared.
+        """
+        bin_enc = self._find(elem, "BinaryDataEncoding")
+        if bin_enc is None:
+            return None
+        size_bits = self._find(bin_enc, "SizeInBits")
+        if size_bits is None:
+            return None
+        return self._fixed_size_in_bits(size_bits)
+
     def _binary_size_in_bits(self, elem: ET.Element) -> int:
         """Fixed size (in bits) of a binary type's BinaryDataEncoding.
 
-        XTCE sizes binary encodings with
-        ``<SizeInBits><FixedValue>N</FixedValue></SizeInBits>``. For leniency
-        this also accepts the ``<Fixed><FixedValue>`` wrapper (the form
-        StringDataEncoding uses) and a legacy ``sizeInBits`` attribute. Returns
-        0 if no size is declared.
+        Prefers ``<BinaryDataEncoding><SizeInBits>`` (with or without the
+        ``<Fixed>`` wrapper) and falls back to a legacy ``sizeInBits``
+        attribute. Returns 0 if no size is declared.
         """
-        bin_enc = self._find(elem, "BinaryDataEncoding")
-        if bin_enc is not None:
-            size_bits = self._find(bin_enc, "SizeInBits")
-            if size_bits is not None:
-                fixed_val = self._find(size_bits, "FixedValue")
-                if fixed_val is None:
-                    fixed = self._find(size_bits, "Fixed")
-                    if fixed is not None:
-                        fixed_val = self._find(fixed, "FixedValue")
-                if fixed_val is not None and (fixed_val.text or "").strip().isdigit():
-                    return int(fixed_val.text)
+        bits = self._binary_encoding_size_bits(elem)
+        if bits is not None:
+            return bits
         attr = self._get_attr(elem, "sizeInBits").strip()
         return int(attr) if attr.isdigit() else 0
 
@@ -485,12 +506,10 @@ class XTCEParser:
         if str_enc is not None:
             size_bits = self._find(str_enc, "SizeInBits")
             if size_bits is not None:
-                fixed = self._find(size_bits, "Fixed")
-                if fixed is not None:
-                    fixed_val = self._find(fixed, "FixedValue")
-                    if fixed_val is not None and fixed_val.text:
-                        size_in_bits = int(fixed_val.text)
-                        max_length = size_in_bits // 8
+                bits = self._fixed_size_in_bits(size_bits)
+                if bits is not None:
+                    size_in_bits = bits
+                    max_length = size_in_bits // 8
 
         return StringArgumentType(name=name, size_in_bits=size_in_bits, max_length=max_length)
 
@@ -526,15 +545,9 @@ class XTCEParser:
 
         # Also check for BinaryDataEncoding (some implementations use this)
         if data_enc is None:
-            bin_enc = self._find(elem, "BinaryDataEncoding")
-            if bin_enc is not None:
-                size_bits = self._find(bin_enc, "SizeInBits")
-                if size_bits is not None:
-                    fixed = self._find(size_bits, "Fixed")
-                    if fixed is not None:
-                        fixed_val = self._find(fixed, "FixedValue")
-                        if fixed_val is not None and fixed_val.text:
-                            size_in_bits = int(fixed_val.text)
+            bits = self._binary_encoding_size_bits(elem)
+            if bits is not None:
+                size_in_bits = bits
 
         return BooleanArgumentType(
             name=name,
@@ -1403,12 +1416,10 @@ class XTCEParser:
         if str_enc is not None:
             size_bits = self._find(str_enc, "SizeInBits")
             if size_bits is not None:
-                fixed = self._find(size_bits, "Fixed")
-                if fixed is not None:
-                    fixed_val = self._find(fixed, "FixedValue")
-                    if fixed_val is not None and fixed_val.text:
-                        size_in_bits = int(fixed_val.text)
-                        max_length = size_in_bits // 8
+                bits = self._fixed_size_in_bits(size_bits)
+                if bits is not None:
+                    size_in_bits = bits
+                    max_length = size_in_bits // 8
 
         # Parse alarm ranges
         alarm_ranges = self._parse_static_alarm_ranges(elem)
@@ -1466,15 +1477,9 @@ class XTCEParser:
 
         # Check for BinaryDataEncoding
         if data_enc is None:
-            bin_enc = self._find(elem, "BinaryDataEncoding")
-            if bin_enc is not None:
-                size_bits = self._find(bin_enc, "SizeInBits")
-                if size_bits is not None:
-                    fixed = self._find(size_bits, "Fixed")
-                    if fixed is not None:
-                        fixed_val = self._find(fixed, "FixedValue")
-                        if fixed_val is not None and fixed_val.text:
-                            size_in_bits = int(fixed_val.text)
+            bits = self._binary_encoding_size_bits(elem)
+            if bits is not None:
+                size_in_bits = bits
 
         # Parse alarm ranges
         alarm_ranges = self._parse_static_alarm_ranges(elem)

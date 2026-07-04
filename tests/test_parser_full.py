@@ -80,6 +80,38 @@ def test_binary_argument_size_from_encoding_and_attribute(tmp_path):
     assert defn.argument_types["Attr"].size_in_bits == 64  # legacy attribute
 
 
+@pytest.mark.parametrize(
+    "size_xml, expected",
+    [
+        # Direct SizeInBits/FixedValue — booleans now read this via the shared
+        # size helper (previously only the Fixed wrapper form was accepted).
+        ("<xtce:SizeInBits><xtce:FixedValue>8</xtce:FixedValue></xtce:SizeInBits>", 8),
+        # Fixed/FixedValue wrapper form.
+        (
+            "<xtce:SizeInBits><xtce:Fixed>"
+            "<xtce:FixedValue>16</xtce:FixedValue></xtce:Fixed></xtce:SizeInBits>",
+            16,
+        ),
+        # No BinaryDataEncoding size -> boolean default of 1 bit.
+        ("", 1),
+        # Malformed values degrade to the default instead of crashing the parse.
+        ("<xtce:SizeInBits><xtce:FixedValue>8.0</xtce:FixedValue></xtce:SizeInBits>", 1),
+        ("<xtce:SizeInBits><xtce:FixedValue>-8</xtce:FixedValue></xtce:SizeInBits>", 1),
+    ],
+)
+def test_boolean_size_via_shared_binary_encoding_helper(tmp_path, size_xml, expected):
+    enc = f"<xtce:BinaryDataEncoding>{size_xml}</xtce:BinaryDataEncoding>" if size_xml else ""
+    doc = (
+        f'<xtce:SpaceSystem {NS} name="S"><xtce:TelemetryMetaData><xtce:ParameterTypeSet>'
+        f'<xtce:BooleanParameterType name="Flag">{enc}</xtce:BooleanParameterType>'
+        "</xtce:ParameterTypeSet></xtce:TelemetryMetaData></xtce:SpaceSystem>"
+    )
+    f = tmp_path / "bool.xml"
+    f.write_text(doc)
+    defn = XTCEParser().parse(f)
+    assert defn.parameter_types["Flag"].size_in_bits == expected
+
+
 def test_space_system_and_nested_flattened(defn):
     assert defn.space_system_name == "FullFeatures"
     # Nested SpaceSystem's parameter type/param are flattened into the same def.
