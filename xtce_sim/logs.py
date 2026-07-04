@@ -36,10 +36,13 @@ _PALETTE = [
 def instance_color(instance_id: str) -> str:
     """Deterministic color name for an instance id.
 
-    Uses SHA-1 (for spread, not security) so sequential fleet ids like sat-a,
-    sat-b, sat-c land on different colors.
+    Hashes the id to distribute instances across the palette so a fleet is
+    easier to tell apart in interleaved logs. This is not a security context;
+    SHA-256 is used simply because it is not flagged as a weak hash. The
+    mapping is best-effort: with a fixed palette, distinct ids can still
+    collide onto the same color.
     """
-    digest = hashlib.sha1(instance_id.encode("utf-8")).digest()
+    digest = hashlib.sha256(instance_id.encode("utf-8")).digest()
     return _PALETTE[int.from_bytes(digest, "big") % len(_PALETTE)]
 
 
