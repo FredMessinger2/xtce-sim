@@ -1647,48 +1647,54 @@ class XTCEParser:
             container = self._parse_sequence_container(elem)
             definition.containers[container.name] = container
 
-    def _parse_sequence_container(self, elem: ET.Element) -> SequenceContainer:
-        """Parse SequenceContainer element."""
-        name = self._get_attr(elem, "name")
-
-        # Parse EntryList
+    def _parse_entry_list(self, elem: ET.Element) -> list[str]:
+        """Parse a container's ``<EntryList>`` into a list of parameter refs."""
         entries = []
         entry_list = self._find(elem, "EntryList")
         if entry_list is not None:
             for param_entry in self._findall(entry_list, "ParameterRefEntry"):
-                param_ref = self._strip_path_ref(self._get_attr(param_entry, "parameterRef"))
-                entries.append(param_ref)
+                entries.append(self._strip_path_ref(self._get_attr(param_entry, "parameterRef")))
+        return entries
 
-        # Parse BaseContainer
+    def _parse_restriction_criteria(self, base_elem: ET.Element) -> Optional[dict]:
+        """Parse a BaseContainer's ``<RestrictionCriteria>`` into ``{param: value}``.
+
+        Accepts a direct ``<Comparison>`` or a ``<ComparisonList>`` wrapper,
+        which may hold several comparisons (e.g. SecHdrFlag + APID), so all of
+        them are read. The CCSDS_APID key is normalized to int. Returns None
+        when no criteria are present.
+        """
+        restrict_elem = self._find(base_elem, "RestrictionCriteria")
+        if restrict_elem is None:
+            return None
+        comparisons = self._findall(restrict_elem, "Comparison")
+        if not comparisons:
+            comp_list = self._find(restrict_elem, "ComparisonList")
+            if comp_list is not None:
+                comparisons = self._findall(comp_list, "Comparison")
+        if not comparisons:
+            return None
+        criteria: dict = {}
+        for comparison in comparisons:
+            param_ref = self._strip_path_ref(self._get_attr(comparison, "parameterRef"))
+            value = self._get_attr(comparison, "value")
+            if "APID" in param_ref.upper():
+                criteria["CCSDS_APID"] = int(value)
+            else:
+                criteria[param_ref] = value
+        return criteria
+
+    def _parse_sequence_container(self, elem: ET.Element) -> SequenceContainer:
+        """Parse SequenceContainer element."""
+        name = self._get_attr(elem, "name")
+        entries = self._parse_entry_list(elem)
+
         base_ref = None
         restriction_criteria = None
         base_elem = self._find(elem, "BaseContainer")
         if base_elem is not None:
             base_ref = self._strip_path_ref(self._get_attr(base_elem, "containerRef"))
-
-            # Parse RestrictionCriteria
-            # Supports both direct Comparison and ComparisonList wrapper.
-            # A ComparisonList can contain multiple Comparison elements
-            # (e.g., SecHdrFlag + APID), so we must read ALL of them.
-            restrict_elem = self._find(base_elem, "RestrictionCriteria")
-            if restrict_elem is not None:
-                # Collect all Comparison elements from either location
-                comparisons = self._findall(restrict_elem, "Comparison")
-                if not comparisons:
-                    comp_list = self._find(restrict_elem, "ComparisonList")
-                    if comp_list is not None:
-                        comparisons = self._findall(comp_list, "Comparison")
-                # Merge all comparisons into restriction_criteria dict
-                if comparisons:
-                    restriction_criteria = {}
-                    for comparison in comparisons:
-                        param_ref = self._strip_path_ref(self._get_attr(comparison, "parameterRef"))
-                        value = self._get_attr(comparison, "value")
-                        # Normalize CCSDS_APID key
-                        if "APID" in param_ref.upper():
-                            restriction_criteria["CCSDS_APID"] = int(value)
-                        else:
-                            restriction_criteria[param_ref] = value
+            restriction_criteria = self._parse_restriction_criteria(base_elem)
 
         return SequenceContainer(
             name=name,
