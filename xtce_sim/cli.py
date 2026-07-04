@@ -15,6 +15,7 @@ generated.py, an importable snapshot for scripting (the sim never imports it).
 from __future__ import annotations
 
 import asyncio
+import functools
 import struct
 import sys
 from datetime import datetime
@@ -236,6 +237,35 @@ def send(
     click.echo(f"sent {command.name} (0x{command.opcode:02X}) args={args or '{}'}")
 
 
+def _decode_packet(
+    packet: bytes, simdef: SimDefinition, wanted: set[str], prefixes: dict[int, str]
+):
+    """Decode one CCSDS frame -> (apid, name, seq, meta, prefix), or None to skip.
+
+    ``prefixes`` is a per-APID cache of the shared field-name prefix (mutated).
+    Skips runt frames (<6 bytes) and, when a filter is active, unwanted packets.
+    """
+    if len(packet) < 6:  # runt frame from a misbehaving/other-protocol server
+        return None
+    header = ccsds.CCSDSHeader.unpack(packet[:6])
+    packet_def = simdef.packet_by_apid(header.apid)
+    name = packet_def.name if packet_def else f"APID_0x{header.apid:X}"
+    if wanted and name not in wanted:
+        return None
+    meta: list = []
+    prefix = ""
+    if packet_def is not None:
+        try:
+            values = codec.unpack_telemetry(packet_def, packet[6:])
+            meta = [(f.name, values[f.name], f.unit) for f in packet_def.fields]
+            prefix = prefixes.setdefault(
+                header.apid, render.common_prefix([f.name for f in packet_def.fields])
+            )
+        except struct.error:
+            meta = [("<raw>", packet[6:22].hex(), None)]
+    return header.apid, name, header.seq_count, meta, prefix
+
+
 @main.command()
 @click.option("--port", required=True, type=int, help="TCP port of the running sim.")
 @click.option("--host", default="127.0.0.1", show_default=True, help="Host to connect to.")
@@ -290,28 +320,9 @@ def monitor(
     wanted = set(packet_filter)
     instance = instance_id or (def_path.stem if def_path else host)
     prefixes: dict[int, str] = {}
-
-    def decode(packet: bytes):
-        """-> (apid, name, seq, meta, prefix) or None if it should be skipped."""
-        if len(packet) < 6:  # runt frame from a misbehaving/other-protocol server
-            return None
-        header = ccsds.CCSDSHeader.unpack(packet[:6])
-        packet_def = simdef.packet_by_apid(header.apid)
-        name = packet_def.name if packet_def else f"APID_0x{header.apid:X}"
-        if wanted and name not in wanted:
-            return None
-        meta: list = []
-        prefix = ""
-        if packet_def is not None:
-            try:
-                values = codec.unpack_telemetry(packet_def, packet[6:])
-                meta = [(f.name, values[f.name], f.unit) for f in packet_def.fields]
-                prefix = prefixes.setdefault(
-                    header.apid, render.common_prefix([f.name for f in packet_def.fields])
-                )
-            except struct.error:
-                meta = [("<raw>", packet[6:22].hex(), None)]
-        return header.apid, name, header.seq_count, meta, prefix
+    decode = functools.partial(
+        _decode_packet, simdef=simdef, wanted=wanted, prefixes=prefixes
+    )
 
     click.echo(f"Monitoring {host}:{port} (style={style}, Ctrl-C to stop)")
     try:

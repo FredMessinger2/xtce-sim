@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from xtce_sim import cli
+from xtce_sim import ccsds, cli, codec
 from xtce_sim.cli import main
 from xtce_sim.definition import SimDefinition
 from xtce_sim.generate import format_json
@@ -242,6 +242,34 @@ def test_monitor_rejects_negative_count(tmp_path, simdef):
     )
     assert result.exit_code != 0  # IntRange(min=0) rejects before connecting
     assert "could not reach" not in result.output
+
+
+def test_decode_packet_branches(simdef):
+    pkt = simdef.packets[0]
+    frame = ccsds.build_telemetry_packet(pkt.apid, codec.pack_telemetry(pkt, None), 7)
+
+    # Runt frame (< 6 bytes) -> skipped.
+    assert cli._decode_packet(b"\x00\x00", simdef, set(), {}) is None
+
+    # Active filter that doesn't include this packet -> skipped.
+    assert cli._decode_packet(frame, simdef, {"NOPE"}, {}) is None
+
+    # Normal decode -> full tuple; the shared prefix is cached per APID.
+    prefixes: dict[int, str] = {}
+    apid, name, seq, meta, _prefix = cli._decode_packet(frame, simdef, set(), prefixes)
+    assert (apid, name, seq) == (pkt.apid, pkt.name, 7)
+    assert len(meta) == len(pkt.fields)
+    assert pkt.apid in prefixes  # cached
+
+    # Unknown APID -> synthetic name, no field meta.
+    unknown = ccsds.build_telemetry_packet(0x7FF, b"", 1)
+    _, uname, _, umeta, _ = cli._decode_packet(unknown, simdef, set(), {})
+    assert uname == "APID_0x7FF" and umeta == []
+
+    # Truncated payload for a known packet -> raw fallback, not a crash.
+    bad = ccsds.build_telemetry_packet(pkt.apid, b"\x01", 2)
+    _, _, _, bad_meta, _ = cli._decode_packet(bad, simdef, set(), {})
+    assert bad_meta and bad_meta[0][0] == "<raw>"
 
 
 async def test_dashboard_frames_are_complete_snapshots(simdef, tmp_path):
