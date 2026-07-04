@@ -180,6 +180,28 @@ _CCSDS_HEADER_NAMES = {
 }
 
 
+def _fixed_hex(entry) -> Optional[int]:
+    """Parse a fixed entry's ``binary_value`` as hex; None if it isn't valid hex."""
+    try:
+        return int(entry.binary_value, 16)
+    except ValueError:
+        return None
+
+
+def _first_fixed_hex(entries, matches) -> Optional[int]:
+    """First valid hex value among fixed entries (with a binary value) that
+    satisfy the *matches* predicate; None if none do."""
+    for entry in entries:
+        if entry.entry_type != "fixed" or not entry.binary_value:
+            continue
+        if not matches(entry):
+            continue
+        value = _fixed_hex(entry)
+        if value is not None:
+            return value
+    return None
+
+
 def extract_opcode(cmd: MetaCommand) -> Optional[int]:
     """Extract a command's opcode from its container's FixedValueEntry.
 
@@ -189,27 +211,19 @@ def extract_opcode(cmd: MetaCommand) -> Optional[int]:
     """
     if not cmd.container:
         return None
+    entries = cmd.container.entries
 
-    for entry in cmd.container.entries:
-        if entry.entry_type == "fixed" and entry.binary_value:
-            if "opcode" in (entry.name or "").lower():
-                try:
-                    return int(entry.binary_value, 16)
-                except ValueError:
-                    pass
+    # Prefer an entry explicitly named 'opcode'.
+    named = _first_fixed_hex(entries, lambda e: "opcode" in (e.name or "").lower())
+    if named is not None:
+        return named
 
-    for entry in cmd.container.entries:
-        if (
-            entry.entry_type == "fixed"
-            and entry.binary_value
-            and entry.size_in_bits == 8
-            and (entry.name or "").lower().replace("_", "") not in _CCSDS_HEADER_NAMES
-        ):
-            try:
-                return int(entry.binary_value, 16)
-            except ValueError:
-                pass
-    return None
+    # Fall back to any non-header 8-bit fixed value.
+    return _first_fixed_hex(
+        entries,
+        lambda e: e.size_in_bits == 8
+        and (e.name or "").lower().replace("_", "") not in _CCSDS_HEADER_NAMES,
+    )
 
 
 # =============================================================================

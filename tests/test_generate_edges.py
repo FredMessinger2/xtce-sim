@@ -134,6 +134,34 @@ def test_extract_opcode_fallback_to_8bit_fixed():
     assert extract_opcode(cmd) == 0xAB
 
 
+def test_extract_opcode_prefers_named_entry():
+    # An entry named 'opcode' is preferred over a later 8-bit fixed entry.
+    container = models.CommandContainer(
+        name="c",
+        entries=[
+            models.ContainerEntry(entry_type="fixed", name="OPCODE", size_in_bits=8,
+                                  binary_value="7F"),
+            models.ContainerEntry(entry_type="fixed", name="Marker", size_in_bits=8,
+                                  binary_value="AB"),
+        ],
+    )
+    cmd = models.MetaCommand(name="X", container=container)
+    assert extract_opcode(cmd) == 0x7F
+
+
+def test_extract_opcode_skips_non_hex_binary_value():
+    # A non-hex fixed value is tolerated (no crash) and yields None.
+    container = models.CommandContainer(
+        name="c",
+        entries=[
+            models.ContainerEntry(entry_type="fixed", name="Marker", size_in_bits=8,
+                                  binary_value="ZZ"),  # not valid hex
+        ],
+    )
+    cmd = models.MetaCommand(name="X", container=container)
+    assert extract_opcode(cmd) is None
+
+
 def test_param_info_for_arg_unresolved_type():
     arg = models.Argument(name="Mystery", argument_type_ref="Gone", argument_type=None)
     info = _param_info_for_arg(arg)
