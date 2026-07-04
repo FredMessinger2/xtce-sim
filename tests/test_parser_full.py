@@ -225,7 +225,10 @@ def test_command_inheritance_and_opcode(defn):
     user = [a.name for a in do_thing.get_user_arguments()]
     assert "OPCODE" not in user
     assert set(user) == {"Duration", "State", "Gain"}
-    # Command + argument ancillary data parsed.
+    # Inherited argument value fixed by the derived command's assignment list.
+    assert do_thing.argument_assignments == {"OPCODE": "10"}
+    # Command + argument ancillary data parsed (command-level values are
+    # semicolon-merged; per-argument values are kept as-is).
     assert "tlm_side_effect" in do_thing.ancillary_data
     assert "Counter=1;ModeParam=SAFE" == do_thing.ancillary_data["tlm_side_effect"]
     dur = next(a for a in do_thing.arguments if a.name == "Duration")

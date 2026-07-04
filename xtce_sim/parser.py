@@ -1064,74 +1064,80 @@ class XTCEParser:
             cmd = self._parse_meta_command(elem, definition)
             definition.meta_commands[cmd.name] = cmd
 
+    def _parse_ancillary_data(self, parent: ET.Element, *, merge: bool = False) -> dict[str, str]:
+        """Parse a ``<AncillaryDataSet>`` under *parent* into ``{name: value}``.
+
+        With ``merge=False`` a repeated name keeps the last value; with
+        ``merge=True`` repeated names are joined with ``;`` (used for
+        command-level data such as tlm_side_effect).
+        """
+        data: dict[str, str] = {}
+        anc_set = self._find(parent, "AncillaryDataSet")
+        if anc_set is not None:
+            for anc_elem in self._findall(anc_set, "AncillaryData"):
+                anc_name = self._get_attr(anc_elem, "name", "")
+                if not anc_name:
+                    continue
+                value = (anc_elem.text or "").strip()
+                if merge and data.get(anc_name):
+                    data[anc_name] = data[anc_name] + ";" + value
+                else:
+                    data[anc_name] = value
+        return data
+
+    def _parse_argument_assignments(self, base_elem: ET.Element) -> dict[str, str]:
+        """Parse a BaseMetaCommand's ArgumentAssignmentList into ``{name: value}``.
+
+        Derived commands fix inherited argument values (e.g. RW_UNIT_ID=1).
+        """
+        assignments: dict[str, str] = {}
+        assign_list = self._find(base_elem, "ArgumentAssignmentList")
+        if assign_list is not None:
+            for assign_elem in self._findall(assign_list, "ArgumentAssignment"):
+                arg_name = self._get_attr(assign_elem, "argumentName")
+                if arg_name:
+                    assignments[arg_name] = self._get_attr(assign_elem, "argumentValue") or ""
+        return assignments
+
+    def _parse_command_arguments(
+        self, arg_list: ET.Element, definition: XTCEDefinition
+    ) -> list[Argument]:
+        """Parse an ``<ArgumentList>`` into resolved Argument objects."""
+        arguments = []
+        for arg_elem in self._findall(arg_list, "Argument"):
+            arg_type_ref = self._strip_path_ref(self._get_attr(arg_elem, "argumentTypeRef"))
+            arguments.append(
+                Argument(
+                    name=self._get_attr(arg_elem, "name"),
+                    argument_type_ref=arg_type_ref,
+                    argument_type=definition.argument_types.get(arg_type_ref),
+                    ancillary_data=self._parse_ancillary_data(arg_elem),
+                )
+            )
+        return arguments
+
     def _parse_meta_command(self, elem: ET.Element, definition: XTCEDefinition) -> MetaCommand:
         """Parse single MetaCommand element."""
         name = self._get_attr(elem, "name")
         description = self._get_attr(elem, "shortDescription")
         abstract = self._get_attr(elem, "abstract", "false").lower() == "true"
 
-        # Base command reference and argument assignments
+        # Base command reference and inherited argument assignments.
         base_ref = None
-        argument_assignments = {}
+        argument_assignments: dict[str, str] = {}
         base_elem = self._find(elem, "BaseMetaCommand")
         if base_elem is not None:
             base_ref = self._strip_path_ref(self._get_attr(base_elem, "metaCommandRef"))
-            # Parse ArgumentAssignmentList — derived commands fix inherited arg values
-            # e.g. Reaction_Wheel_1_Off assigns RW_UNIT_ID=1, RW_PWR_STATE=OFF
-            assign_list = self._find(base_elem, "ArgumentAssignmentList")
-            if assign_list is not None:
-                for assign_elem in self._findall(assign_list, "ArgumentAssignment"):
-                    arg_name = self._get_attr(assign_elem, "argumentName")
-                    arg_value = self._get_attr(assign_elem, "argumentValue")
-                    if arg_name:
-                        argument_assignments[arg_name] = arg_value or ""
+            argument_assignments = self._parse_argument_assignments(base_elem)
 
-        # Parse ArgumentList
-        arguments = []
+        arguments: list[Argument] = []
         arg_list = self._find(elem, "ArgumentList")
         if arg_list is not None:
-            for arg_elem in self._findall(arg_list, "Argument"):
-                arg_name = self._get_attr(arg_elem, "name")
-                arg_type_ref = self._strip_path_ref(self._get_attr(arg_elem, "argumentTypeRef"))
+            arguments = self._parse_command_arguments(arg_list, definition)
 
-                # Resolve argument type
-                arg_type = definition.argument_types.get(arg_type_ref)
+        # Command-level AncillaryDataSet (e.g. tlm_side_effect), semicolon-merged.
+        cmd_anc_data = self._parse_ancillary_data(elem, merge=True)
 
-                # Extract AncillaryData key/value pairs
-                anc_data = {}
-                anc_set = self._find(arg_elem, "AncillaryDataSet")
-                if anc_set is not None:
-                    for anc_elem in self._findall(anc_set, "AncillaryData"):
-                        anc_name = self._get_attr(anc_elem, "name", "")
-                        anc_val = anc_elem.text or ""
-                        if anc_name:
-                            anc_data[anc_name] = anc_val.strip()
-
-                arguments.append(
-                    Argument(
-                        name=arg_name,
-                        argument_type_ref=arg_type_ref,
-                        argument_type=arg_type,
-                        ancillary_data=anc_data,
-                    )
-                )
-
-        # Parse command-level AncillaryDataSet (e.g. tlm_side_effect)
-        cmd_anc_data = {}
-        cmd_anc_set = self._find(elem, "AncillaryDataSet")
-        if cmd_anc_set is not None:
-            for anc_elem in self._findall(cmd_anc_set, "AncillaryData"):
-                anc_name = self._get_attr(anc_elem, "name", "")
-                anc_val = anc_elem.text or ""
-                if anc_name:
-                    # Collect multiple values with same key using semicolon separator
-                    existing = cmd_anc_data.get(anc_name)
-                    if existing:
-                        cmd_anc_data[anc_name] = existing + ";" + anc_val.strip()
-                    else:
-                        cmd_anc_data[anc_name] = anc_val.strip()
-
-        # Parse CommandContainer
         container = None
         container_elem = self._find(elem, "CommandContainer")
         if container_elem is not None:
