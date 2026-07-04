@@ -441,57 +441,76 @@ def build_sim_definition(xtce_def: XTCEDefinition) -> SimDefinition:
 # =============================================================================
 
 
+def _param_detail(p) -> str:
+    """One indented detail line for a command parameter."""
+    detail = f"      {p.name:<24} {p.python_type:<8} {p.size_bits}b"
+    if p.unit:
+        detail += f"  [{p.unit}]"
+    if p.valid_min is not None or p.valid_max is not None:
+        detail += f"  range({p.valid_min}..{p.valid_max})"
+    if p.enumerations:
+        detail += f"  enum={p.enumerations}"
+    if p.description:
+        detail += f"  — {p.description}"
+    return detail
+
+
+def _field_detail(f) -> str:
+    """One indented detail line for a telemetry field."""
+    detail = f"      {f.name:<24} {f.python_type:<8} {f.size_bits}b"
+    if f.unit:
+        detail += f"  [{f.unit}]"
+    if f.description:
+        detail += f"  — {f.description}"
+    return detail
+
+
+def _format_command_block(cmd) -> list[str]:
+    """Header + parameter lines for one command."""
+    tag = " (synthetic opcode)" if cmd.synthetic else ""
+    header = f"0x{cmd.opcode:02X}  {cmd.name}{tag}"
+    if cmd.description:
+        header += f"  — {cmd.description}"
+    lines = [header]
+    lines.extend(_param_detail(p) for p in cmd.params)
+    if not cmd.params:
+        lines.append("      (no parameters)")
+    lines.append("")
+    return lines
+
+
+def _format_packet_block(pkt) -> list[str]:
+    """Header + struct + field lines for one telemetry packet."""
+    header = f"APID 0x{pkt.apid:02X}  {pkt.name}"
+    if pkt.description:
+        header += f"  — {pkt.description}"
+    lines = [header, f"      struct: {pkt.struct_format}"]
+    lines.extend(_field_detail(f) for f in pkt.fields)
+    if not pkt.fields:
+        lines.append("      (no fields)")
+    lines.append("")
+    return lines
+
+
 def format_text(simdef: SimDefinition) -> str:
     """Render a human-readable summary of the definition."""
-    lines: list[str] = []
-    lines.append("XTCE Simulator Definition")
-    lines.append("=" * 60)
-    lines.append(f"Space system : {simdef.space_system_name}")
-    lines.append(f"Commands     : {len(simdef.commands)}")
-    lines.append(f"Telemetry    : {len(simdef.packets)} packet(s)")
-    lines.append("")
-
-    lines.append("COMMANDS")
-    lines.append("-" * 60)
+    lines: list[str] = [
+        "XTCE Simulator Definition",
+        "=" * 60,
+        f"Space system : {simdef.space_system_name}",
+        f"Commands     : {len(simdef.commands)}",
+        f"Telemetry    : {len(simdef.packets)} packet(s)",
+        "",
+        "COMMANDS",
+        "-" * 60,
+    ]
     for cmd in simdef.commands:
-        tag = " (synthetic opcode)" if cmd.synthetic else ""
-        header = f"0x{cmd.opcode:02X}  {cmd.name}{tag}"
-        if cmd.description:
-            header += f"  — {cmd.description}"
-        lines.append(header)
-        for p in cmd.params:
-            detail = f"      {p.name:<24} {p.python_type:<8} {p.size_bits}b"
-            if p.unit:
-                detail += f"  [{p.unit}]"
-            if p.valid_min is not None or p.valid_max is not None:
-                detail += f"  range({p.valid_min}..{p.valid_max})"
-            if p.enumerations:
-                detail += f"  enum={p.enumerations}"
-            if p.description:
-                detail += f"  — {p.description}"
-            lines.append(detail)
-        if not cmd.params:
-            lines.append("      (no parameters)")
-        lines.append("")
+        lines.extend(_format_command_block(cmd))
 
     lines.append("TELEMETRY")
     lines.append("-" * 60)
     for pkt in simdef.packets:
-        header = f"APID 0x{pkt.apid:02X}  {pkt.name}"
-        if pkt.description:
-            header += f"  — {pkt.description}"
-        lines.append(header)
-        lines.append(f"      struct: {pkt.struct_format}")
-        for f in pkt.fields:
-            detail = f"      {f.name:<24} {f.python_type:<8} {f.size_bits}b"
-            if f.unit:
-                detail += f"  [{f.unit}]"
-            if f.description:
-                detail += f"  — {f.description}"
-            lines.append(detail)
-        if not pkt.fields:
-            lines.append("      (no fields)")
-        lines.append("")
+        lines.extend(_format_packet_block(pkt))
 
     return "\n".join(lines)
 
