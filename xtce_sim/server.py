@@ -197,22 +197,24 @@ class SimServer:
             conn.writer.close()
 
     async def _beacon_loop(self) -> None:
-        """Broadcast every telemetry packet on a fixed interval."""
-        try:
-            while True:
-                if self._clients:
-                    for packet_def in self.simdef.packets:
-                        # One packet failing (e.g. a bad telemetry_source value)
-                        # must not kill the whole beacon loop.
-                        try:
-                            await self.send_packet(packet_def.apid)
-                        except Exception:
-                            self.logger.exception(
-                                "beacon: failed to send APID 0x%X", packet_def.apid
-                            )
-                await asyncio.sleep(self.beacon_interval)
-        except asyncio.CancelledError:
-            pass
+        """Broadcast every telemetry packet on a fixed interval.
+
+        On cancellation (server stop) the CancelledError raised inside the
+        ``sleep`` propagates out and marks the task cancelled — it is not
+        swallowed. ``stop()`` awaits the task and suppresses it there.
+        """
+        while True:
+            if self._clients:
+                for packet_def in self.simdef.packets:
+                    # One packet failing (e.g. a bad telemetry_source value)
+                    # must not kill the whole beacon loop.
+                    try:
+                        await self.send_packet(packet_def.apid)
+                    except Exception:
+                        self.logger.exception(
+                            "beacon: failed to send APID 0x%X", packet_def.apid
+                        )
+            await asyncio.sleep(self.beacon_interval)
 
     async def _client_writer(self, conn: _ClientConn) -> None:
         """Drain one client's outbound queue, one write at a time."""
@@ -231,9 +233,10 @@ class SimServer:
                     # stop() awaits these tasks and would otherwise abort cleanup.
                     self.logger.exception("unexpected client write error; dropping")
                     break
-        except asyncio.CancelledError:
-            pass
         finally:
+            # Runs on normal exit, on drop-via-break, and on cancellation.
+            # CancelledError is not caught here, so it propagates and the task
+            # is properly marked cancelled; stop() suppresses it when awaiting.
             self._clients.pop(writer, None)
             writer.close()
 
