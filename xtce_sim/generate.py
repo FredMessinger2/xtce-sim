@@ -261,37 +261,45 @@ def _param_info_for_arg(arg) -> ParamInfo:
     )
 
 
-def build_commands(xtce_def: XTCEDefinition) -> list[CommandDef]:
-    """Build the concrete command list with opcodes and user parameters.
+def _reserve_real_opcodes(
+    concrete: list[MetaCommand],
+) -> tuple[dict[str, Optional[int]], set[int]]:
+    """Resolve each command's real (explicit) opcode and reserve it.
 
-    Real opcodes come from each command's FixedValueEntry. Commands that lack
-    one get a synthetic opcode from SYNTHETIC_OPCODE_BASE upward, skipping any
-    value already claimed by a real opcode (or an earlier synthetic) so every
-    command dispatches to a distinct opcode. Result is sorted by opcode.
+    Returns ``(real_opcodes_by_name, taken)``. Raises GeneratorError on an
+    out-of-range opcode or a collision between two real commands (either would
+    make one command undispatchable).
     """
-    concrete = xtce_def.get_concrete_commands()
-
-    # First pass: resolve real opcodes and reserve them, rejecting out-of-range
-    # values and collisions between two real commands (either would make one
-    # command undispatchable).
     real_opcodes: dict[str, Optional[int]] = {}
     taken: set[int] = set()
     for cmd in concrete:
         opcode = extract_opcode(cmd)
         real_opcodes[cmd.name] = opcode
-        if opcode is not None:
-            if not 0 <= opcode <= MAX_OPCODE:
-                raise GeneratorError(
-                    f"command {cmd.name!r} has opcode 0x{opcode:X} outside 0x00–0xFF"
-                )
-            if opcode in taken:
-                raise GeneratorError(
-                    f"duplicate opcode 0x{opcode:02X} (command {cmd.name!r} collides "
-                    "with an earlier command)"
-                )
-            taken.add(opcode)
+        if opcode is None:
+            continue
+        if not 0 <= opcode <= MAX_OPCODE:
+            raise GeneratorError(
+                f"command {cmd.name!r} has opcode 0x{opcode:X} outside 0x00–0xFF"
+            )
+        if opcode in taken:
+            raise GeneratorError(
+                f"duplicate opcode 0x{opcode:02X} (command {cmd.name!r} collides "
+                "with an earlier command)"
+            )
+        taken.add(opcode)
+    return real_opcodes, taken
 
-    # Second pass: assign collision-free synthetic opcodes in definition order.
+
+def _assign_synthetic_opcodes(
+    concrete: list[MetaCommand],
+    real_opcodes: dict[str, Optional[int]],
+    taken: set[int],
+) -> list[CommandDef]:
+    """Build CommandDefs, assigning collision-free synthetic opcodes (in
+    definition order) to commands that lack a real one.
+
+    Raises GeneratorError if the synthetic opcode space is exhausted.
+    """
     next_synthetic = SYNTHETIC_OPCODE_BASE
     commands: list[CommandDef] = []
     for cmd in concrete:
@@ -310,7 +318,6 @@ def build_commands(xtce_def: XTCEDefinition) -> list[CommandDef]:
             next_synthetic += 1
 
         params = [_param_info_for_arg(arg) for arg in cmd.get_user_arguments()]
-
         commands.append(
             CommandDef(
                 name=cmd.name,
@@ -320,7 +327,20 @@ def build_commands(xtce_def: XTCEDefinition) -> list[CommandDef]:
                 params=params,
             )
         )
+    return commands
 
+
+def build_commands(xtce_def: XTCEDefinition) -> list[CommandDef]:
+    """Build the concrete command list with opcodes and user parameters.
+
+    Real opcodes come from each command's FixedValueEntry. Commands that lack
+    one get a synthetic opcode from SYNTHETIC_OPCODE_BASE upward, skipping any
+    value already claimed by a real opcode (or an earlier synthetic) so every
+    command dispatches to a distinct opcode. Result is sorted by opcode.
+    """
+    concrete = xtce_def.get_concrete_commands()
+    real_opcodes, taken = _reserve_real_opcodes(concrete)
+    commands = _assign_synthetic_opcodes(concrete, real_opcodes, taken)
     commands.sort(key=lambda c: c.opcode)
     return commands
 

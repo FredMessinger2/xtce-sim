@@ -44,6 +44,13 @@ def test_duplicate_real_opcode_rejected():
         build_commands(xdef)
 
 
+def test_out_of_range_opcode_rejected():
+    xdef = models.XTCEDefinition(space_system_name="S", namespace="")
+    xdef.meta_commands["A"] = _cmd_with_opcode("A", "1FF")  # 0x1FF = 511 > 0xFF
+    with pytest.raises(GeneratorError, match="outside 0x00"):
+        build_commands(xdef)
+
+
 def test_synthetic_opcode_exhaustion_raises():
     xdef = models.XTCEDefinition(space_system_name="S", namespace="")
     for i in range(65):  # 0xC0..0xFF is only 64 slots
