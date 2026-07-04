@@ -335,7 +335,7 @@ def _run_stream(host, port, style, decode, show_all_fields, count) -> None:
         apid, name, seq, meta, prefix = decoded
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         if style == "table":
-            click.echo(render.render_table(ts, apid, name, seq, meta, prefix))
+            click.echo(render.render_table(ts, apid, name, seq, meta))
         else:
             click.echo(
                 render.render_compact(

@@ -124,7 +124,7 @@ async def test_send_packet_unknown_apid_is_ignored(simdef: SimDefinition):
     server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=10.0)
     await server.start()
     try:
-        await server.send_packet(0x7FF)  # not a real APID; logs a warning, no raise
+        server.send_packet(0x7FF)  # not a real APID; logs a warning, no raise
     finally:
         await server.stop()
 
@@ -150,7 +150,7 @@ async def test_write_error_drops_client(simdef: SimDefinition):
     try:
         broken = BrokenWriter()
         conn = _register_fake(server, broken)
-        await server.send_packet(simdef.packets[0].apid)  # enqueues; writer task errors
+        server.send_packet(simdef.packets[0].apid)  # enqueues; writer task errors
         await _wait_dropped(server, broken)
         assert broken not in server._clients  # dropped on write error
         # The writer task handled the error gracefully (didn't propagate it).
@@ -243,7 +243,7 @@ async def test_slow_client_dropped_without_blocking_others(simdef: SimDefinition
     try:
         stalled = StalledWriter()
         conn = _register_fake(server, stalled)
-        await server.send_packet(simdef.packets[0].apid)  # enqueue; drain will hang
+        server.send_packet(simdef.packets[0].apid)  # enqueue; drain will hang
         await _wait_dropped(server, stalled)  # writer task times out after 0.1s
         assert stalled not in server._clients
         # Timeout was handled gracefully, not propagated out of the task.
@@ -278,7 +278,7 @@ async def test_full_queue_drops_client_without_blocking_broadcast(simdef: SimDef
         # send_packet enqueues without yielding, so the queue fills before the
         # writer task can drain it; the overflow enqueue drops the client.
         for _ in range(6):
-            await server.send_packet(apid)
+            server.send_packet(apid)
         assert stalled not in server._clients
     finally:
         await server.stop()

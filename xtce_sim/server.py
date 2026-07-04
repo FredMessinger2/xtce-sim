@@ -156,14 +156,18 @@ class SimServer:
 
     # ---- telemetry ---------------------------------------------------------
 
-    async def send_packet(
+    def send_packet(
         self,
         apid: int,
         values: Optional[dict] = None,
         *,
         writer: Optional[asyncio.StreamWriter] = None,
     ) -> None:
-        """Send one telemetry packet to a single client, or broadcast to all."""
+        """Send one telemetry packet to a single client, or broadcast to all.
+
+        Synchronous: it only builds the packet and enqueues it (the per-client
+        writer task does the actual awaiting I/O), so it never blocks or yields.
+        """
         packet_def = self.simdef.packet_by_apid(apid)
         if packet_def is None:
             self.logger.warning("send_packet: unknown APID 0x%X", apid)
@@ -209,7 +213,7 @@ class SimServer:
                     # One packet failing (e.g. a bad telemetry_source value)
                     # must not kill the whole beacon loop.
                     try:
-                        await self.send_packet(packet_def.apid)
+                        self.send_packet(packet_def.apid)
                     except Exception:
                         self.logger.exception(
                             "beacon: failed to send APID 0x%X", packet_def.apid
@@ -267,7 +271,7 @@ class SimServer:
                     self.logger.warning("framing error from %s: %s", peer, exc)
                     break
                 for packet in packets:
-                    await self._dispatch(packet, writer)
+                    await self._dispatch(packet)
         except OSError as exc:
             self.logger.debug("client %s read error: %s", peer, exc)
         finally:
@@ -276,7 +280,7 @@ class SimServer:
             writer.close()
             self.logger.info("client disconnected: %s (%d total)", peer, len(self._clients))
 
-    async def _dispatch(self, packet: bytes, writer: asyncio.StreamWriter) -> None:
+    async def _dispatch(self, packet: bytes) -> None:
         opcode, payload = ccsds.parse_command_packet(packet)
         if opcode is None:
             self.logger.warning("received undecodable command packet (%d bytes)", len(packet))

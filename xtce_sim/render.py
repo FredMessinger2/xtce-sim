@@ -88,8 +88,12 @@ def render_compact(
     )
 
 
-def render_table(ts: str, apid: int, name: str, seq: int, meta: Meta, prefix: str) -> str:
-    """A boxed header plus an aligned row per field (value + unit)."""
+def render_table(ts: str, apid: int, name: str, seq: int, meta: Meta) -> str:
+    """A boxed header plus an aligned row per field (value + unit).
+
+    Unlike the compact/dashboard styles, the table shows full field names
+    (it has the room), so it takes no shared-prefix argument.
+    """
     title = f" {name} · APID 0x{apid:02X} · seq {seq} · {ts} "
     width = max((len(n) for n, _, _ in meta), default=0)
     lines = [click.style("┌" + title, fg="cyan")]

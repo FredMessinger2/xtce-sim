@@ -53,7 +53,7 @@ def test_compact_show_all():
 
 
 def test_table_lists_every_field_full_names():
-    out = plain(render.render_table("14:22:01", 0x01, "HOUSEKEEPING", 42, META, PREFIX))
+    out = plain(render.render_table("14:22:01", 0x01, "HOUSEKEEPING", 42, META))
     lines = out.splitlines()
     assert lines[0].startswith("┌") and "APID 0x01" in lines[0]
     assert any("HK_BATTERY_VOLTAGE" in ln and "7.42" in ln and "V" in ln for ln in lines)
