@@ -429,7 +429,6 @@ class XTCEParser:
                 enumerations.append(EnumerationValue(label=label, value=value))
 
         # Get size from IntegerDataEncoding if present
-        size_in_bits = 8
         data_enc = self._find(elem, "IntegerDataEncoding")
         if data_enc is not None:
             size_in_bits = int(self._get_attr(data_enc, "sizeInBits", "8"))

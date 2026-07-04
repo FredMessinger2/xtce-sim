@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 
 @dataclass
@@ -92,7 +92,7 @@ class SimDefinition:
     # ---- construction ------------------------------------------------------
 
     @classmethod
-    def from_xtce(cls, xtce: Union[str, Path, list]) -> "SimDefinition":
+    def from_xtce(cls, xtce: str | Path | list) -> "SimDefinition":
         """Parse one or more XTCE files and build a resolved SimDefinition.
 
         Accepts a single path or a list of paths. Multiple files are merged
@@ -170,6 +170,6 @@ class SimDefinition:
         )
 
     @classmethod
-    def from_json(cls, path: Union[str, Path]) -> "SimDefinition":
+    def from_json(cls, path: str | Path) -> "SimDefinition":
         """Load a SimDefinition from a dumped cmd_tlm.json file."""
         return cls.from_dict(json.loads(Path(path).read_text()))

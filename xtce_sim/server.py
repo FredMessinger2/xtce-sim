@@ -225,7 +225,9 @@ class SimServer:
                 try:
                     writer.write(data)
                     await asyncio.wait_for(writer.drain(), self.write_timeout)
-                except (ConnectionError, OSError, TimeoutError, asyncio.TimeoutError) as exc:
+                except OSError as exc:
+                    # OSError covers ConnectionError and TimeoutError (the
+                    # wait_for timeout); all are subclasses on Python 3.11+.
                     self.logger.debug("dropping unresponsive client: %s", exc)
                     break
                 except Exception:
@@ -266,7 +268,7 @@ class SimServer:
                     break
                 for packet in packets:
                     await self._dispatch(packet, writer)
-        except (ConnectionError, OSError) as exc:
+        except OSError as exc:
             self.logger.debug("client %s read error: %s", peer, exc)
         finally:
             self._clients.pop(writer, None)

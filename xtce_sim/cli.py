@@ -230,7 +230,7 @@ def send(
         client.send_command(host, port, command, args, apid=apid)
     except (ValueError, struct.error) as exc:
         raise click.ClickException(str(exc)) from exc
-    except (ConnectionError, OSError) as exc:
+    except OSError as exc:
         raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
 
     click.echo(f"sent {command.name} (0x{command.opcode:02X}) args={args or '{}'}")
@@ -321,7 +321,7 @@ def monitor(
             _run_stream(host, port, style, decode, show_all_fields, count)
     except KeyboardInterrupt:
         pass
-    except (ConnectionError, OSError) as exc:
+    except OSError as exc:
         raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
 
 
