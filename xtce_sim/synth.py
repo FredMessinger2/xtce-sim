@@ -32,38 +32,40 @@ _INT_BOUNDS = {
 }
 
 
+# Ordered field-name -> signal rules (first match wins), preserving the
+# original keyword precedence. Each keyword tuple maps to a function of time t;
+# a field whose upper-cased name contains any keyword uses that rule.
+_SIGNAL_RULES: list[tuple[tuple[str, ...], Callable[[float], float]]] = [
+    (("TIMESTAMP",), lambda t: 1735689600 + t),
+    (("COUNT", "UPTIME", "TOTAL", "SEQUENCE", "SEQ", "NUM"), lambda t: t * 2),  # rising
+    (("VOLT",), lambda t: 7.4 + 0.15 * math.sin(t / 5)),
+    (("CURRENT",), lambda t: 0.8 + 0.2 * math.sin(t / 4)),
+    (("TEMP", "THERM"), lambda t: 22 + 4 * math.sin(t / 20)),
+    (("FUEL", "PERCENT"), lambda t: max(0.0, 95 - t * 0.05)),  # slow drain
+    (("ALT",), lambda t: 500 + 8 * math.sin(t / 30)),
+    (("VEL",), lambda t: 7.6 + 0.05 * math.sin(t / 10)),
+    (("RATE", "ANGULAR", "POINT", "DELTA"), lambda t: 0.5 * math.sin(t / 3)),  # wobble ~0
+    (("WHEEL", "RPM", "SPEED"), lambda t: 1500 + 200 * math.sin(t / 8)),
+    (("FREQ",), lambda t: 2200 + 5 * math.sin(t / 12)),
+    (("POWER", "DBM"), lambda t: 20 + 2 * math.sin(t / 9)),
+    (("MODE", "STATE", "STATUS", "REGIME", "TYPE", "PHASE"), lambda t: (t / 6) % 4),  # steps
+    (
+        ("FLAG", "ENABLED", "SEVERITY", "RESULT", "ERROR", "FAULT"),
+        lambda t: 1.0 if math.sin(t / 7) > 0.6 else 0.0,
+    ),
+]
+
+
 def _base_signal(name: str, t: float) -> float:
-    """A plausible moving value for a field, chosen by name keywords."""
-    s = math.sin
-    if "TIMESTAMP" in name:
-        return 1735689600 + t
-    if any(k in name for k in ("COUNT", "UPTIME", "TOTAL", "SEQUENCE", "SEQ", "NUM")):
-        return t * 2  # monotonically rising
-    if "VOLT" in name:
-        return 7.4 + 0.15 * s(t / 5)
-    if "CURRENT" in name:
-        return 0.8 + 0.2 * s(t / 4)
-    if "TEMP" in name or "THERM" in name:
-        return 22 + 4 * s(t / 20)
-    if "FUEL" in name or "PERCENT" in name:
-        return max(0.0, 95 - t * 0.05)  # slow drain
-    if "ALT" in name:
-        return 500 + 8 * s(t / 30)
-    if "VEL" in name:
-        return 7.6 + 0.05 * s(t / 10)
-    if any(k in name for k in ("RATE", "ANGULAR", "POINT", "DELTA")):
-        return 0.5 * s(t / 3)  # small wobble around 0
-    if "WHEEL" in name or "RPM" in name or "SPEED" in name:
-        return 1500 + 200 * s(t / 8)
-    if "FREQ" in name:
-        return 2200 + 5 * s(t / 12)
-    if "POWER" in name or "DBM" in name:
-        return 20 + 2 * s(t / 9)
-    if any(k in name for k in ("MODE", "STATE", "STATUS", "REGIME", "TYPE", "PHASE")):
-        return (t / 6) % 4  # steps through a few values
-    if any(k in name for k in ("FLAG", "ENABLED", "SEVERITY", "RESULT", "ERROR", "FAULT")):
-        return 1.0 if s(t / 7) > 0.6 else 0.0
-    return 50 + 40 * s(t / 6)
+    """A plausible moving value for a field, chosen by name keywords.
+
+    Rules are checked in order; the first whose keyword appears in ``name``
+    wins. Unmatched fields get a generic slow sine.
+    """
+    for keywords, fn in _SIGNAL_RULES:
+        if any(k in name for k in keywords):
+            return fn(t)
+    return 50 + 40 * math.sin(t / 6)
 
 
 def _synth_value(python_type: str, name: str, t: float):
