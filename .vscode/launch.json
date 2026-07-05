@@ -6,7 +6,16 @@
       "type": "debugpy",
       "request": "launch",
       "module": "xtce_sim.cli",
-      "args": ["run", "examples/my_vehicle.xml", "--id", "sat-a", "--port", "5000", "--live"],
+      "args": ["run", "examples/my_vehicle.xml", "--id", "sat-a", "--port", "5000", "--live", "--interval", "5"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Server: run imaging_sat (--live)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "xtce_sim.cli",
+      "args": ["run", "examples/imaging_sat.xml", "--id", "img", "--port", "5001", "--live", "--interval", "5"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}"
     },
@@ -30,6 +39,16 @@
       ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug: parse XTCE (generate)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "xtce_sim.cli",
+      "args": ["generate", "examples/my_vehicle.xml", "--out", "runs/debug"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
     },
     {
       "name": "Pytest: current file",
