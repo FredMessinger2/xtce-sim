@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import socket
 import struct
 import sys
 from datetime import datetime
@@ -25,6 +26,7 @@ import click
 
 from xtce_sim import ccsds, client, codec, render
 from xtce_sim.definition import SimDefinition
+from xtce_sim.exercise import command_arg_sets, run_exercise
 from xtce_sim.generate import emit_python, format_json, format_text
 from xtce_sim.logs import setup_logging
 from xtce_sim.server import SimServer
@@ -395,6 +397,103 @@ def _run_dashboard(host, port, instance, decode, count) -> None:
                 break
         latest[apid] = (name, seq, meta, prefix)
         total += 1
+
+
+@main.command()
+@click.option("--port", required=True, type=int, help="TCP port of the running sim.")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host to connect to.")
+@click.option("--id", "instance_id", default=None, help="Load def from runs/<id>/cmd_tlm.json.")
+@click.option(
+    "--def",
+    "def_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Definition source: an XTCE .xml or a cmd_tlm.json.",
+)
+@click.option("--apid", default=1, show_default=True, type=int, help="APID for command packets.")
+@click.option(
+    "--command",
+    "command_filter",
+    multiple=True,
+    help="Only exercise these commands (repeatable; default: all).",
+)
+@click.option(
+    "--verify/--no-verify",
+    default=True,
+    show_default=True,
+    help="After sending, read telemetry back to confirm the sim stayed healthy.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Print the commands/args that would be sent; connect to nothing.",
+)
+def exercise(port, host, instance_id, def_path, apid, command_filter, verify, dry_run) -> None:
+    """Send a valid instance of every command, then check telemetry health.
+
+    Exercises the whole command surface thoroughly: one send per enum value and
+    per numeric min/max boundary. There are no command->telemetry side effects
+    yet, so --verify checks that telemetry stays flowing and decodable, not a
+    per-command effect.
+    """
+    simdef = _load_definition(instance_id, def_path)
+
+    wanted = set(command_filter)
+    if wanted:
+        missing = wanted - {c.name for c in simdef.commands}
+        if missing:
+            raise click.ClickException(f"unknown command(s): {sorted(missing)}")
+    targets = [c for c in simdef.commands if not wanted or c.name in wanted]
+
+    if dry_run:
+        _exercise_dry_run(targets)
+        return
+
+    # Fail fast with a clean message if the sim isn't reachable.
+    try:
+        socket.create_connection((host, port), timeout=3).close()
+    except OSError as exc:
+        raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
+
+    click.echo(f"Exercising {len(targets)} command(s) on {host}:{port} ...")
+    report = run_exercise(
+        simdef, host, port, apid=apid, commands={c.name for c in targets}, verify=verify
+    )
+    _print_exercise_report(report, verify=verify)
+    if not report.ok:
+        raise SystemExit(1)
+
+
+def _exercise_dry_run(targets) -> None:
+    """Print the commands/args that ``exercise`` would send, without connecting."""
+    total = 0
+    for cmd in targets:
+        for label, args in command_arg_sets(cmd):
+            total += 1
+            click.echo(f"  {cmd.name:<22} {label:<26} {args}")
+    click.echo(f"{total} sends across {len(targets)} command(s) — dry run, nothing sent")
+
+
+def _print_exercise_report(report, *, verify: bool) -> None:
+    """Echo per-command failures and the telemetry-health summary."""
+    for s in report.failures:
+        click.echo(click.style(f"  FAIL {s.command} [{s.label}]: {s.error}", fg="red"))
+    total = len(report.sends)
+    tail = f", {len(report.failures)} FAILED" if report.failures else ""
+    click.echo(f"Commands: sent {total - len(report.failures)}/{total} OK{tail}")
+
+    if not (verify and report.telemetry is not None):
+        return
+    t = report.telemetry
+    if t.error:
+        click.echo(click.style(f"Telemetry: could not read ({t.error})", fg="yellow"))
+        return
+    click.echo(
+        f"Telemetry: {t.packets} packet(s), {len(t.apids)} APID(s), "
+        f"{t.decode_failures} decode failure(s)"
+    )
+    if t.sample:
+        click.echo(f"  sample: {t.sample}")
 
 
 if __name__ == "__main__":
