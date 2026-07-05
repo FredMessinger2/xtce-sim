@@ -687,7 +687,18 @@ class SequenceContainer:
     base_container: Optional["SequenceContainer"] = None
 
     def get_all_entries(self) -> list[str]:
-        """Get all parameter refs including inherited from base container."""
+        """All parameter refs, including those inherited from base containers.
+
+        Walks the ``base_container`` chain (base first, then this container's
+        own entries). This is the seam for full container-inheritance support.
+
+        Note: the telemetry packet builder (``generate.build_packets``)
+        deliberately does NOT use this — it takes only local ``entries``,
+        because inherited base-container parameters are the CCSDS
+        header/discriminator fields, which the sim synthesizes itself rather
+        than reading from XTCE. Use this only if/when base containers need to
+        contribute shared *payload* fields (see build_packets' docstring).
+        """
         entries = []
         if self.base_container:
             entries.extend(self.base_container.get_all_entries())
@@ -728,7 +739,12 @@ class XTCEDefinition:
         return [cmd for cmd in self.meta_commands.values() if not cmd.abstract]
 
     def get_telemetry_packets(self) -> list[SequenceContainer]:
-        """Get all telemetry containers that have APID restriction (concrete packets)."""
+        """Concrete telemetry packets: containers with a CCSDS_APID restriction.
+
+        Abstract base containers (which exist only to be inherited from and
+        carry no APID of their own) are intentionally excluded — they are not
+        packets the sim serves, only a source of a shared APID discriminator.
+        """
         return [
             c
             for c in self.containers.values()

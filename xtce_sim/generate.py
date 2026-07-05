@@ -394,6 +394,19 @@ def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
 
     Two packets sharing an APID are rejected: the sim dispatches telemetry by
     APID, so a duplicate makes one packet unreachable.
+
+    Only a container's *own* entries become payload fields. The 6-byte CCSDS
+    primary header (APID included) is synthesized at send time by
+    ``ccsds.build_telemetry_packet``, so the header/discriminator parameters
+    that a concrete container inherits from an abstract base container are
+    deliberately excluded here — pulling them in via the inheritance chain
+    would duplicate the APID as a bogus leading field and corrupt decoding.
+
+    Known limitation: if a base container ever carried shared *payload* fields
+    (e.g. a common secondary-header timestamp inherited by several packets),
+    those inherited fields would be dropped. No current XTCE does this;
+    supporting it would mean walking ``SequenceContainer.get_all_entries()``
+    and telling synthesized-header parameters apart from real payload.
     """
     packets: list[PacketDef] = []
     seen_apids: dict[int, str] = {}
@@ -408,6 +421,8 @@ def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
         seen_apids[apid] = container.name
 
         fields: list[FieldInfo] = []
+        # Local entries only (not get_all_entries()) — see the docstring on why
+        # inherited base-container header/discriminator params are excluded.
         for param_ref in container.entries:
             param = xtce_def.parameters.get(param_ref)
             if param:
