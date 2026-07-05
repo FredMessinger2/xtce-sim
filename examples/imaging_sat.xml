@@ -1,0 +1,1579 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  ImagingSat — Earth Observation Satellite (example) — Combined Command & Telemetry
+  XTCE 1.3 format (a single file with both CommandMetaData and TelemetryMetaData).
+
+  A second, richer example than my_vehicle: an imaging satellite whose command
+  and telemetry interface is described by one combined XTCE. Some commands carry
+  tlm_func ancillary data (telemetry side effects); xtce-sim parses it but does
+  not apply it yet, so those functions are inert for now.
+
+  Subsystems:
+    0 = CDH (Command & Data Handling)
+    1 = EPS (Electrical Power System)
+    2 = THERMAL
+    3 = COMMS
+    4 = IMAGER (Earth observation payload)
+    5 = ADCS (Attitude Determination & Control)
+
+  CCSDS APID = 0x40 (64) for commands, telemetry APIDs below.
+-->
+<xtce:SpaceSystem xmlns:xtce="http://www.omg.org/spec/XTCE/20250214" name="ImagingSat">
+
+  <xtce:Header version="1.0" date="2026-02-11" validationStatus="Working">
+    <xtce:AuthorSet>
+      <xtce:Author>XTCE Framework Generator</xtce:Author>
+    </xtce:AuthorSet>
+  </xtce:Header>
+
+  <!-- ================================================================== -->
+  <!--                     TELEMETRY META DATA                            -->
+  <!-- ================================================================== -->
+  <xtce:TelemetryMetaData>
+
+    <xtce:ParameterTypeSet>
+
+      <!-- CCSDS Header Types -->
+      <xtce:IntegerParameterType name="VersionType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="3" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="PacketTypeType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="SecHdrFlagType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="APIDType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="11" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="SeqFlagsType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="2" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="SeqCountType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="14" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="PacketLengthType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <!-- Timestamp: 32-bit seconds since epoch -->
+      <xtce:IntegerParameterType name="TimestampType" signed="false">
+        <xtce:UnitSet><xtce:Unit>s</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <!-- Generic types -->
+      <xtce:IntegerParameterType name="ByteType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="UInt16Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="Int16Type" signed="true">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement" />
+      </xtce:IntegerParameterType>
+
+      <xtce:IntegerParameterType name="UInt32Type" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="32" encoding="unsigned" />
+      </xtce:IntegerParameterType>
+
+      <xtce:FloatParameterType name="Float32Type">
+        <xtce:FloatDataEncoding sizeInBits="32" />
+      </xtce:FloatParameterType>
+
+      <!-- 64-bit float seconds-since-epoch timestamp (sub-millisecond precision).
+           Used for LINK_VALIDATE round-trip timing.  (CMD_ACTIONS_300) -->
+      <xtce:FloatParameterType name="Float64TimestampType">
+        <xtce:UnitSet><xtce:Unit>s</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="64" />
+      </xtce:FloatParameterType>
+
+      <!-- Voltage: raw 8-bit scaled to 0-40V range -->
+      <xtce:FloatParameterType name="VoltageType">
+        <xtce:UnitSet><xtce:Unit>V</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.157" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:DefaultAlarm>
+          <xtce:StaticAlarmRanges>
+            <xtce:WarningRange minInclusive="24.0" maxInclusive="34.0" />
+            <xtce:CriticalRange minInclusive="22.0" maxInclusive="36.0" />
+          </xtce:StaticAlarmRanges>
+        </xtce:DefaultAlarm>
+      </xtce:FloatParameterType>
+
+      <!-- Current: raw 16-bit scaled to 0-50A range -->
+      <xtce:FloatParameterType name="CurrentType">
+        <xtce:UnitSet><xtce:Unit>A</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.001" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+
+      <!-- Temperature: raw 16-bit signed, scaled to degC -->
+      <xtce:FloatParameterType name="TemperatureType">
+        <xtce:UnitSet><xtce:Unit>degC</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+        <xtce:DefaultAlarm>
+          <xtce:StaticAlarmRanges>
+            <xtce:WarningRange minInclusive="-20.0" maxInclusive="50.0" />
+            <xtce:CriticalRange minInclusive="-40.0" maxInclusive="65.0" />
+          </xtce:StaticAlarmRanges>
+        </xtce:DefaultAlarm>
+      </xtce:FloatParameterType>
+
+      <!-- Enumerated: System Mode -->
+      <xtce:EnumeratedParameterType name="SystemModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SAFE" value="0" />
+          <xtce:Enumeration label="STANDBY" value="1" />
+          <xtce:Enumeration label="NOMINAL" value="2" />
+          <xtce:Enumeration label="IMAGING" value="3" />
+          <xtce:Enumeration label="DOWNLINK" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- Enumerated: Power State -->
+      <xtce:EnumeratedParameterType name="PowerStateParamType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="ON" value="1" />
+          <xtce:Enumeration label="STANDBY" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- Enumerated: Heater State -->
+      <xtce:EnumeratedParameterType name="HeaterStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="ON" value="1" />
+          <xtce:Enumeration label="AUTO" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- Enumerated: Imager State -->
+      <xtce:EnumeratedParameterType name="ImagerStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="IDLE" value="1" />
+          <xtce:Enumeration label="CAPTURING" value="2" />
+          <xtce:Enumeration label="PROCESSING" value="3" />
+          <xtce:Enumeration label="ERROR" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- Enumerated: Attitude Mode -->
+      <xtce:EnumeratedParameterType name="AttitudeModeParamType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SUN_POINT" value="0" />
+          <xtce:Enumeration label="NADIR" value="1" />
+          <xtce:Enumeration label="TARGET" value="2" />
+          <xtce:Enumeration label="INERTIAL" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- String type for event messages -->
+      <xtce:StringParameterType name="EventMessageType">
+        <xtce:StringDataEncoding>
+          <xtce:SizeInBits>
+            <xtce:Fixed><xtce:FixedValue>256</xtce:FixedValue></xtce:Fixed>
+          </xtce:SizeInBits>
+        </xtce:StringDataEncoding>
+      </xtce:StringParameterType>
+
+      <!-- Filename string (32 bytes, null-padded) for FILE_RECEIPT -->
+      <xtce:StringParameterType name="FilenameType">
+        <xtce:StringDataEncoding>
+          <xtce:SizeInBits>
+            <xtce:Fixed><xtce:FixedValue>256</xtce:FixedValue></xtce:Fixed>
+          </xtce:SizeInBits>
+        </xtce:StringDataEncoding>
+      </xtce:StringParameterType>
+
+      <!-- Transfer status enumeration -->
+      <xtce:EnumeratedParameterType name="TransferStatusType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SUCCESS" value="0" />
+          <xtce:Enumeration label="FAILED" value="1" />
+          <xtce:Enumeration label="IN_PROGRESS" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- ===== ATS/RTS Parameter Types ===== -->
+
+      <!-- Sequence execution state -->
+      <xtce:EnumeratedParameterType name="SeqStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="IDLE" value="0" />
+          <xtce:Enumeration label="LOADED" value="1" />
+          <xtce:Enumeration label="RUNNING" value="2" />
+          <xtce:Enumeration label="STOPPED" value="3" />
+          <xtce:Enumeration label="COMPLETE" value="4" />
+          <xtce:Enumeration label="ERROR" value="5" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- Command execution result -->
+      <xtce:EnumeratedParameterType name="CmdResultType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SUCCESS" value="0" />
+          <xtce:Enumeration label="FAILED" value="1" />
+          <xtce:Enumeration label="PENDING" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- Sequence name (32-char fixed string, reuses same encoding as FilenameType) -->
+      <xtce:StringParameterType name="SeqNameType">
+        <xtce:StringDataEncoding>
+          <xtce:SizeInBits>
+            <xtce:Fixed><xtce:FixedValue>256</xtce:FixedValue></xtce:Fixed>
+          </xtce:SizeInBits>
+        </xtce:StringDataEncoding>
+      </xtce:StringParameterType>
+
+    </xtce:ParameterTypeSet>
+
+    <xtce:ParameterSet>
+      <!-- CCSDS Header Parameters -->
+      <xtce:Parameter name="VERSION" parameterTypeRef="VersionType" />
+      <xtce:Parameter name="TYPE" parameterTypeRef="PacketTypeType" />
+      <xtce:Parameter name="SEC_HDR_FLAG" parameterTypeRef="SecHdrFlagType" />
+      <xtce:Parameter name="APID" parameterTypeRef="APIDType" />
+      <xtce:Parameter name="SEQ_FLAGS" parameterTypeRef="SeqFlagsType" />
+      <xtce:Parameter name="SEQ_COUNT" parameterTypeRef="SeqCountType" />
+      <xtce:Parameter name="CCSDS_LENGTH" parameterTypeRef="PacketLengthType" />
+
+      <!-- HOUSEKEEPING Parameters (APID 0x10) -->
+      <xtce:Parameter name="HK_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Onboard time" />
+      <xtce:Parameter name="HK_SYSTEM_MODE" parameterTypeRef="SystemModeType" shortDescription="Current operating mode" />
+      <xtce:Parameter name="HK_CMD_RECV_COUNT" parameterTypeRef="UInt16Type" shortDescription="Commands received" />
+      <xtce:Parameter name="HK_CMD_REJECT_COUNT" parameterTypeRef="UInt16Type" shortDescription="Commands rejected" />
+      <xtce:Parameter name="HK_LAST_CMD_OPCODE" parameterTypeRef="ByteType" shortDescription="Last command opcode" />
+      <xtce:Parameter name="HK_UPTIME" parameterTypeRef="UInt32Type" shortDescription="Seconds since boot" />
+      <xtce:Parameter name="HK_ERROR_COUNT" parameterTypeRef="UInt16Type" shortDescription="Total errors" />
+      <xtce:Parameter name="HK_BUS_VOLTAGE" parameterTypeRef="VoltageType" shortDescription="Main bus voltage" />
+      <xtce:Parameter name="HK_BUS_CURRENT" parameterTypeRef="CurrentType" shortDescription="Main bus current" />
+      <xtce:Parameter name="HK_BATTERY_SOC" parameterTypeRef="ByteType" shortDescription="Battery state of charge %" />
+      <xtce:Parameter name="HK_BOARD_TEMP" parameterTypeRef="TemperatureType" shortDescription="CDH board temperature" />
+      <xtce:Parameter name="HK_ATTITUDE_MODE" parameterTypeRef="AttitudeModeParamType" shortDescription="Current pointing mode" />
+
+      <!-- Link-validation timing fields (populated on LINK_VALIDATE command)  (CMD_ACTIONS_300) -->
+      <xtce:Parameter name="HK_ISSUED_TIMESTAMP" parameterTypeRef="Float64TimestampType" shortDescription="Ground time from LINK_VALIDATE arg" />
+      <xtce:Parameter name="HK_RECEIVED_TIMESTAMP" parameterTypeRef="Float64TimestampType" shortDescription="Sim time at LINK_VALIDATE receipt" />
+      <xtce:Parameter name="HK_GENERATED_TIMESTAMP" parameterTypeRef="Float64TimestampType" shortDescription="Sim time at HK packet generation" />
+
+      <!-- IMAGER_STATUS Parameters (APID 0x11) -->
+      <xtce:Parameter name="IMG_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Imager timestamp" />
+      <xtce:Parameter name="IMG_STATE" parameterTypeRef="ImagerStateType" shortDescription="Imager state" />
+      <xtce:Parameter name="IMG_EXPOSURE_MS" parameterTypeRef="UInt16Type" shortDescription="Exposure time in ms" />
+      <xtce:Parameter name="IMG_GAIN" parameterTypeRef="ByteType" shortDescription="Imager gain level" />
+      <xtce:Parameter name="IMG_BAND1_AVG" parameterTypeRef="Float32Type" shortDescription="Band 1 (Blue) average DN" />
+      <xtce:Parameter name="IMG_BAND2_AVG" parameterTypeRef="Float32Type" shortDescription="Band 2 (Green) average DN" />
+      <xtce:Parameter name="IMG_BAND3_AVG" parameterTypeRef="Float32Type" shortDescription="Band 3 (Red) average DN" />
+      <xtce:Parameter name="IMG_BAND4_AVG" parameterTypeRef="Float32Type" shortDescription="Band 4 (NIR) average DN" />
+      <xtce:Parameter name="IMG_CAPTURE_COUNT" parameterTypeRef="UInt32Type" shortDescription="Total images captured" />
+      <xtce:Parameter name="IMG_FOCAL_PLANE_TEMP" parameterTypeRef="TemperatureType" shortDescription="Focal plane temperature" />
+
+      <!-- POWER_STATUS Parameters (APID 0x12) -->
+      <xtce:Parameter name="PWR_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Power timestamp" />
+      <xtce:Parameter name="PWR_SOLAR_VOLTAGE" parameterTypeRef="VoltageType" shortDescription="Solar array voltage" />
+      <xtce:Parameter name="PWR_SOLAR_CURRENT" parameterTypeRef="CurrentType" shortDescription="Solar array current" />
+      <xtce:Parameter name="PWR_BATTERY_VOLTAGE" parameterTypeRef="VoltageType" shortDescription="Battery voltage" />
+      <xtce:Parameter name="PWR_BATTERY_CURRENT" parameterTypeRef="CurrentType" shortDescription="Battery current" />
+      <xtce:Parameter name="PWR_BATTERY_TEMP" parameterTypeRef="TemperatureType" shortDescription="Battery temperature" />
+      <xtce:Parameter name="PWR_CDH_STATE" parameterTypeRef="PowerStateParamType" shortDescription="CDH power state" />
+      <xtce:Parameter name="PWR_COMMS_STATE" parameterTypeRef="PowerStateParamType" shortDescription="Comms power state" />
+      <xtce:Parameter name="PWR_IMAGER_STATE" parameterTypeRef="PowerStateParamType" shortDescription="Imager power state" />
+      <xtce:Parameter name="PWR_ADCS_STATE" parameterTypeRef="PowerStateParamType" shortDescription="ADCS power state" />
+      <xtce:Parameter name="PWR_HEATER_STATE" parameterTypeRef="PowerStateParamType" shortDescription="Heater power state" />
+
+      <!-- THERMAL_STATUS Parameters (APID 0x13) -->
+      <xtce:Parameter name="THM_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Thermal timestamp" />
+      <xtce:Parameter name="THM_PANEL_PLUS_X" parameterTypeRef="TemperatureType" shortDescription="Panel +X temperature" />
+      <xtce:Parameter name="THM_PANEL_MINUS_X" parameterTypeRef="TemperatureType" shortDescription="Panel -X temperature" />
+      <xtce:Parameter name="THM_PANEL_PLUS_Y" parameterTypeRef="TemperatureType" shortDescription="Panel +Y temperature" />
+      <xtce:Parameter name="THM_PANEL_MINUS_Y" parameterTypeRef="TemperatureType" shortDescription="Panel -Y temperature" />
+      <xtce:Parameter name="THM_RADIATOR" parameterTypeRef="TemperatureType" shortDescription="Radiator temperature" />
+      <xtce:Parameter name="THM_HEATER1_STATE" parameterTypeRef="HeaterStateType" shortDescription="Heater 1 state" />
+      <xtce:Parameter name="THM_HEATER2_STATE" parameterTypeRef="HeaterStateType" shortDescription="Heater 2 state" />
+      <xtce:Parameter name="THM_HEATER1_TEMP" parameterTypeRef="TemperatureType" shortDescription="Heater 1 temperature" />
+      <xtce:Parameter name="THM_HEATER2_TEMP" parameterTypeRef="TemperatureType" shortDescription="Heater 2 temperature" />
+      <xtce:Parameter name="THM_HEATER1_SETPOINT" parameterTypeRef="TemperatureType" shortDescription="Heater 1 setpoint" />
+      <xtce:Parameter name="THM_HEATER2_SETPOINT" parameterTypeRef="TemperatureType" shortDescription="Heater 2 setpoint" />
+
+      <!-- EVENT_LOG Parameters (APID 0x14) -->
+      <xtce:Parameter name="EVT_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Event timestamp" />
+      <xtce:Parameter name="EVT_SEVERITY" parameterTypeRef="ByteType" shortDescription="Severity: 0=INFO,1=WARN,2=ERROR,3=CRITICAL" />
+      <xtce:Parameter name="EVT_SUBSYSTEM" parameterTypeRef="ByteType" shortDescription="Source subsystem ID" />
+      <xtce:Parameter name="EVT_EVENT_ID" parameterTypeRef="UInt16Type" shortDescription="Event identifier" />
+      <xtce:Parameter name="EVT_MESSAGE" parameterTypeRef="EventMessageType" shortDescription="Event text" />
+
+
+      <!-- FILE_RECEIPT Parameters (APID 0x15) -->
+      <xtce:Parameter name="FR_FILENAME" parameterTypeRef="FilenameType" shortDescription="Name of received file" />
+      <xtce:Parameter name="FR_FILE_SIZE" parameterTypeRef="UInt32Type" shortDescription="File size in bytes" />
+      <xtce:Parameter name="FR_CHECKSUM" parameterTypeRef="UInt32Type" shortDescription="CRC32 checksum of file" />
+      <xtce:Parameter name="FR_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Time of file receipt" />
+      <xtce:Parameter name="FR_TRANSFER_STATUS" parameterTypeRef="TransferStatusType" shortDescription="Transfer result" />
+      <xtce:Parameter name="FR_FILE_RECEIVED_COUNT" parameterTypeRef="UInt32Type" shortDescription="Monotonic file received counter" />
+      <xtce:Parameter name="FR_STORAGE_USED" parameterTypeRef="UInt32Type" shortDescription="Current storage used in bytes" />
+      <xtce:Parameter name="FR_STORAGE_AVAILABLE" parameterTypeRef="UInt32Type" shortDescription="Remaining storage in bytes" />
+
+      <!-- ATS_STATUS Parameters (APID 0x16) -->
+      <xtce:Parameter name="ATS_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="ATS packet timestamp" />
+      <xtce:Parameter name="ATS_SEQ_ID" parameterTypeRef="ByteType" shortDescription="Active ATS sequence ID (0=none)" />
+      <xtce:Parameter name="ATS_SEQ_NAME" parameterTypeRef="SeqNameType" shortDescription="Loaded ATS filename" />
+      <xtce:Parameter name="ATS_STATE" parameterTypeRef="SeqStateType" shortDescription="ATS execution state" />
+      <xtce:Parameter name="ATS_CMD_TOTAL" parameterTypeRef="UInt16Type" shortDescription="Total commands in loaded ATS" />
+      <xtce:Parameter name="ATS_CMD_EXECUTED" parameterTypeRef="UInt16Type" shortDescription="ATS commands executed so far" />
+      <xtce:Parameter name="ATS_CMD_REMAINING" parameterTypeRef="UInt16Type" shortDescription="ATS commands remaining" />
+      <xtce:Parameter name="ATS_NEXT_CMD_TIME" parameterTypeRef="UInt32Type" shortDescription="Timestamp of next ATS command" />
+      <xtce:Parameter name="ATS_LAST_CMD_NAME" parameterTypeRef="SeqNameType" shortDescription="Last ATS command executed" />
+      <xtce:Parameter name="ATS_LAST_CMD_RESULT" parameterTypeRef="CmdResultType" shortDescription="Result of last ATS command" />
+
+      <!-- RTS_STATUS Parameters (APID 0x17) -->
+      <xtce:Parameter name="RTS_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="RTS packet timestamp" />
+      <xtce:Parameter name="RTS_SEQ_ID" parameterTypeRef="ByteType" shortDescription="Active RTS sequence ID (0=none)" />
+      <xtce:Parameter name="RTS_SEQ_NAME" parameterTypeRef="SeqNameType" shortDescription="Loaded RTS filename" />
+      <xtce:Parameter name="RTS_STATE" parameterTypeRef="SeqStateType" shortDescription="RTS execution state" />
+      <xtce:Parameter name="RTS_CMD_TOTAL" parameterTypeRef="UInt16Type" shortDescription="Total commands in loaded RTS" />
+      <xtce:Parameter name="RTS_CMD_EXECUTED" parameterTypeRef="UInt16Type" shortDescription="RTS commands executed so far" />
+      <xtce:Parameter name="RTS_CMD_REMAINING" parameterTypeRef="UInt16Type" shortDescription="RTS commands remaining" />
+      <xtce:Parameter name="RTS_ELAPSED_SEC" parameterTypeRef="UInt32Type" shortDescription="Seconds since START_RTS" />
+      <xtce:Parameter name="RTS_LAST_CMD_NAME" parameterTypeRef="SeqNameType" shortDescription="Last RTS command executed" />
+      <xtce:Parameter name="RTS_LAST_CMD_RESULT" parameterTypeRef="CmdResultType" shortDescription="Result of last RTS command" />
+
+    </xtce:ParameterSet>
+
+    <xtce:ContainerSet>
+
+      <!-- Abstract CCSDS Header Container -->
+      <xtce:SequenceContainer name="CCSDSHeader" abstract="true" shortDescription="CCSDS Primary Header">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="VERSION" />
+          <xtce:ParameterRefEntry parameterRef="TYPE" />
+          <xtce:ParameterRefEntry parameterRef="SEC_HDR_FLAG" />
+          <xtce:ParameterRefEntry parameterRef="APID" />
+          <xtce:ParameterRefEntry parameterRef="SEQ_FLAGS" />
+          <xtce:ParameterRefEntry parameterRef="SEQ_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="CCSDS_LENGTH" />
+        </xtce:EntryList>
+      </xtce:SequenceContainer>
+
+      <!-- HOUSEKEEPING Packet (APID 0x10 = 16) -->
+      <xtce:SequenceContainer name="HOUSEKEEPING" shortDescription="Housekeeping telemetry">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="HK_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="HK_SYSTEM_MODE" />
+          <xtce:ParameterRefEntry parameterRef="HK_CMD_RECV_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="HK_CMD_REJECT_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="HK_LAST_CMD_OPCODE" />
+          <xtce:ParameterRefEntry parameterRef="HK_UPTIME" />
+          <xtce:ParameterRefEntry parameterRef="HK_ERROR_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="HK_BUS_VOLTAGE" />
+          <xtce:ParameterRefEntry parameterRef="HK_BUS_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="HK_BATTERY_SOC" />
+          <xtce:ParameterRefEntry parameterRef="HK_BOARD_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="HK_ATTITUDE_MODE" />
+          <!-- Link-validation timing fields  (CMD_ACTIONS_300) -->
+          <xtce:ParameterRefEntry parameterRef="HK_ISSUED_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="HK_RECEIVED_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="HK_GENERATED_TIMESTAMP" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="16" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- IMAGER_STATUS Packet (APID 0x11 = 17) -->
+      <xtce:SequenceContainer name="IMAGER_STATUS" shortDescription="Imager status and data quality">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="IMG_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="IMG_STATE" />
+          <xtce:ParameterRefEntry parameterRef="IMG_EXPOSURE_MS" />
+          <xtce:ParameterRefEntry parameterRef="IMG_GAIN" />
+          <xtce:ParameterRefEntry parameterRef="IMG_BAND1_AVG" />
+          <xtce:ParameterRefEntry parameterRef="IMG_BAND2_AVG" />
+          <xtce:ParameterRefEntry parameterRef="IMG_BAND3_AVG" />
+          <xtce:ParameterRefEntry parameterRef="IMG_BAND4_AVG" />
+          <xtce:ParameterRefEntry parameterRef="IMG_CAPTURE_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="IMG_FOCAL_PLANE_TEMP" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="17" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- POWER_STATUS Packet (APID 0x12 = 18) -->
+      <xtce:SequenceContainer name="POWER_STATUS" shortDescription="Electrical power system status">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="PWR_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="PWR_SOLAR_VOLTAGE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_SOLAR_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="PWR_BATTERY_VOLTAGE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_BATTERY_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="PWR_BATTERY_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="PWR_CDH_STATE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_COMMS_STATE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_IMAGER_STATE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_ADCS_STATE" />
+          <xtce:ParameterRefEntry parameterRef="PWR_HEATER_STATE" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="18" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- THERMAL_STATUS Packet (APID 0x13 = 19) -->
+      <xtce:SequenceContainer name="THERMAL_STATUS" shortDescription="Thermal subsystem status">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="THM_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="THM_PANEL_PLUS_X" />
+          <xtce:ParameterRefEntry parameterRef="THM_PANEL_MINUS_X" />
+          <xtce:ParameterRefEntry parameterRef="THM_PANEL_PLUS_Y" />
+          <xtce:ParameterRefEntry parameterRef="THM_PANEL_MINUS_Y" />
+          <xtce:ParameterRefEntry parameterRef="THM_RADIATOR" />
+          <xtce:ParameterRefEntry parameterRef="THM_HEATER1_STATE" />
+          <xtce:ParameterRefEntry parameterRef="THM_HEATER2_STATE" />
+          <xtce:ParameterRefEntry parameterRef="THM_HEATER1_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="THM_HEATER2_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="THM_HEATER1_SETPOINT" />
+          <xtce:ParameterRefEntry parameterRef="THM_HEATER2_SETPOINT" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="19" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- EVENT_LOG Packet (APID 0x14 = 20) -->
+      <xtce:SequenceContainer name="EVENT_LOG" shortDescription="Event log entry">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="EVT_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="EVT_SEVERITY" />
+          <xtce:ParameterRefEntry parameterRef="EVT_SUBSYSTEM" />
+          <xtce:ParameterRefEntry parameterRef="EVT_EVENT_ID" />
+          <xtce:ParameterRefEntry parameterRef="EVT_MESSAGE" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="20" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+
+      <!-- FILE_RECEIPT Packet (APID 0x15 = 21) -->
+      <xtce:SequenceContainer name="FILE_RECEIPT" shortDescription="SFTP file transfer receipt telemetry">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="FR_FILENAME" />
+          <xtce:ParameterRefEntry parameterRef="FR_FILE_SIZE" />
+          <xtce:ParameterRefEntry parameterRef="FR_CHECKSUM" />
+          <xtce:ParameterRefEntry parameterRef="FR_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="FR_TRANSFER_STATUS" />
+          <xtce:ParameterRefEntry parameterRef="FR_FILE_RECEIVED_COUNT" />
+          <xtce:ParameterRefEntry parameterRef="FR_STORAGE_USED" />
+          <xtce:ParameterRefEntry parameterRef="FR_STORAGE_AVAILABLE" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="21" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- ATS_STATUS: Absolute Time Sequence execution status (APID 0x16 = 22) -->
+      <xtce:SequenceContainer name="ATS_STATUS" shortDescription="Absolute Time Sequence execution status">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ATS_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ATS_SEQ_ID" />
+          <xtce:ParameterRefEntry parameterRef="ATS_SEQ_NAME" />
+          <xtce:ParameterRefEntry parameterRef="ATS_STATE" />
+          <xtce:ParameterRefEntry parameterRef="ATS_CMD_TOTAL" />
+          <xtce:ParameterRefEntry parameterRef="ATS_CMD_EXECUTED" />
+          <xtce:ParameterRefEntry parameterRef="ATS_CMD_REMAINING" />
+          <xtce:ParameterRefEntry parameterRef="ATS_NEXT_CMD_TIME" />
+          <xtce:ParameterRefEntry parameterRef="ATS_LAST_CMD_NAME" />
+          <xtce:ParameterRefEntry parameterRef="ATS_LAST_CMD_RESULT" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="22" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- RTS_STATUS: Relative Time Sequence execution status (APID 0x17 = 23) -->
+      <xtce:SequenceContainer name="RTS_STATUS" shortDescription="Relative Time Sequence execution status">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="RTS_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="RTS_SEQ_ID" />
+          <xtce:ParameterRefEntry parameterRef="RTS_SEQ_NAME" />
+          <xtce:ParameterRefEntry parameterRef="RTS_STATE" />
+          <xtce:ParameterRefEntry parameterRef="RTS_CMD_TOTAL" />
+          <xtce:ParameterRefEntry parameterRef="RTS_CMD_EXECUTED" />
+          <xtce:ParameterRefEntry parameterRef="RTS_CMD_REMAINING" />
+          <xtce:ParameterRefEntry parameterRef="RTS_ELAPSED_SEC" />
+          <xtce:ParameterRefEntry parameterRef="RTS_LAST_CMD_NAME" />
+          <xtce:ParameterRefEntry parameterRef="RTS_LAST_CMD_RESULT" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="23" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+    </xtce:ContainerSet>
+
+  </xtce:TelemetryMetaData>
+
+  <!-- ================================================================== -->
+  <!--                      COMMAND META DATA                             -->
+  <!-- ================================================================== -->
+  <xtce:CommandMetaData>
+
+    <xtce:ArgumentTypeSet>
+
+      <!-- CCSDS Header Argument Types -->
+      <xtce:IntegerArgumentType name="VersionArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="3" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      <xtce:IntegerArgumentType name="PacketTypeArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      <xtce:IntegerArgumentType name="SecHdrFlagArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="1" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      <xtce:IntegerArgumentType name="APIDArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="11" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      <xtce:IntegerArgumentType name="SeqFlagsArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="2" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      <xtce:IntegerArgumentType name="SeqCountArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="14" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      <xtce:IntegerArgumentType name="PacketLengthArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      <!-- Opcode: 8-bit command identifier -->
+      <xtce:IntegerArgumentType name="OpcodeType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="255" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+
+      <!-- SubsystemId -->
+      <xtce:IntegerArgumentType name="SubsystemIdType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="7" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+
+      <!-- Power State Enum -->
+      <xtce:EnumeratedArgumentType name="PowerStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="OFF" value="0" />
+          <xtce:Enumeration label="ON" value="1" />
+          <xtce:Enumeration label="STANDBY" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      <!-- System Mode Enum -->
+      <xtce:EnumeratedArgumentType name="SystemModeArgType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SAFE" value="0" />
+          <xtce:Enumeration label="STANDBY" value="1" />
+          <xtce:Enumeration label="NOMINAL" value="2" />
+          <xtce:Enumeration label="IMAGING" value="3" />
+          <xtce:Enumeration label="DOWNLINK" value="4" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      <!-- Attitude Mode Enum -->
+      <xtce:EnumeratedArgumentType name="AttitudeModeArgType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SUN_POINT" value="0" />
+          <xtce:Enumeration label="NADIR" value="1" />
+          <xtce:Enumeration label="TARGET" value="2" />
+          <xtce:Enumeration label="INERTIAL" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      <!-- Heater ID -->
+      <xtce:IntegerArgumentType name="HeaterIdType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="2" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+
+      <!-- Temperature setpoint (signed, in degC * 100) -->
+      <xtce:IntegerArgumentType name="TempSetpointType" signed="true">
+        <xtce:UnitSet><xtce:Unit>degC</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement" />
+      </xtce:IntegerArgumentType>
+
+      <!-- Exposure time in ms -->
+      <xtce:IntegerArgumentType name="ExposureType" signed="false">
+        <xtce:UnitSet><xtce:Unit>ms</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="10000" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+
+      <!-- Gain level -->
+      <xtce:IntegerArgumentType name="GainLevelType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="3" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+
+      <!-- Image count for burst mode -->
+      <xtce:IntegerArgumentType name="ImageCountType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="100" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+
+      <!-- Telemetry rate in Hz -->
+      <xtce:IntegerArgumentType name="TlmRateType" signed="false">
+        <xtce:UnitSet><xtce:Unit>Hz</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="10" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+
+      <!-- Boolean enable/disable -->
+      <xtce:EnumeratedArgumentType name="EnableDisableType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="DISABLE" value="0" />
+          <xtce:Enumeration label="ENABLE" value="1" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      <!-- Reset type -->
+      <xtce:EnumeratedArgumentType name="ResetType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="SOFT" value="0" />
+          <xtce:Enumeration label="HARD" value="1" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      <!-- Downlink priority -->
+      <xtce:EnumeratedArgumentType name="DownlinkPriorityType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="LOW" value="0" />
+          <xtce:Enumeration label="NORMAL" value="1" />
+          <xtce:Enumeration label="HIGH" value="2" />
+          <xtce:Enumeration label="URGENT" value="3" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      <!-- SFTP filename argument (32 bytes) -->
+      <xtce:StringArgumentType name="FilenameArgType">
+        <xtce:StringDataEncoding>
+          <xtce:SizeInBits>
+            <xtce:Fixed><xtce:FixedValue>256</xtce:FixedValue></xtce:Fixed>
+          </xtce:SizeInBits>
+        </xtce:StringDataEncoding>
+      </xtce:StringArgumentType>
+
+      <!-- Sequence ID for ATS/RTS (identifies which loaded sequence to act on) -->
+      <xtce:IntegerArgumentType name="SeqIdArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+      </xtce:IntegerArgumentType>
+
+      <!-- 64-bit float seconds-since-epoch timestamp argument (LINK_VALIDATE).  (CMD_ACTIONS_300) -->
+      <xtce:FloatArgumentType name="Float64TimestampArgType">
+        <xtce:UnitSet><xtce:Unit>s</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="64" />
+      </xtce:FloatArgumentType>
+
+    </xtce:ArgumentTypeSet>
+
+    <xtce:MetaCommandSet>
+
+      <!-- Abstract CCSDS command header (inherited by all commands) -->
+      <xtce:MetaCommand name="CCSDSCommand" abstract="true" shortDescription="CCSDS command header template">
+        <xtce:ArgumentList>
+          <xtce:Argument name="VERSION" argumentTypeRef="VersionArgType" />
+          <xtce:Argument name="TYPE" argumentTypeRef="PacketTypeArgType" />
+          <xtce:Argument name="SEC_HDR_FLAG" argumentTypeRef="SecHdrFlagArgType" />
+          <xtce:Argument name="APID" argumentTypeRef="APIDArgType" />
+          <xtce:Argument name="SEQ_FLAGS" argumentTypeRef="SeqFlagsArgType" />
+          <xtce:Argument name="SEQ_COUNT" argumentTypeRef="SeqCountArgType" />
+          <xtce:Argument name="CCSDS_LENGTH" argumentTypeRef="PacketLengthArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="CCSDSCommandContainer">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="VERSION" />
+            <xtce:ArgumentRefEntry argumentRef="TYPE" />
+            <xtce:ArgumentRefEntry argumentRef="SEC_HDR_FLAG" />
+            <xtce:ArgumentRefEntry argumentRef="APID" />
+            <xtce:ArgumentRefEntry argumentRef="SEQ_FLAGS" />
+            <xtce:ArgumentRefEntry argumentRef="SEQ_COUNT" />
+            <xtce:ArgumentRefEntry argumentRef="CCSDS_LENGTH" />
+          </xtce:EntryList>
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ===== Housekeeping Commands (opcodes 0x00-0x0F) ===== -->
+
+      <!-- NOOP: No operation, link verification -->
+      <xtce:MetaCommand name="NOOP" shortDescription="No operation command for link verification">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="NOOP_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="normal" />
+      </xtce:MetaCommand>
+
+      <!-- RESET: Reset a subsystem -->
+      <xtce:MetaCommand name="RESET" shortDescription="Reset a vehicle subsystem">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="SubsystemId" argumentTypeRef="SubsystemIdType" />
+          <xtce:Argument name="ResetMode" argumentTypeRef="ResetType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="RESET_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="SubsystemId" />
+            <xtce:ArgumentRefEntry argumentRef="ResetMode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Subsystem reset may interrupt operations" />
+      </xtce:MetaCommand>
+
+      <!-- GET_STATUS: Request housekeeping telemetry -->
+      <xtce:MetaCommand name="GET_STATUS" shortDescription="Request immediate housekeeping telemetry">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="GET_STATUS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- SET_MODE: Change operating mode -->
+      <xtce:MetaCommand name="SET_MODE" shortDescription="Set spacecraft operating mode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="Mode" argumentTypeRef="SystemModeArgType">
+            <xtce:AncillaryDataSet>
+              <xtce:AncillaryData name="tlm_field">HK_SYSTEM_MODE</xtce:AncillaryData>
+            </xtce:AncillaryDataSet>
+          </xtce:Argument>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_MODE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="Mode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Mode change affects all subsystem operations" />
+      </xtce:MetaCommand>
+
+      <!-- ===== Power Commands (opcodes 0x10-0x1F) ===== -->
+
+      <!-- SET_POWER: Control subsystem power -->
+      <xtce:MetaCommand name="SET_POWER" shortDescription="Set power state of a subsystem">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="SubsystemId" argumentTypeRef="SubsystemIdType" />
+          <xtce:Argument name="PowerState" argumentTypeRef="PowerStateType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_POWER_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="SubsystemId" />
+            <xtce:ArgumentRefEntry argumentRef="PowerState" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- SET_TLM_RATE: Set telemetry output rate -->
+      <xtce:MetaCommand name="SET_TLM_RATE" shortDescription="Set telemetry output rate">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="RateHz" argumentTypeRef="TlmRateType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_TLM_RATE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="RateHz" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ===== Thermal Commands (opcodes 0x20-0x2F) ===== -->
+
+      <!-- HEATER_ON: Enable heater -->
+      <xtce:MetaCommand name="HEATER_ON" shortDescription="Enable a thermal heater">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_STATE=1</xtce:AncillaryData>
+          <xtce:AncillaryData name="tlm_func">THM_HEATER{HeaterId}_TEMP:thermal.heater_warming:@THM_HEATER{HeaterId}_SETPOINT</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="HeaterId" argumentTypeRef="HeaterIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="HEATER_ON_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="HeaterId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- HEATER_OFF: Disable heater -->
+      <xtce:MetaCommand name="HEATER_OFF" shortDescription="Disable a thermal heater">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_STATE=0</xtce:AncillaryData>
+          <xtce:AncillaryData name="tlm_func">THM_HEATER{HeaterId}_TEMP:thermal.heater_cooling:20.0</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="HeaterId" argumentTypeRef="HeaterIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="HEATER_OFF_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="HeaterId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- SET_HEATER_SETPOINT: Set heater target temperature -->
+      <xtce:MetaCommand name="SET_HEATER_SETPOINT" shortDescription="Set heater target temperature">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_SETPOINT={Setpoint}</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="HeaterId" argumentTypeRef="HeaterIdType" />
+          <xtce:Argument name="Setpoint" argumentTypeRef="TempSetpointType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_HEATER_SETPOINT_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="HeaterId" />
+            <xtce:ArgumentRefEntry argumentRef="Setpoint" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ===== Imager Commands (opcodes 0x30-0x3F) ===== -->
+
+      <!-- IMAGER_ON: Power on imager -->
+      <xtce:MetaCommand name="IMAGER_ON" shortDescription="Power on the imager payload">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=1</xtce:AncillaryData>
+          <xtce:AncillaryData name="tlm_func">IMG_FOCAL_PLANE_TEMP:thermal.component_warming:35.0</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="IMAGER_ON_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- IMAGER_OFF: Power off imager -->
+      <xtce:MetaCommand name="IMAGER_OFF" shortDescription="Power off the imager payload">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=0</xtce:AncillaryData>
+          <xtce:AncillaryData name="tlm_func">IMG_FOCAL_PLANE_TEMP:thermal.component_cooling:20.0</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="IMAGER_OFF_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- SET_EXPOSURE: Configure imager exposure -->
+      <xtce:MetaCommand name="SET_EXPOSURE" shortDescription="Set imager exposure time and gain">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="ExposureMs" argumentTypeRef="ExposureType">
+            <xtce:AncillaryDataSet>
+              <xtce:AncillaryData name="tlm_field">IMG_EXPOSURE_MS</xtce:AncillaryData>
+            </xtce:AncillaryDataSet>
+          </xtce:Argument>
+          <xtce:Argument name="GainLevel" argumentTypeRef="GainLevelType">
+            <xtce:AncillaryDataSet>
+              <xtce:AncillaryData name="tlm_field">IMG_GAIN</xtce:AncillaryData>
+            </xtce:AncillaryDataSet>
+          </xtce:Argument>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_EXPOSURE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="ExposureMs" />
+            <xtce:ArgumentRefEntry argumentRef="GainLevel" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- TAKE_IMAGE: Capture image(s) -->
+      <xtce:MetaCommand name="TAKE_IMAGE" shortDescription="Capture one or more images">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=2</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="ImageCount" argumentTypeRef="ImageCountType">
+            <xtce:AncillaryDataSet>
+              <xtce:AncillaryData name="tlm_field">IMG_CAPTURE_COUNT</xtce:AncillaryData>
+            </xtce:AncillaryDataSet>
+          </xtce:Argument>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="TAKE_IMAGE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="ImageCount" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- CALIBRATE: Run imager calibration -->
+      <xtce:MetaCommand name="CALIBRATE" shortDescription="Run imager dark-frame calibration">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="CALIBRATE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ===== ADCS Commands (opcodes 0x40-0x4F) ===== -->
+
+      <!-- SET_ATTITUDE: Change pointing mode -->
+      <xtce:MetaCommand name="SET_ATTITUDE" shortDescription="Set attitude control mode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="AttitudeMode" argumentTypeRef="AttitudeModeArgType">
+            <xtce:AncillaryDataSet>
+              <xtce:AncillaryData name="tlm_field">HK_ATTITUDE_MODE</xtce:AncillaryData>
+            </xtce:AncillaryDataSet>
+          </xtce:Argument>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="SET_ATTITUDE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="AttitudeMode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ===== Downlink Commands (opcodes 0x50-0x5F) ===== -->
+
+      <!-- DOWNLINK_START: Begin data downlink -->
+      <xtce:MetaCommand name="DOWNLINK_START" shortDescription="Start stored data downlink">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">COMM_DOWNLINK_ACTIVE=1</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="Priority" argumentTypeRef="DownlinkPriorityType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="DOWNLINK_START_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="Priority" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- DOWNLINK_STOP: Stop data downlink -->
+      <xtce:MetaCommand name="DOWNLINK_STOP" shortDescription="Stop data downlink">
+        <xtce:AncillaryDataSet>
+          <xtce:AncillaryData name="tlm_side_effect">COMM_DOWNLINK_ACTIVE=0</xtce:AncillaryData>
+        </xtce:AncillaryDataSet>
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="DOWNLINK_STOP_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ENABLE_BEACON: Toggle beacon mode for autonomous downlink -->
+      <xtce:MetaCommand name="ENABLE_BEACON" shortDescription="Enable or disable autonomous beacon mode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="BeaconState" argumentTypeRef="EnableDisableType">
+            <xtce:AncillaryDataSet>
+              <xtce:AncillaryData name="tlm_field">COMM_BEACON_STATE</xtce:AncillaryData>
+            </xtce:AncillaryDataSet>
+          </xtce:Argument>
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ENABLE_BEACON_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="BeaconState" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+
+      <!-- ===== SFTP Commands (opcodes 0x60-0x6F) ===== -->
+
+      <!-- FILE_LIST: Request listing of onboard files -->
+      <xtce:MetaCommand name="FILE_LIST" shortDescription="Request listing of files in onboard storage">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="FILE_LIST_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- FILE_DELETE: Delete a file from onboard storage -->
+      <xtce:MetaCommand name="FILE_DELETE" shortDescription="Delete a file from onboard storage by name">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="Filename" argumentTypeRef="FilenameArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="FILE_DELETE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="Filename" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Deletes file from onboard storage" />
+      </xtce:MetaCommand>
+
+      <!-- FILE_STATUS: Request storage status -->
+      <xtce:MetaCommand name="FILE_STATUS" shortDescription="Request onboard storage status">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="FILE_STATUS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ===== ATS Commands (opcodes 0xD5-0xD8) ===== -->
+
+      <!-- LOAD_ATS: Load an ATS file into the sequence scheduler -->
+      <xtce:MetaCommand name="LOAD_ATS" shortDescription="Load an ATS file into the sequence scheduler">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="Filename" argumentTypeRef="FilenameArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="LOAD_ATS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="Filename" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- START_ATS: Begin executing a loaded ATS -->
+      <xtce:MetaCommand name="START_ATS" shortDescription="Begin executing a loaded ATS">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="START_ATS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="SeqId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Begins autonomous command execution" />
+      </xtce:MetaCommand>
+
+      <!-- STOP_ATS: Halt ATS execution, retain position for resume -->
+      <xtce:MetaCommand name="STOP_ATS" shortDescription="Halt ATS execution, retain position">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="STOP_ATS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="SeqId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ABORT_ATS: Halt ATS execution and clear sequence -->
+      <xtce:MetaCommand name="ABORT_ATS" shortDescription="Halt ATS execution and clear sequence">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ABORT_ATS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="SeqId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Clears loaded sequence" />
+      </xtce:MetaCommand>
+
+      <!-- ===== RTS Commands (opcodes 0xD9-0xDC) ===== -->
+
+      <!-- LOAD_RTS: Load an RTS file into the sequence scheduler -->
+      <xtce:MetaCommand name="LOAD_RTS" shortDescription="Load an RTS file into the sequence scheduler">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="Filename" argumentTypeRef="FilenameArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="LOAD_RTS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="Filename" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- START_RTS: Begin executing a loaded RTS (baseline = now) -->
+      <xtce:MetaCommand name="START_RTS" shortDescription="Begin executing a loaded RTS">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="START_RTS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="SeqId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Begins autonomous command execution" />
+      </xtce:MetaCommand>
+
+      <!-- STOP_RTS: Halt RTS execution, retain position for resume -->
+      <xtce:MetaCommand name="STOP_RTS" shortDescription="Halt RTS execution, retain position">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="STOP_RTS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="SeqId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- ABORT_RTS: Halt RTS execution and clear sequence -->
+      <xtce:MetaCommand name="ABORT_RTS" shortDescription="Halt RTS execution and clear sequence">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ABORT_RTS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="SeqId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Clears loaded sequence" />
+      </xtce:MetaCommand>
+
+      <!-- LINK_VALIDATE: ground issues timestamp, sim echoes three timestamps in HK.
+           Enables round-trip / sim-processing-delay measurement.  (CMD_ACTIONS_300)
+           Appended at end of MetaCommandSet so existing opcodes stay stable. -->
+      <xtce:MetaCommand name="LINK_VALIDATE" shortDescription="Link validation round-trip timing probe">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
+            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
+            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
+            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
+          <xtce:Argument name="IssuedTimestamp" argumentTypeRef="Float64TimestampArgType"
+                         shortDescription="Ground-issued time (seconds since epoch)" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="LINK_VALIDATE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="IssuedTimestamp" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="normal" />
+      </xtce:MetaCommand>
+
+    </xtce:MetaCommandSet>
+
+  </xtce:CommandMetaData>
+
+</xtce:SpaceSystem>

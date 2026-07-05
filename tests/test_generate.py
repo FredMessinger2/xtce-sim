@@ -16,6 +16,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 CMD_XML = EXAMPLES / "my_vehicle_commands.xml"
 TLM_XML = EXAMPLES / "my_vehicle_telemetry.xml"
 COMBINED_XTCE = EXAMPLES / "my_vehicle.xml"
+IMAGING_SAT_XTCE = EXAMPLES / "imaging_sat.xml"
 
 
 @pytest.fixture(scope="module")
@@ -27,6 +28,16 @@ def test_builds_commands_and_packets(simdef: SimDefinition):
     assert simdef.space_system_name == "MyVehicle"
     assert len(simdef.commands) == 55
     assert len(simdef.packets) == 14
+
+
+def test_imaging_sat_example_builds_and_is_generic():
+    # The second example (an imaging satellite) parses and builds, and its
+    # source vendor branding was scrubbed when it was brought into the repo.
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    assert d.space_system_name == "ImagingSat"
+    assert len(d.commands) == 30
+    assert len(d.packets) == 8
+    assert "VendorA" not in IMAGING_SAT_XTCE.read_text()
 
 
 def test_example_binary_fields_have_real_sizes():
