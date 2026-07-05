@@ -43,6 +43,65 @@ def test_warns_on_unresolved_base_command(tmp_path, caplog):
     assert any("unknown base command" in r.message for r in caplog.records)
 
 
+def test_warns_on_unsupported_string_charset(tmp_path, caplog):
+    # The codec always encodes UTF-8; a declared UTF-16 would be silently
+    # mis-encoded, so the parser must call it out. UTF-8 (or omitted, which
+    # defaults to UTF-8) stays quiet.
+    f = _write(
+        tmp_path,
+        "str.xml",
+        f'<xtce:SpaceSystem {NS} name="X"><xtce:TelemetryMetaData>'
+        "<xtce:ParameterTypeSet>"
+        '<xtce:StringParameterType name="Wide">'
+        '<xtce:StringDataEncoding encoding="UTF-16">'
+        "<xtce:SizeInBits><xtce:Fixed><xtce:FixedValue>64</xtce:FixedValue>"
+        "</xtce:Fixed></xtce:SizeInBits>"
+        "</xtce:StringDataEncoding></xtce:StringParameterType>"
+        '<xtce:StringParameterType name="Narrow">'
+        '<xtce:StringDataEncoding encoding="UTF-8">'
+        "<xtce:SizeInBits><xtce:Fixed><xtce:FixedValue>64</xtce:FixedValue>"
+        "</xtce:Fixed></xtce:SizeInBits>"
+        "</xtce:StringDataEncoding></xtce:StringParameterType>"
+        "</xtce:ParameterTypeSet>"
+        "</xtce:TelemetryMetaData></xtce:SpaceSystem>",
+    )
+    with caplog.at_level(logging.WARNING):
+        XTCEParser().parse(f)
+    charset_warnings = [r for r in caplog.records if "encodes UTF-8 only" in r.message]
+    assert len(charset_warnings) == 1  # Wide flagged, Narrow silent
+    assert "'Wide'" in charset_warnings[0].getMessage()
+    assert "UTF-16" in charset_warnings[0].getMessage()
+
+
+def test_charset_warning_survives_parse_multiple(tmp_path, caplog):
+    # parse_multiple suppresses resolution warnings during its per-file parses
+    # (self._warn False), but a bad charset can't become valid after merging —
+    # the warning must still surface for split command/telemetry files.
+    tlm = _write(
+        tmp_path,
+        "tlm.xml",
+        f'<xtce:SpaceSystem {NS} name="X"><xtce:TelemetryMetaData>'
+        "<xtce:ParameterTypeSet>"
+        '<xtce:StringParameterType name="Wide">'
+        '<xtce:StringDataEncoding encoding="UTF-16">'
+        "<xtce:SizeInBits><xtce:Fixed><xtce:FixedValue>64</xtce:FixedValue>"
+        "</xtce:Fixed></xtce:SizeInBits>"
+        "</xtce:StringDataEncoding></xtce:StringParameterType>"
+        "</xtce:ParameterTypeSet>"
+        "</xtce:TelemetryMetaData></xtce:SpaceSystem>",
+    )
+    cmd = _write(
+        tmp_path,
+        "cmd.xml",
+        f'<xtce:SpaceSystem {NS} name="X"><xtce:CommandMetaData><xtce:MetaCommandSet>'
+        '<xtce:MetaCommand name="NOOP"/>'
+        "</xtce:MetaCommandSet></xtce:CommandMetaData></xtce:SpaceSystem>",
+    )
+    with caplog.at_level(logging.WARNING):
+        XTCEParser().parse_multiple([cmd, tlm])
+    assert any("encodes UTF-8 only" in r.message for r in caplog.records)
+
+
 def test_warns_on_unresolved_base_container(tmp_path, caplog):
     f = _write(
         tmp_path,

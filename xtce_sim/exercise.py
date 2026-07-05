@@ -59,7 +59,10 @@ def example_values(param: ParamInfo) -> list:
     if param.enumerations:
         return list(param.enumerations)
     if param.python_type in _STRING_TYPES:
-        return ["TEST"]
+        # Clamp to the field's byte capacity — command encoding rejects
+        # oversized values, and a 2-byte field must not get a 4-byte "TEST".
+        # (ASCII, so character slicing == byte slicing.)
+        return ["TEST"[: param.size_bits // 8]]
     if param.python_type in ("float32", "float64"):
         declared = [float(v) for v in (param.valid_min, param.valid_max) if v is not None]
         if not declared:

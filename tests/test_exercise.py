@@ -30,7 +30,8 @@ def simdef() -> SimDefinition:
 
 def _p(python_type="uint8", **kw) -> ParamInfo:
     kw.setdefault("name", "P")
-    return ParamInfo(size_bits=8, python_type=python_type, **kw)
+    kw.setdefault("size_bits", 8)
+    return ParamInfo(python_type=python_type, **kw)
 
 
 def _cmd(simdef, name):
@@ -59,7 +60,7 @@ def test_example_values_dedupes_equal_min_max():
 
 def test_example_values_float_and_string_and_unknown():
     assert example_values(_p("float32", valid_min=1.0, valid_max=2.0)) == [1.0, 2.0]
-    assert example_values(_p("string")) == ["TEST"]
+    assert example_values(_p("string", size_bits=64)) == ["TEST"]  # 8-byte field
     assert example_values(_p("bool")) == [0]  # unknown type -> safe 0
 
 
@@ -68,6 +69,14 @@ def test_example_values_clamps_int_over_wire_range():
     # so struct.pack never overflows.
     assert example_values(_p("uint8", valid_min=0, valid_max=1000)) == [0, 255]
     assert example_values(_p("int8", valid_min=-500, valid_max=500)) == [-128, 127]
+
+
+def test_example_values_clamps_string_to_capacity():
+    # Command encoding rejects oversized values, so the sample string must be
+    # trimmed to the field's byte capacity (down to empty for 0-size fields).
+    assert example_values(_p("string", size_bits=16)) == ["TE"]
+    assert example_values(_p("string", size_bits=0)) == [""]
+    assert example_values(_p("bytes", size_bits=64)) == ["TEST"]
 
 
 def test_example_values_clamps_float32_overflow():

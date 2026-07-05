@@ -495,15 +495,33 @@ class XTCEParser:
         name = self._get_attr(elem, "name")
         return BinaryArgumentType(name=name, size_in_bits=self._binary_size_in_bits(elem))
 
+    # Charsets the codec actually honors: it always encodes UTF-8, of which
+    # US-ASCII is a byte-identical subset. Anything else (UTF-16, ...) would
+    # be silently mis-encoded, so declaring it draws a parse-time warning.
+    _SUPPORTED_STRING_CHARSETS = ("UTF-8", "US-ASCII", "ASCII")
+
     def _string_size_and_length(self, elem: ET.Element) -> tuple[int, Optional[int]]:
         """Fixed size and byte length from a String type's StringDataEncoding.
 
         Returns ``(size_in_bits, max_length)`` where max_length is
         ``size_in_bits // 8``; ``(0, None)`` when no fixed size is declared.
+        Warns when the declared charset is one the codec does not honor.
         """
         str_enc = self._find(elem, "StringDataEncoding")
         if str_enc is None:
             return 0, None
+        charset = self._get_attr(str_enc, "encoding", "UTF-8")
+        if charset.upper() not in self._SUPPORTED_STRING_CHARSETS:
+            # Deliberately NOT gated on self._warn: unlike base-ref warnings,
+            # an unsupported charset cannot become valid after a multi-file
+            # merge, and each type element is parsed exactly once — so this
+            # must fire even during parse_multiple's intermediate parses.
+            logger.warning(
+                "string type %r declares encoding %r; xtce-sim encodes UTF-8 "
+                "only, so values will not match this declaration",
+                self._get_attr(elem, "name"),
+                charset,
+            )
         size_bits = self._find(str_enc, "SizeInBits")
         if size_bits is None:
             return 0, None
