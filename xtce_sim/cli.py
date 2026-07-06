@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import logging
 import socket
 import struct
 import sys
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
@@ -27,8 +29,8 @@ import click
 from xtce_sim import ccsds, client, codec, render
 from xtce_sim.definition import SimDefinition
 from xtce_sim.exercise import command_arg_sets, run_exercise
-from xtce_sim.generate import emit_python, format_json, format_text
-from xtce_sim.logs import setup_logging
+from xtce_sim.generate import GeneratorError, emit_python, format_json, format_text
+from xtce_sim.logs import enable_trace, setup_logging
 from xtce_sim.server import SimServer
 from xtce_sim.synth import LiveTelemetry
 
@@ -56,6 +58,18 @@ _EMIT_PY_OPT = click.option(
     is_flag=True,
     help="Also emit generated.py — an importable snapshot of the definition.",
 )
+_VERBOSE_OPT = click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="Trace parser/builder decisions and inferences (-v); add every "
+    "parsed element (-vv).",
+)
+
+
+def _maybe_enable_trace(verbose: int) -> None:
+    if verbose:
+        enable_trace(logging.DEBUG if verbose > 1 else logging.INFO)
 
 
 def _build_and_dump(
@@ -116,14 +130,44 @@ def main() -> None:
 @_ID_OPT
 @_OUT_OPT
 @_EMIT_PY_OPT
+@_VERBOSE_OPT
 def generate(
     xtce: tuple[Path, ...],
     instance_id: str | None,
     out_dir: Path | None,
     emit_py: bool,
+    verbose: int,
 ) -> None:
     """Build the resolved cmd/tlm definition from XTCE and dump it to disk."""
+    _maybe_enable_trace(verbose)
     _build_and_dump(xtce, instance_id, out_dir, emit_py)
+
+
+@main.command()
+@_XTCE_ARG
+@click.option(
+    "--full",
+    is_flag=True,
+    help="Trace every parsed element, not just decisions and inferences.",
+)
+def inspect(xtce: tuple[Path, ...], full: bool) -> None:
+    """Narrate what the parser sees in an XTCE file and what it infers.
+
+    Parses and builds (writing nothing to disk), tracing the parser's
+    decisions as it goes: inferred sizes, applied defaults, leniency
+    fallbacks, inheritance resolution, synthetic opcodes, flattenings.
+    Lines marked ``~`` are inferences — places the parser filled a gap
+    rather than reading an explicit declaration.
+    """
+    enable_trace(logging.DEBUG if full else logging.INFO)
+    try:
+        simdef = SimDefinition.from_xtce(list(xtce))
+    except (ET.ParseError, GeneratorError, ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(
+        f"OK: {simdef.space_system_name} — {len(simdef.commands)} command(s), "
+        f"{len(simdef.packets)} packet(s)"
+    )
 
 
 @main.command()
@@ -157,6 +201,7 @@ def generate(
 @_ID_OPT
 @_OUT_OPT
 @_EMIT_PY_OPT
+@_VERBOSE_OPT
 def run(
     xtce: tuple[Path, ...],
     port: int,
@@ -167,8 +212,10 @@ def run(
     instance_id: str | None,
     out_dir: Path | None,
     emit_py: bool,
+    verbose: int,
 ) -> None:
     """Build, dump, then serve a CCSDS simulator on an explicit TCP port."""
+    _maybe_enable_trace(verbose)
     simdef, resolved_id = _build_and_dump(xtce, instance_id, out_dir, emit_py)
 
     logger = setup_logging(resolved_id, color=color)

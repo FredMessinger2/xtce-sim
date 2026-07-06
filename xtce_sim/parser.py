@@ -211,6 +211,7 @@ class XTCEParser:
 
         # Get SpaceSystem name from root element
         space_system_name = self._get_attr(root, "name", "Unknown")
+        logger.info("parsing %s (SpaceSystem %r)", xml_path, space_system_name)
 
         definition = XTCEDefinition(space_system_name=space_system_name, namespace=self.ns)
 
@@ -220,6 +221,24 @@ class XTCEParser:
 
         # Resolve references after all SpaceSystems have been parsed
         self._resolve_references(definition)
+
+        logger.info(
+            "parsed %s: %d parameter types, %d parameters, %d containers, "
+            "%d argument types, %d commands",
+            xml_path,
+            len(definition.parameter_types),
+            len(definition.parameters),
+            len(definition.containers),
+            len(definition.argument_types),
+            len(definition.meta_commands),
+        )
+        with_anc = sum(1 for c in definition.meta_commands.values() if c.ancillary_data)
+        if with_anc:
+            logger.info(
+                "~ %d command(s) carry ancillary data (e.g. tlm_side_effect) — "
+                "parsed but not applied by the sim",
+                with_anc,
+            )
 
         if self._warn:
             self._warn_if_empty(definition, xml_path)
@@ -265,11 +284,25 @@ class XTCEParser:
 
         # Recurse into nested SpaceSystem elements
         for child_ss in self._findall(element, "SpaceSystem"):
+            logger.info(
+                "nested SpaceSystem %r flattened into the definition",
+                self._get_attr(child_ss, "name"),
+            )
             self._parse_space_system(child_ss, definition)
 
     # ========================================================================
     # COMMAND PARSING
     # ========================================================================
+
+    def _store_type(self, store: dict, parsed) -> None:
+        """Store a parsed argument/parameter type, tracing it at firehose level."""
+        store[parsed.name] = parsed
+        logger.debug(
+            "    %s %r: %s bits",
+            type(parsed).__name__,
+            parsed.name,
+            getattr(parsed, "size_in_bits", "?"),
+        )
 
     def _parse_command_metadata(self, cmd_metadata: ET.Element, definition: XTCEDefinition):
         """Parse CommandMetaData section."""
@@ -289,54 +322,54 @@ class XTCEParser:
         # Integer argument types
         for elem in self._findall(arg_type_set, "IntegerArgumentType"):
             arg_type = self._parse_integer_argument_type(elem)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # Float argument types
         for elem in self._findall(arg_type_set, "FloatArgumentType"):
             arg_type = self._parse_float_argument_type(elem)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # Enumerated argument types
         for elem in self._findall(arg_type_set, "EnumeratedArgumentType"):
             arg_type = self._parse_enumerated_argument_type(elem)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # Binary argument types
         for elem in self._findall(arg_type_set, "BinaryArgumentType"):
             arg_type = self._parse_binary_argument_type(elem)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # String argument types
         for elem in self._findall(arg_type_set, "StringArgumentType"):
             arg_type = self._parse_string_argument_type(elem)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # Boolean argument types (XTCE 1.2+)
         for elem in self._findall(arg_type_set, "BooleanArgumentType"):
             arg_type = self._parse_boolean_argument_type(elem)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # Array argument types
         # Note: Arrays are parsed after other types so element types can be resolved
         for elem in self._findall(arg_type_set, "ArrayArgumentType"):
             arg_type = self._parse_array_argument_type(elem, definition)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # Absolute time argument types
         for elem in self._findall(arg_type_set, "AbsoluteTimeArgumentType"):
             arg_type = self._parse_absolute_time_argument_type(elem)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # Relative time argument types
         for elem in self._findall(arg_type_set, "RelativeTimeArgumentType"):
             arg_type = self._parse_relative_time_argument_type(elem)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
         # Aggregate argument types (XTCE 1.3+)
         # Note: Aggregates are parsed after other types so member types can be resolved
         for elem in self._findall(arg_type_set, "AggregateArgumentType"):
             arg_type = self._parse_aggregate_argument_type(elem, definition)
-            definition.argument_types[arg_type.name] = arg_type
+            self._store_type(definition.argument_types, arg_type)
 
     def _parse_integer_argument_type(self, elem: ET.Element) -> IntegerArgumentType:
         """Parse IntegerArgumentType element."""
@@ -441,6 +474,13 @@ class XTCEParser:
                 size_in_bits = 16
             else:
                 size_in_bits = 32
+            logger.info(
+                "~ enum %r: no IntegerDataEncoding — inferred %d bits from "
+                "max enumeration value %d",
+                name,
+                size_in_bits,
+                max_val,
+            )
 
         return EnumeratedArgumentType(
             name=name, size_in_bits=size_in_bits, enumerations=enumerations
@@ -488,7 +528,15 @@ class XTCEParser:
         if bits is not None:
             return bits
         attr = self._get_attr(elem, "sizeInBits").strip()
-        return int(attr) if attr.isdigit() else 0
+        if attr.isdigit():
+            logger.info(
+                "~ %r: binary size %s bits taken from legacy sizeInBits "
+                "attribute (no BinaryDataEncoding/SizeInBits element)",
+                self._get_attr(elem, "name"),
+                attr,
+            )
+            return int(attr)
+        return 0
 
     def _parse_binary_argument_type(self, elem: ET.Element) -> BinaryArgumentType:
         """Parse BinaryArgumentType element."""
@@ -566,6 +614,10 @@ class XTCEParser:
             bits = self._binary_encoding_size_bits(elem)
             if bits is not None:
                 size_in_bits = bits
+            else:
+                logger.info(
+                    "~ Boolean %r: no encoding declared — defaulted to 1 bit", name
+                )
 
         return name, zero_str, one_str, initial_value, size_in_bits
 
@@ -1081,6 +1133,14 @@ class XTCEParser:
         for elem in self._findall(meta_cmd_set, "MetaCommand"):
             cmd = self._parse_meta_command(elem, definition)
             definition.meta_commands[cmd.name] = cmd
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "  MetaCommand %r: %d arg(s)%s%s",
+                    cmd.name,
+                    len(cmd.arguments),
+                    ", abstract" if cmd.abstract else "",
+                    f", base={cmd.base_meta_command_ref}" if cmd.base_meta_command_ref else "",
+                )
 
     def _parse_ancillary_data(self, parent: ET.Element, *, merge: bool = False) -> dict[str, str]:
         """Parse a ``<AncillaryDataSet>`` under *parent* into ``{name: value}``.
@@ -1246,54 +1306,54 @@ class XTCEParser:
         # Integer parameter types
         for elem in self._findall(param_type_set, "IntegerParameterType"):
             param_type = self._parse_integer_parameter_type(elem)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # Float parameter types
         for elem in self._findall(param_type_set, "FloatParameterType"):
             param_type = self._parse_float_parameter_type(elem)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # Enumerated parameter types
         for elem in self._findall(param_type_set, "EnumeratedParameterType"):
             param_type = self._parse_enumerated_parameter_type(elem)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # String parameter types
         for elem in self._findall(param_type_set, "StringParameterType"):
             param_type = self._parse_string_parameter_type(elem)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # Binary parameter types
         for elem in self._findall(param_type_set, "BinaryParameterType"):
             param_type = self._parse_binary_parameter_type(elem)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # Boolean parameter types (XTCE 1.2+)
         for elem in self._findall(param_type_set, "BooleanParameterType"):
             param_type = self._parse_boolean_parameter_type(elem)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # Array parameter types
         # Note: Arrays are parsed after other types so element types can be resolved
         for elem in self._findall(param_type_set, "ArrayParameterType"):
             param_type = self._parse_array_parameter_type(elem, definition)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # Absolute time parameter types
         for elem in self._findall(param_type_set, "AbsoluteTimeParameterType"):
             param_type = self._parse_absolute_time_parameter_type(elem)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # Relative time parameter types
         for elem in self._findall(param_type_set, "RelativeTimeParameterType"):
             param_type = self._parse_relative_time_parameter_type(elem)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
         # Aggregate parameter types (XTCE 1.3+)
         # Note: Aggregates are parsed after other types so member types can be resolved
         for elem in self._findall(param_type_set, "AggregateParameterType"):
             param_type = self._parse_aggregate_parameter_type(elem, definition)
-            definition.parameter_types[param_type.name] = param_type
+            self._store_type(definition.parameter_types, param_type)
 
     def _parse_calibrator(self, data_enc: ET.Element) -> Optional[Calibrator]:
         """Parse DefaultCalibrator with PolynomialCalibrator."""
@@ -1658,12 +1718,31 @@ class XTCEParser:
             definition.parameters[name] = Parameter(
                 name=name, parameter_type_ref=type_ref, parameter_type=param_type
             )
+            logger.debug(
+                "  Parameter %r -> type %r%s",
+                name,
+                type_ref,
+                "" if param_type is not None else " (unresolved)",
+            )
 
     def _parse_container_set(self, container_set: ET.Element, definition: XTCEDefinition):
         """Parse ContainerSet and populate definition.containers."""
         for elem in self._findall(container_set, "SequenceContainer"):
             container = self._parse_sequence_container(elem)
             definition.containers[container.name] = container
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "  SequenceContainer %r: %d entr%s%s%s",
+                    container.name,
+                    len(container.entries),
+                    "y" if len(container.entries) == 1 else "ies",
+                    f", base={container.base_container_ref}"
+                    if container.base_container_ref
+                    else "",
+                    f", restriction={container.restriction_criteria}"
+                    if container.restriction_criteria
+                    else " (no APID restriction — abstract/base only)",
+                )
 
     def _parse_entry_list(self, elem: ET.Element) -> list[str]:
         """Parse a container's ``<EntryList>`` into a list of parameter refs."""
@@ -1754,3 +1833,19 @@ class XTCEParser:
                         container.name,
                         container.base_container_ref,
                     )
+
+        cmds = definition.meta_commands.values()
+        with_base = sum(1 for c in cmds if c.base_command is not None)
+        with_assign = sum(1 for c in cmds if c.argument_assignments)
+        with_base_cont = sum(
+            1 for c in definition.containers.values() if c.base_container is not None
+        )
+        if with_base or with_base_cont:
+            logger.info(
+                "resolved inheritance: %d command(s) with a base command "
+                "(%d fixing inherited args via assignments), "
+                "%d container(s) with a base container",
+                with_base,
+                with_assign,
+                with_base_cont,
+            )

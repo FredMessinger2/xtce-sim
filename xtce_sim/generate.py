@@ -16,6 +16,7 @@ Three output formats are provided:
 from __future__ import annotations
 
 import json
+import logging
 import math
 from typing import Optional
 
@@ -50,6 +51,8 @@ from xtce_sim.models import (
     StringParameterType,
     XTCEDefinition,
 )
+
+logger = logging.getLogger("xtce_sim.generate")
 
 # Synthetic opcodes are handed out from here upward for commands whose XTCE
 # has no FixedValueEntry opcode, so a given XTCE always yields the same
@@ -216,14 +219,23 @@ def extract_opcode(cmd: MetaCommand) -> Optional[int]:
     # Prefer an entry explicitly named 'opcode'.
     named = _first_fixed_hex(entries, lambda e: "opcode" in (e.name or "").lower())
     if named is not None:
+        logger.debug("  %s: opcode 0x%02X from entry named 'opcode'", cmd.name, named)
         return named
 
     # Fall back to any non-header 8-bit fixed value.
-    return _first_fixed_hex(
+    fallback = _first_fixed_hex(
         entries,
         lambda e: e.size_in_bits == 8
         and (e.name or "").lower().replace("_", "") not in _CCSDS_HEADER_NAMES,
     )
+    if fallback is not None:
+        logger.info(
+            "~ %s: opcode 0x%02X taken from an unnamed 8-bit fixed entry "
+            "(no entry named 'opcode')",
+            cmd.name,
+            fallback,
+        )
+    return fallback
 
 
 # =============================================================================
@@ -316,6 +328,11 @@ def _assign_synthetic_opcodes(
             opcode = next_synthetic
             taken.add(opcode)
             next_synthetic += 1
+            logger.info(
+                "~ %s: no opcode in the XTCE — synthetic 0x%02X assigned",
+                cmd.name,
+                opcode,
+            )
 
         params = [_param_info_for_arg(arg) for arg in cmd.get_user_arguments()]
         commands.append(
@@ -339,6 +356,13 @@ def build_commands(xtce_def: XTCEDefinition) -> list[CommandDef]:
     command dispatches to a distinct opcode. Result is sorted by opcode.
     """
     concrete = xtce_def.get_concrete_commands()
+    abstract = len(xtce_def.meta_commands) - len(concrete)
+    if abstract:
+        logger.info(
+            "%d abstract command(s) excluded (templates for inheritance, "
+            "not dispatchable)",
+            abstract,
+        )
     real_opcodes, taken = _reserve_real_opcodes(concrete)
     commands = _assign_synthetic_opcodes(concrete, real_opcodes, taken)
     commands.sort(key=lambda c: c.opcode)
@@ -373,6 +397,12 @@ def _fields_for_param(param, xtce_def: XTCEDefinition) -> list[FieldInfo]:
                     description=member.description or member_type.description or None,
                 )
             )
+        logger.info(
+            "~ aggregate %r flattened to %d field(s) (%s...)",
+            param.name,
+            len(fields),
+            fields[0].name if fields else "",
+        )
         return fields
 
     desc = ptype.description or None
@@ -437,18 +467,40 @@ def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
                 struct_format=fields_to_struct_format(fields),
             )
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "  packet %s APID 0x%02X: %d field(s), %d bytes",
+                container.name,
+                apid,
+                len(fields),
+                sum(f.size_bits for f in fields) // 8,
+            )
 
+    skipped = len(xtce_def.containers) - len(packets)
+    if skipped:
+        logger.info(
+            "%d container(s) without a CCSDS_APID restriction treated as "
+            "abstract bases (not served as packets)",
+            skipped,
+        )
     packets.sort(key=lambda p: p.apid)
     return packets
 
 
 def build_sim_definition(xtce_def: XTCEDefinition) -> SimDefinition:
     """Build a fully resolved SimDefinition from a parsed XTCE definition."""
-    return SimDefinition(
+    simdef = SimDefinition(
         space_system_name=xtce_def.space_system_name,
         commands=build_commands(xtce_def),
         packets=build_packets(xtce_def),
     )
+    logger.info(
+        "built %s: %d dispatchable command(s), %d telemetry packet(s)",
+        simdef.space_system_name,
+        len(simdef.commands),
+        len(simdef.packets),
+    )
+    return simdef
 
 
 # =============================================================================

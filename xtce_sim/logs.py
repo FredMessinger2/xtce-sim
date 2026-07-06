@@ -83,6 +83,47 @@ def _use_color(mode: str, stream: TextIO) -> bool:
     return bool(getattr(stream, "isatty", lambda: False)())
 
 
+class _TraceFormatter(logging.Formatter):
+    """Bare messages for the parse trace; warnings/errors get a ``!`` marker.
+
+    Trace lines are already shaped by their emitters (indentation, a leading
+    ``~`` on inference/leniency lines), so no timestamp/level prefix — the
+    output should read like an annotated walk of the XTCE document.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        msg = record.getMessage()
+        return f"! {msg}" if record.levelno >= logging.WARNING else msg
+
+
+class _TraceHandler(logging.StreamHandler):
+    """StreamHandler that stays quiet when the reader hangs up.
+
+    Trace output is made to be piped (``inspect file.xml | head``); the pipe
+    closing early is normal usage, not an error worth a traceback per record.
+    """
+
+    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 - stdlib API name
+        exc = sys.exc_info()[1]
+        if not isinstance(exc, BrokenPipeError):
+            super().handleError(record)
+
+
+def enable_trace(level: int = logging.INFO, stream: Optional[TextIO] = None) -> None:
+    """Route the parse/build trace (``xtce_sim.*`` module logs) to *stream*.
+
+    INFO shows decisions and inferences (lines the parser marks with ``~``);
+    DEBUG adds the full per-element firehose. Normal runs never see either:
+    the ``xtce_sim`` logger tree has no handler until this is called.
+    """
+    trace_logger = logging.getLogger("xtce_sim")
+    handler = _TraceHandler(stream or sys.stdout)
+    handler.setFormatter(_TraceFormatter())
+    trace_logger.handlers.clear()
+    trace_logger.addHandler(handler)
+    trace_logger.setLevel(level)
+
+
 def setup_logging(
     instance_id: str,
     *,

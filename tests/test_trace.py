@@ -1,0 +1,131 @@
+"""Parse-trace tests: the `inspect` verb and -v/-vv parser introspection.
+
+The trace narrates what the parser sees and what it infers. Decisions and
+inferences (lines marked ``~``) log at INFO; the per-element firehose logs at
+DEBUG. Normal runs stay silent because nothing attaches a handler or lowers
+the ``xtce_sim`` logger level until ``enable_trace`` is called.
+"""
+
+import logging
+from pathlib import Path
+
+import pytest
+from click.testing import CliRunner
+
+from xtce_sim.cli import main
+from xtce_sim.generate import build_sim_definition
+from xtce_sim.parser import XTCEParser
+
+EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+FIXTURE = Path(__file__).resolve().parent / "data" / "full_features.xml"
+NS = 'xmlns:xtce="http://www.omg.org/spec/XTCE/20250214"'
+
+
+@pytest.fixture(autouse=True)
+def _reset_trace_logger():
+    # enable_trace attaches a handler to the "xtce_sim" logger; undo it so a
+    # traced test can't leave a stale handler pointing at a closed CliRunner
+    # stream for later tests.
+    yield
+    trace_logger = logging.getLogger("xtce_sim")
+    trace_logger.handlers.clear()
+    trace_logger.setLevel(logging.NOTSET)
+
+
+# ---- instrumentation (caplog, no CLI) ---------------------------------------
+
+
+def test_trace_reports_inferences_on_fixture(caplog):
+    with caplog.at_level(logging.INFO, logger="xtce_sim"):
+        defn = XTCEParser().parse(FIXTURE)
+        build_sim_definition(defn)
+    messages = [r.getMessage() for r in caplog.records]
+    # enum size inferred from max enumeration value (no IntegerDataEncoding)
+    assert any("inferred 16 bits from max enumeration value 300" in m for m in messages)
+    # binary size taken from the legacy sizeInBits attribute
+    assert any("legacy sizeInBits attribute" in m for m in messages)
+    # synthetic opcode assignment surfaces as an inference
+    assert any("no opcode in the XTCE — synthetic" in m for m in messages)
+    # inheritance resolution summary
+    assert any("resolved inheritance" in m for m in messages)
+    # abstract commands / abstract containers accounted for
+    assert any("abstract command(s) excluded" in m for m in messages)
+    assert any("treated as abstract bases" in m for m in messages)
+
+
+def test_trace_reports_boolean_default(tmp_path, caplog):
+    f = tmp_path / "b.xml"
+    f.write_text(
+        f'<xtce:SpaceSystem {NS} name="S"><xtce:TelemetryMetaData>'
+        "<xtce:ParameterTypeSet>"
+        '<xtce:BooleanParameterType name="Bare"/>'
+        "</xtce:ParameterTypeSet></xtce:TelemetryMetaData></xtce:SpaceSystem>"
+    )
+    with caplog.at_level(logging.INFO, logger="xtce_sim"):
+        XTCEParser().parse(f)
+    assert any(
+        "Boolean 'Bare': no encoding declared — defaulted to 1 bit" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_firehose_traces_every_element(caplog):
+    with caplog.at_level(logging.DEBUG, logger="xtce_sim"):
+        XTCEParser().parse(FIXTURE)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("IntegerParameterType 'TempType'" in m for m in messages)
+    assert any("MetaCommand 'DO_THING'" in m for m in messages)
+    assert any("SequenceContainer 'HEALTH'" in m for m in messages)
+    assert any("Parameter 'Temp'" in m for m in messages)
+
+
+def test_decisions_tier_omits_firehose(caplog):
+    with caplog.at_level(logging.INFO, logger="xtce_sim"):
+        XTCEParser().parse(FIXTURE)
+    assert not any(
+        "IntegerParameterType" in r.getMessage() for r in caplog.records
+    )  # per-element lines are DEBUG only
+
+
+# ---- CLI --------------------------------------------------------------------
+
+
+def test_inspect_narrates_and_exits_zero():
+    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle.xml")])
+    assert result.exit_code == 0, result.output
+    assert "parsing" in result.output
+    assert "~ RAW_CMD: no opcode in the XTCE — synthetic" in result.output
+    assert "OK: MyVehicle — 55 command(s), 14 packet(s)" in result.output
+
+
+def test_inspect_full_includes_firehose():
+    result = CliRunner().invoke(main, ["inspect", "--full", str(FIXTURE)])
+    assert result.exit_code == 0, result.output
+    assert "IntegerParameterType 'TempType'" in result.output
+    assert "MetaCommand 'DO_THING'" in result.output
+
+
+def test_inspect_bad_file_is_clean_error(tmp_path):
+    bad = tmp_path / "broken.xml"
+    bad.write_text("<xtce:SpaceSystem")  # not well-formed
+    result = CliRunner().invoke(main, ["inspect", str(bad)])
+    assert result.exit_code != 0
+    # The ParseError must surface as click's clean "Error: ..." line — an
+    # uncaught exception would leave result.exception a non-SystemExit and
+    # print no Error line (CliRunner swallows tracebacks, so asserting on
+    # "Traceback" alone would be vacuous).
+    assert "Error:" in result.output
+    assert isinstance(result.exception, SystemExit)
+
+
+def test_generate_verbose_traces_and_quiet_without(tmp_path):
+    out = str(tmp_path / "gen")
+    quiet = CliRunner().invoke(
+        main, ["generate", str(EXAMPLES / "my_vehicle.xml"), "--out", out]
+    )
+    assert quiet.exit_code == 0 and "parsing" not in quiet.output
+    traced = CliRunner().invoke(
+        main, ["generate", str(EXAMPLES / "my_vehicle.xml"), "--out", out, "-v"]
+    )
+    assert traced.exit_code == 0 and "parsing" in traced.output
+    assert "synthetic" in traced.output  # RAW_CMD inference reaches the console
