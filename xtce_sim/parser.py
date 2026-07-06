@@ -1834,6 +1834,11 @@ class XTCEParser:
                         container.base_container_ref,
                     )
 
+        self._log_inheritance_summary(definition)
+
+    @staticmethod
+    def _log_inheritance_summary(definition: XTCEDefinition) -> None:
+        """Trace how much inheritance the resolution pass actually wired up."""
         cmds = definition.meta_commands.values()
         with_base = sum(1 for c in cmds if c.base_command is not None)
         with_assign = sum(1 for c in cmds if c.argument_assignments)
