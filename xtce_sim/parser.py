@@ -278,28 +278,7 @@ class XTCEParser:
         reported once per tag — with a count, its nested-element total, and
         one example location — rather than flooding a line per occurrence.
         """
-        # tag -> [occurrences, nested descendants, example parent context]
-        ignored: dict[str, list] = {}
-        stack: list[ET.Element] = [root]
-        while stack:
-            elem = stack.pop()
-            # reversed() so LIFO pops visit children in document order — the
-            # "e.g. under ..." example is then the first occurrence in the file.
-            for child in reversed(elem):
-                if not isinstance(child.tag, str):  # comments / PIs
-                    continue
-                if id(child) in self._touched:
-                    stack.append(child)
-                    continue
-                tag = self._local_tag(child.tag)
-                entry = ignored.setdefault(tag, [0, 0, ""])
-                entry[0] += 1
-                entry[1] += sum(1 for _ in child.iter()) - 1
-                if not entry[2]:
-                    parent_name = self._get_attr(elem, "name")
-                    entry[2] = self._local_tag(elem.tag) + (
-                        f" {parent_name!r}" if parent_name else ""
-                    )
+        ignored = self._collect_unconsumed(root)
         for tag in sorted(ignored, key=lambda t: (-ignored[t][0], t)):
             count, nested, context = ignored[tag]
             level = logging.DEBUG if tag in self._DOC_ELEMENTS else logging.INFO
@@ -311,6 +290,37 @@ class XTCEParser:
                 tag,
                 f" (+{nested} nested)" if nested else "",
                 context,
+            )
+
+    def _collect_unconsumed(self, root: ET.Element) -> dict[str, list]:
+        """Gather topmost unconsumed elements, grouped by local tag.
+
+        Returns ``{tag: [occurrences, nested descendants, example context]}``.
+        """
+        ignored: dict[str, list] = {}
+        stack: list[ET.Element] = [root]
+        while stack:
+            elem = stack.pop()
+            # reversed() so LIFO pops visit children in document order — the
+            # "e.g. under ..." example is then the first occurrence in the file.
+            for child in reversed(elem):
+                if not isinstance(child.tag, str):  # comments / PIs
+                    continue
+                if id(child) in self._touched:
+                    stack.append(child)
+                else:
+                    self._record_ignored(ignored, elem, child)
+        return ignored
+
+    def _record_ignored(self, ignored: dict[str, list], parent: ET.Element, child: ET.Element) -> None:
+        """Fold one unconsumed element into the per-tag grouping."""
+        entry = ignored.setdefault(self._local_tag(child.tag), [0, 0, ""])
+        entry[0] += 1
+        entry[1] += sum(1 for _ in child.iter()) - 1  # iter() includes self
+        if not entry[2]:
+            parent_name = self._get_attr(parent, "name")
+            entry[2] = self._local_tag(parent.tag) + (
+                f" {parent_name!r}" if parent_name else ""
             )
 
     def _warn_if_empty(self, definition: XTCEDefinition, source) -> None:
