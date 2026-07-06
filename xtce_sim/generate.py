@@ -205,22 +205,51 @@ def _first_fixed_hex(entries, matches) -> Optional[int]:
     return None
 
 
-def extract_opcode(cmd: MetaCommand) -> Optional[int]:
-    """Extract a command's opcode from its container's FixedValueEntry.
+def _opcode_from_assignments(cmd: MetaCommand) -> Optional[int]:
+    """Opcode fixed via a BaseMetaCommand ArgumentAssignment (e.g. OPCODE=0x10).
 
-    Prefers an entry named 'opcode' (case-insensitive), then falls back to any
-    8-bit fixed value that is not a CCSDS header field. Returns None if the
-    command has no explicit opcode (a synthetic one will be assigned).
+    This is the canonical XTCE idiom (per the spec's BogusSAT sample): an
+    abstract base declares the discriminator argument and each concrete
+    command pins its value. The full inheritance chain is consulted (a
+    grandparent may assign it; a child override wins). Assignment values are
+    *argument* values — decimal unless ``0x``-prefixed (so a zero-padded
+    "010" is decimal ten) — unlike FixedValueEntry binaryValue, which is hex.
+    Non-numeric values are skipped.
     """
-    if not cmd.container:
-        return None
-    entries = cmd.container.entries
+    for name, value in cmd.get_all_argument_assignments().items():
+        if "opcode" not in name.lower():
+            continue
+        text = str(value).strip()
+        try:
+            return int(text, 16 if text.lower().startswith(("0x", "-0x")) else 10)
+        except ValueError:
+            continue
+    return None
+
+
+def extract_opcode(cmd: MetaCommand) -> Optional[int]:
+    """Extract a command's opcode from its XTCE declaration.
+
+    Explicit declarations win over guesses: a container FixedValueEntry named
+    'opcode' (case-insensitive), then an OPCODE argument assignment, then any
+    8-bit fixed value that is not a CCSDS header field. Returns None if the
+    command declares no opcode at all (a synthetic one will be assigned).
+    """
+    entries = cmd.container.entries if cmd.container else []
 
     # Prefer an entry explicitly named 'opcode'.
     named = _first_fixed_hex(entries, lambda e: "opcode" in (e.name or "").lower())
     if named is not None:
         logger.debug("  %s: opcode 0x%02X from entry named 'opcode'", cmd.name, named)
         return named
+
+    # Then an explicit OPCODE argument assignment on the base command.
+    assigned = _opcode_from_assignments(cmd)
+    if assigned is not None:
+        logger.debug(
+            "  %s: opcode 0x%02X from OPCODE argument assignment", cmd.name, assigned
+        )
+        return assigned
 
     # Fall back to any non-header 8-bit fixed value.
     fallback = _first_fixed_hex(

@@ -141,6 +141,73 @@ def test_extract_opcode_fallback_to_8bit_fixed():
     assert extract_opcode(cmd) == 0xAB
 
 
+def test_extract_opcode_from_argument_assignment():
+    # The canonical XTCE idiom (BogusSAT-style): no FixedValueEntry at all,
+    # OPCODE pinned on the base command via ArgumentAssignment.
+    cmd = models.MetaCommand(name="X", argument_assignments={"OPCODE": "0x2A"})
+    assert extract_opcode(cmd) == 0x2A  # 0x hex honored
+    cmd = models.MetaCommand(name="X", argument_assignments={"OPCODE": "42"})
+    assert extract_opcode(cmd) == 42  # argument values are decimal by convention
+
+
+def test_extract_opcode_named_entry_beats_assignment():
+    cmd = _cmd_with_opcode("X", "10")  # FixedValueEntry binaryValue (hex) -> 0x10
+    cmd.argument_assignments = {"OPCODE": "99"}
+    assert extract_opcode(cmd) == 0x10  # explicit layout entry wins
+
+
+def test_extract_opcode_assignment_beats_8bit_heuristic():
+    container = models.CommandContainer(
+        name="c",
+        entries=[
+            models.ContainerEntry(entry_type="fixed", name="Marker", size_in_bits=8,
+                                  binary_value="AB"),
+        ],
+    )
+    cmd = models.MetaCommand(
+        name="X", container=container, argument_assignments={"OPCODE": "0x11"}
+    )
+    assert extract_opcode(cmd) == 0x11  # declared assignment beats the guess
+
+
+def test_extract_opcode_junk_assignment_falls_through():
+    cmd = models.MetaCommand(name="X", argument_assignments={"OPCODE": "banana"})
+    assert extract_opcode(cmd) is None  # -> synthetic later, no crash
+
+
+def test_extract_opcode_zero_padded_decimal_assignment():
+    # "010" is decimal ten (argument values are decimal unless 0x-prefixed),
+    # not octal, and must not be silently skipped.
+    cmd = models.MetaCommand(name="X", argument_assignments={"OPCODE": "010"})
+    assert extract_opcode(cmd) == 10
+
+
+def test_extract_opcode_junk_assignment_still_reaches_heuristic():
+    # An unparseable assignment must not block the 8-bit fixed-entry fallback.
+    container = models.CommandContainer(
+        name="c",
+        entries=[
+            models.ContainerEntry(entry_type="fixed", name="Marker", size_in_bits=8,
+                                  binary_value="AB"),
+        ],
+    )
+    cmd = models.MetaCommand(
+        name="X", container=container, argument_assignments={"OPCODE": "banana"}
+    )
+    assert extract_opcode(cmd) == 0xAB
+
+
+def test_extract_opcode_assignment_inherited_from_base_chain():
+    # A grandparent may pin OPCODE; the full inheritance chain is consulted.
+    base = models.MetaCommand(name="Base", argument_assignments={"OPCODE": "0x33"})
+    child = models.MetaCommand(name="Child")
+    child.base_command = base
+    assert extract_opcode(child) == 0x33
+    # ...and a child override wins.
+    child.argument_assignments = {"OPCODE": "0x44"}
+    assert extract_opcode(child) == 0x44
+
+
 def test_extract_opcode_prefers_named_entry():
     # An entry named 'opcode' is preferred over a later 8-bit fixed entry.
     container = models.CommandContainer(
