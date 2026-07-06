@@ -126,9 +126,11 @@ a boolean defaulted to 1 bit, a command assigned a synthetic opcode), and
 file declared but nothing ever read (`ignored 1 <SplineCalibrator> ... — not
 read by this parser`), so unsupported XTCE features are visible instead of
 silently dropped. Warnings appear inline with a `!` marker. `inspect --full`
-traces every parsed element; the same trace is available live during a build
-or serve with `generate -v` / `run -v` (`-vv` for the full firehose).
-`inspect` writes nothing to disk.
+traces every parsed element, and `inspect --dump` appends the complete
+resolved inventory — every command and telemetry packet, the same report
+`generate` writes to `runs/<id>/cmd_tlm.txt`. The same trace is available
+live during a build or serve with `generate -v` / `run -v` (`-vv` for the
+full firehose). `inspect` writes nothing to disk.
 
 ### Exercising the command surface
 

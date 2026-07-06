@@ -174,6 +174,25 @@ def test_inspect_narrates_and_exits_zero():
     assert "OK: MyVehicle — 55 command(s), 14 packet(s)" in result.output
 
 
+def test_inspect_dump_prints_full_inventory():
+    result = CliRunner().invoke(
+        main, ["inspect", "--dump", str(EXAMPLES / "imaging_sat.xml")]
+    )
+    assert result.exit_code == 0, result.output
+    # The same report generate writes to cmd_tlm.txt, on stdout:
+    assert "COMMANDS" in result.output and "TELEMETRY" in result.output
+    assert "0x10  SET_POWER" in result.output  # real opcode, full command list
+    assert "APID 0x10  HOUSEKEEPING" in result.output
+    # ...and the trace + summary are still there.
+    assert "parsing" in result.output and "OK: ImagingSat" in result.output
+
+
+def test_inspect_without_dump_stays_summary_only():
+    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "imaging_sat.xml")])
+    assert result.exit_code == 0, result.output
+    assert "COMMANDS" not in result.output  # no inventory unless asked
+
+
 def test_inspect_full_includes_firehose():
     result = CliRunner().invoke(main, ["inspect", "--full", str(FIXTURE)])
     assert result.exit_code == 0, result.output

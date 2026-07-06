@@ -150,7 +150,13 @@ def generate(
     is_flag=True,
     help="Trace every parsed element, not just decisions and inferences.",
 )
-def inspect(xtce: tuple[Path, ...], full: bool) -> None:
+@click.option(
+    "--dump",
+    is_flag=True,
+    help="Also print the full resolved command/telemetry report "
+    "(same content as runs/<id>/cmd_tlm.txt; still writes nothing).",
+)
+def inspect(xtce: tuple[Path, ...], full: bool, dump: bool) -> None:
     """Narrate what the parser sees in an XTCE file and what it infers.
 
     Parses and builds (writing nothing to disk), tracing the parser's
@@ -158,13 +164,18 @@ def inspect(xtce: tuple[Path, ...], full: bool) -> None:
     fallbacks, inheritance resolution, synthetic opcodes, flattenings —
     and, after the parse, any element the file declared but the parser
     never read (unsupported XTCE features). Lines marked ``~`` are
-    inferences and gaps rather than explicit declarations.
+    inferences and gaps rather than explicit declarations. ``--dump``
+    appends the full resolved inventory (every command and packet).
     """
     enable_trace(logging.DEBUG if full else logging.INFO)
     try:
         simdef = SimDefinition.from_xtce(list(xtce))
     except (ET.ParseError, GeneratorError, ValueError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
+    if dump:
+        click.echo()
+        click.echo(format_text(simdef))
+        click.echo()
     click.echo(
         f"OK: {simdef.space_system_name} — {len(simdef.commands)} command(s), "
         f"{len(simdef.packets)} packet(s)"
