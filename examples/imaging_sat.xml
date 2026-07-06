@@ -763,6 +763,8 @@
           <xtce:Argument name="SEQ_FLAGS" argumentTypeRef="SeqFlagsArgType" />
           <xtce:Argument name="SEQ_COUNT" argumentTypeRef="SeqCountArgType" />
           <xtce:Argument name="CCSDS_LENGTH" argumentTypeRef="PacketLengthArgType" />
+          <!-- Command opcode: first payload byte; each concrete command pins its value via ArgumentAssignment -->
+          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="CCSDSCommandContainer">
           <xtce:EntryList>
@@ -788,11 +790,9 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x00" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
-        <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
-        </xtce:ArgumentList>
         <xtce:CommandContainer name="NOOP_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
@@ -811,10 +811,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x01" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="SubsystemId" argumentTypeRef="SubsystemIdType" />
           <xtce:Argument name="ResetMode" argumentTypeRef="ResetType" />
         </xtce:ArgumentList>
@@ -838,11 +838,9 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x02" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
-        <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
-        </xtce:ArgumentList>
         <xtce:CommandContainer name="GET_STATUS_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
@@ -860,10 +858,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x03" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="Mode" argumentTypeRef="SystemModeArgType">
             <xtce:AncillaryDataSet>
               <xtce:AncillaryData name="tlm_field">HK_SYSTEM_MODE</xtce:AncillaryData>
@@ -891,10 +889,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x10" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="SubsystemId" argumentTypeRef="SubsystemIdType" />
           <xtce:Argument name="PowerState" argumentTypeRef="PowerStateType" />
         </xtce:ArgumentList>
@@ -917,10 +915,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x11" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="RateHz" argumentTypeRef="TlmRateType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="SET_TLM_RATE_Container">
@@ -947,10 +945,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x20" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="HeaterId" argumentTypeRef="HeaterIdType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="HEATER_ON_Container">
@@ -975,10 +973,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x21" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="HeaterId" argumentTypeRef="HeaterIdType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="HEATER_OFF_Container">
@@ -1002,10 +1000,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x22" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="HeaterId" argumentTypeRef="HeaterIdType" />
           <xtce:Argument name="Setpoint" argumentTypeRef="TempSetpointType" />
         </xtce:ArgumentList>
@@ -1034,11 +1032,9 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x30" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
-        <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
-        </xtce:ArgumentList>
         <xtce:CommandContainer name="IMAGER_ON_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
@@ -1060,11 +1056,9 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x31" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
-        <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
-        </xtce:ArgumentList>
         <xtce:CommandContainer name="IMAGER_OFF_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
@@ -1082,10 +1076,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x32" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="ExposureMs" argumentTypeRef="ExposureType">
             <xtce:AncillaryDataSet>
               <xtce:AncillaryData name="tlm_field">IMG_EXPOSURE_MS</xtce:AncillaryData>
@@ -1119,10 +1113,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x33" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="ImageCount" argumentTypeRef="ImageCountType">
             <xtce:AncillaryDataSet>
               <xtce:AncillaryData name="tlm_field">IMG_CAPTURE_COUNT</xtce:AncillaryData>
@@ -1147,11 +1141,9 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x34" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
-        <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
-        </xtce:ArgumentList>
         <xtce:CommandContainer name="CALIBRATE_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
@@ -1171,10 +1163,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x40" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="AttitudeMode" argumentTypeRef="AttitudeModeArgType">
             <xtce:AncillaryDataSet>
               <xtce:AncillaryData name="tlm_field">HK_ATTITUDE_MODE</xtce:AncillaryData>
@@ -1204,10 +1196,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x50" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="Priority" argumentTypeRef="DownlinkPriorityType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="DOWNLINK_START_Container">
@@ -1231,11 +1223,9 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x51" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
-        <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
-        </xtce:ArgumentList>
         <xtce:CommandContainer name="DOWNLINK_STOP_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
@@ -1253,10 +1243,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x52" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="BeaconState" argumentTypeRef="EnableDisableType">
             <xtce:AncillaryDataSet>
               <xtce:AncillaryData name="tlm_field">COMM_BEACON_STATE</xtce:AncillaryData>
@@ -1284,11 +1274,9 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x60" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
-        <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
-        </xtce:ArgumentList>
         <xtce:CommandContainer name="FILE_LIST_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
@@ -1306,10 +1294,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x61" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="Filename" argumentTypeRef="FilenameArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="FILE_DELETE_Container">
@@ -1331,11 +1319,9 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x62" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
-        <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
-        </xtce:ArgumentList>
         <xtce:CommandContainer name="FILE_STATUS_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
@@ -1355,10 +1341,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD5" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="Filename" argumentTypeRef="FilenameArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="LOAD_ATS_Container">
@@ -1379,10 +1365,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD6" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="START_ATS_Container">
@@ -1404,10 +1390,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD7" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="STOP_ATS_Container">
@@ -1428,10 +1414,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD8" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="ABORT_ATS_Container">
@@ -1455,10 +1441,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD9" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="Filename" argumentTypeRef="FilenameArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="LOAD_RTS_Container">
@@ -1479,10 +1465,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xDA" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="START_RTS_Container">
@@ -1504,10 +1490,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xDB" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="STOP_RTS_Container">
@@ -1528,10 +1514,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xDC" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="SeqId" argumentTypeRef="SeqIdArgType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="ABORT_RTS_Container">
@@ -1545,8 +1531,7 @@
       </xtce:MetaCommand>
 
       <!-- LINK_VALIDATE: ground issues timestamp, sim echoes three timestamps in HK.
-           Enables round-trip / sim-processing-delay measurement.  (CMD_ACTIONS_300)
-           Appended at end of MetaCommandSet so existing opcodes stay stable. -->
+           Enables round-trip / sim-processing-delay measurement. Opcode 0x70. -->
       <xtce:MetaCommand name="LINK_VALIDATE" shortDescription="Link validation round-trip timing probe">
         <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
           <xtce:ArgumentAssignmentList>
@@ -1555,10 +1540,10 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x70" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="OPCODE" argumentTypeRef="OpcodeType" />
           <xtce:Argument name="IssuedTimestamp" argumentTypeRef="Float64TimestampArgType"
                          shortDescription="Ground-issued time (seconds since epoch)" />
         </xtce:ArgumentList>

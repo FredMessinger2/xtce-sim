@@ -40,6 +40,21 @@ def test_imaging_sat_example_builds_and_is_generic():
     assert "VendorA" not in IMAGING_SAT_XTCE.read_text()
 
 
+def test_imaging_sat_opcodes_are_declared_not_synthetic():
+    # The example pins every opcode canonically (OPCODE ArgumentAssignment on
+    # the abstract base), so nothing falls back to a synthetic opcode and the
+    # values match the file's documented ranges.
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    assert not any(c.synthetic for c in d.commands)
+    opcodes = {c.name: c.opcode for c in d.commands}
+    assert opcodes["NOOP"] == 0x00  # housekeeping 0x00-0x0F
+    assert opcodes["SET_POWER"] == 0x10  # power 0x10-0x1F
+    assert opcodes["LOAD_ATS"] == 0xD5  # ATS 0xD5-0xD8
+    assert len(set(opcodes.values())) == len(opcodes)  # all distinct
+    # OPCODE is fixed by the definition, not typed by the operator.
+    assert all(p.name != "OPCODE" for c in d.commands for p in c.params)
+
+
 def test_example_binary_fields_have_real_sizes():
     """Binary telemetry fields and command args carry their declared size, not 0
     (regression: BinaryDataEncoding SizeInBits/FixedValue was being dropped)."""
