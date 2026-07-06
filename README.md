@@ -40,6 +40,19 @@ flowchart TD
     JSON -.->|"loaded via --id"| MON
     JSON -.->|"loaded via --id"| SEND
     XTCE -.->|"same definition"| GS
+
+    %% Explicit fills + text colors so the diagram stays readable in both
+    %% GitHub themes (the default theme picks unreadable colors in dark mode).
+    classDef source fill:#8250df,stroke:#6639ba,color:#ffffff
+    classDef sim fill:#1f6feb,stroke:#1158c7,color:#ffffff
+    classDef artifact fill:#57606a,stroke:#424a53,color:#ffffff
+    classDef wire fill:#9a6700,stroke:#7d4e00,color:#ffffff
+    classDef client fill:#2da44e,stroke:#1a7f37,color:#ffffff
+    class XTCE source
+    class SIM sim
+    class JSON artifact
+    class PORT wire
+    class MON,SEND,GS client
 ```
 
 *(Solid arrows: build + the live CCSDS link. Dashed arrows: the command/telemetry
@@ -54,10 +67,12 @@ both ends derive identical opcodes, APIDs, and field layouts from one definition
 ## Commands
 
 ```bash
-xtce-sim generate <file.xml...>                   # build defs, write cmd/tlm to disk, stop
-xtce-sim run      <file.xml...> --id ID --port N  # build, dump, and serve
+xtce-sim inspect  <file.xml...>                    # narrate what the parser sees and infers
+xtce-sim generate <file.xml...>                    # build defs, write cmd/tlm to disk, stop
+xtce-sim run      <file.xml...> --id ID --port N   # build, dump, and serve
 xtce-sim monitor  --id ID --port N                 # watch decoded live telemetry
 xtce-sim send     --id ID --port N CMD K=V ...     # send a command
+xtce-sim exercise --id ID --port N                 # send every command, check telemetry health
 ```
 
 ### Example
@@ -81,6 +96,56 @@ into separate files, which load exactly the same way:
 xtce-sim run examples/my_vehicle_commands.xml examples/my_vehicle_telemetry.xml \
   --id sat-a --port 5000
 ```
+
+A second, richer example ships as
+[`examples/imaging_sat.xml`](examples/imaging_sat.xml) — an Earth-observation
+satellite with imaging, thermal, file-transfer, and ATS/RTS sequencing.
+
+### Inspecting a definition
+
+Before serving a new XTCE, ask the parser to narrate what it sees — and, more
+importantly, what it *infers*:
+
+```bash
+xtce-sim inspect examples/imaging_sat.xml
+```
+
+```text
+parsing examples/imaging_sat.xml (SpaceSystem 'ImagingSat')
+resolved inheritance: 30 command(s) with a base command (30 fixing inherited args via assignments), ...
+~ 8 command(s) carry ancillary data (e.g. tlm_side_effect) — parsed but not applied by the sim
+~ NOOP: no opcode in the XTCE — synthetic 0xC0 assigned
+...
+OK: ImagingSat — 30 command(s), 8 packet(s)
+```
+
+Lines marked `~` are **inferences** — places the parser filled a gap rather
+than reading an explicit declaration (an enum sized from its max value, a
+boolean defaulted to 1 bit, a command assigned a synthetic opcode). Warnings
+appear inline with a `!` marker. `inspect --full` traces every parsed element;
+the same trace is available live during a build or serve with
+`generate -v` / `run -v` (`-vv` for the full firehose). `inspect` writes
+nothing to disk.
+
+### Exercising the command surface
+
+Smoke-test every command a definition declares — one send per enum label and
+per numeric min/max boundary — then confirm telemetry is still flowing and
+decodable:
+
+```bash
+xtce-sim exercise --id sat-a --port 5000
+```
+
+```text
+Exercising 55 command(s) on 127.0.0.1:5000 ...
+Commands: sent 142/142 OK
+Telemetry: 14 packet(s), 14 APID(s), 0 decode failure(s)
+```
+
+`--command NAME` limits the sweep (repeatable), `--dry-run` prints what would
+be sent without connecting, and the exit code is non-zero on any failure — 
+usable in CI.
 
 ### Monitor styles
 
@@ -210,7 +275,7 @@ uv run pytest tests/test_logs.py tests/test_server.py -v
 ```
 
 - `test_instance_color_is_deterministic` — an `--id` always maps to the same color
-- `test_sequential_ids_get_distinct_colors` — `sat-a`…`sat-f` all get different colors
+- `test_colors_spread_across_whole_palette` — ids exercise every palette color
 - `test_two_instances_serve_independently` — two servers on separate ports, each
   serving its own client
 
