@@ -119,13 +119,16 @@ resolved inheritance: 30 command(s) with a base command (30 fixing inherited arg
 OK: ImagingSat — 30 command(s), 8 packet(s)
 ```
 
-Lines marked `~` are **inferences** — places the parser filled a gap rather
-than reading an explicit declaration (an enum sized from its max value, a
-boolean defaulted to 1 bit, a command assigned a synthetic opcode). Warnings
-appear inline with a `!` marker. `inspect --full` traces every parsed element;
-the same trace is available live during a build or serve with
-`generate -v` / `run -v` (`-vv` for the full firehose). `inspect` writes
-nothing to disk.
+Lines marked `~` are **inferences and gaps** — places the parser filled a gap
+rather than reading an explicit declaration (an enum sized from its max value,
+a boolean defaulted to 1 bit, a command assigned a synthetic opcode), and
+**content the parser ignored**: after the parse it reports any element the
+file declared but nothing ever read (`ignored 1 <SplineCalibrator> ... — not
+read by this parser`), so unsupported XTCE features are visible instead of
+silently dropped. Warnings appear inline with a `!` marker. `inspect --full`
+traces every parsed element; the same trace is available live during a build
+or serve with `generate -v` / `run -v` (`-vv` for the full firehose).
+`inspect` writes nothing to disk.
 
 ### Exercising the command surface
 

@@ -155,9 +155,10 @@ def inspect(xtce: tuple[Path, ...], full: bool) -> None:
 
     Parses and builds (writing nothing to disk), tracing the parser's
     decisions as it goes: inferred sizes, applied defaults, leniency
-    fallbacks, inheritance resolution, synthetic opcodes, flattenings.
-    Lines marked ``~`` are inferences — places the parser filled a gap
-    rather than reading an explicit declaration.
+    fallbacks, inheritance resolution, synthetic opcodes, flattenings —
+    and, after the parse, any element the file declared but the parser
+    never read (unsupported XTCE features). Lines marked ``~`` are
+    inferences and gaps rather than explicit declarations.
     """
     enable_trace(logging.DEBUG if full else logging.INFO)
     try:

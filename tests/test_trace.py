@@ -87,6 +87,82 @@ def test_decisions_tier_omits_firehose(caplog):
     )  # per-element lines are DEBUG only
 
 
+# ---- unconsumed-element detection -------------------------------------------
+
+
+def test_reports_ignored_elements_grouped(tmp_path, caplog):
+    # Two SplineCalibrators (unsupported) -> one grouped INFO line with count,
+    # nested-element total, and an example location.
+    f = tmp_path / "spline.xml"
+    f.write_text(
+        f'<xtce:SpaceSystem {NS} name="S"><xtce:TelemetryMetaData>'
+        "<xtce:ParameterTypeSet>"
+        '<xtce:FloatParameterType name="V1"><xtce:FloatDataEncoding sizeInBits="32"/>'
+        "<xtce:SplineCalibrator><xtce:SplinePoint raw='0' calibrated='0'/>"
+        "</xtce:SplineCalibrator></xtce:FloatParameterType>"
+        '<xtce:FloatParameterType name="V2"><xtce:FloatDataEncoding sizeInBits="32"/>'
+        "<xtce:SplineCalibrator><xtce:SplinePoint raw='1' calibrated='2'/>"
+        "</xtce:SplineCalibrator></xtce:FloatParameterType>"
+        "</xtce:ParameterTypeSet></xtce:TelemetryMetaData></xtce:SpaceSystem>"
+    )
+    with caplog.at_level(logging.INFO, logger="xtce_sim"):
+        XTCEParser().parse(f)
+    # Match the report shape, not bare "ignored" — the tmp_path embeds this
+    # test's own name, which contains the word "ignored".
+    lines = [r.getMessage() for r in caplog.records if "~ ignored" in r.getMessage()]
+    assert len(lines) == 1  # grouped, not one line per occurrence
+    assert "2 <SplineCalibrator>" in lines[0]
+    assert "+2 nested" in lines[0]  # the SplinePoints inside
+    assert "FloatParameterType 'V1'" in lines[0]  # first occurrence in doc order
+
+
+def test_doc_elements_report_at_debug_only(tmp_path, caplog):
+    # A Header is real unconsumed content, but it's documentation — it must
+    # not cry wolf at the decisions tier.
+    f = tmp_path / "hdr.xml"
+    f.write_text(
+        f'<xtce:SpaceSystem {NS} name="S">'
+        '<xtce:Header version="1.0"><xtce:AuthorSet><xtce:Author>x</xtce:Author>'
+        "</xtce:AuthorSet></xtce:Header>"
+        "<xtce:TelemetryMetaData><xtce:ParameterTypeSet>"
+        '<xtce:IntegerParameterType name="T" signed="false">'
+        '<xtce:IntegerDataEncoding sizeInBits="8"/></xtce:IntegerParameterType>'
+        "</xtce:ParameterTypeSet></xtce:TelemetryMetaData></xtce:SpaceSystem>"
+    )
+    with caplog.at_level(logging.INFO, logger="xtce_sim"):
+        XTCEParser().parse(f)
+    assert not any("~ ignored" in r.getMessage() for r in caplog.records)
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="xtce_sim"):
+        XTCEParser().parse(f)
+    assert any(
+        "<Header>" in r.getMessage() and r.levelno == logging.DEBUG
+        for r in caplog.records
+    )
+
+
+def test_fully_consumed_file_reports_nothing(tmp_path, caplog):
+    f = tmp_path / "clean.xml"
+    f.write_text(
+        f'<xtce:SpaceSystem {NS} name="S"><xtce:TelemetryMetaData>'
+        "<xtce:ParameterTypeSet>"
+        '<xtce:IntegerParameterType name="T" signed="false">'
+        '<xtce:IntegerDataEncoding sizeInBits="8"/></xtce:IntegerParameterType>'
+        "</xtce:ParameterTypeSet></xtce:TelemetryMetaData></xtce:SpaceSystem>"
+    )
+    with caplog.at_level(logging.DEBUG, logger="xtce_sim"):
+        XTCEParser().parse(f)
+    assert not any("~ ignored" in r.getMessage() for r in caplog.records)
+
+
+def test_inspect_surfaces_real_gap_in_bundled_example():
+    # my_vehicle.xml genuinely contains a SplineCalibrator the parser doesn't
+    # support — the whole point of the feature is that this is now visible.
+    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle.xml")])
+    assert result.exit_code == 0, result.output
+    assert "SplineCalibrator" in result.output and "not read by this parser" in result.output
+
+
 # ---- CLI --------------------------------------------------------------------
 
 
