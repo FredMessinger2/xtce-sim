@@ -779,10 +779,9 @@
         </xtce:CommandContainer>
       </xtce:MetaCommand>
 
-      <!-- ===== Housekeeping Commands (opcodes 0x00-0x0F) ===== -->
-
-      <!-- NOOP: No operation, link verification -->
-      <xtce:MetaCommand name="NOOP" shortDescription="No operation command for link verification">
+      <!-- Vehicle-wide CCSDS header values, assigned once for every command.
+           Concrete commands inherit this and pin only their own OPCODE. -->
+      <xtce:MetaCommand name="ImagingSatCommand" abstract="true" shortDescription="Header values common to all ImagingSat commands">
         <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
@@ -790,6 +789,16 @@
             <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
             <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
             <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+      </xtce:MetaCommand>
+
+      <!-- ===== Housekeeping Commands (opcodes 0x00-0x0F) ===== -->
+
+      <!-- NOOP: No operation, link verification -->
+      <xtce:MetaCommand name="NOOP" shortDescription="No operation command for link verification">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x00" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -804,13 +813,8 @@
 
       <!-- RESET: Reset a subsystem -->
       <xtce:MetaCommand name="RESET" shortDescription="Reset a vehicle subsystem">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x01" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -831,13 +835,8 @@
 
       <!-- GET_STATUS: Request housekeeping telemetry -->
       <xtce:MetaCommand name="GET_STATUS" shortDescription="Request immediate housekeeping telemetry">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x02" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -851,13 +850,8 @@
 
       <!-- SET_MODE: Change operating mode -->
       <xtce:MetaCommand name="SET_MODE" shortDescription="Set spacecraft operating mode">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x03" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -882,13 +876,8 @@
 
       <!-- SET_POWER: Control subsystem power -->
       <xtce:MetaCommand name="SET_POWER" shortDescription="Set power state of a subsystem">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x10" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -908,13 +897,8 @@
 
       <!-- SET_TLM_RATE: Set telemetry output rate -->
       <xtce:MetaCommand name="SET_TLM_RATE" shortDescription="Set telemetry output rate">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x11" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -938,13 +922,8 @@
           <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_STATE=1</xtce:AncillaryData>
           <xtce:AncillaryData name="tlm_func">THM_HEATER{HeaterId}_TEMP:thermal.heater_warming:@THM_HEATER{HeaterId}_SETPOINT</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x20" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -966,13 +945,8 @@
           <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_STATE=0</xtce:AncillaryData>
           <xtce:AncillaryData name="tlm_func">THM_HEATER{HeaterId}_TEMP:thermal.heater_cooling:20.0</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x21" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -993,13 +967,8 @@
         <xtce:AncillaryDataSet>
           <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_SETPOINT={Setpoint}</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x22" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1025,13 +994,8 @@
           <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=1</xtce:AncillaryData>
           <xtce:AncillaryData name="tlm_func">IMG_FOCAL_PLANE_TEMP:thermal.component_warming:35.0</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x30" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1049,13 +1013,8 @@
           <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=0</xtce:AncillaryData>
           <xtce:AncillaryData name="tlm_func">IMG_FOCAL_PLANE_TEMP:thermal.component_cooling:20.0</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x31" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1069,13 +1028,8 @@
 
       <!-- SET_EXPOSURE: Configure imager exposure -->
       <xtce:MetaCommand name="SET_EXPOSURE" shortDescription="Set imager exposure time and gain">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x32" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1106,13 +1060,8 @@
         <xtce:AncillaryDataSet>
           <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=2</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x33" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1134,13 +1083,8 @@
 
       <!-- CALIBRATE: Run imager calibration -->
       <xtce:MetaCommand name="CALIBRATE" shortDescription="Run imager dark-frame calibration">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x34" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1156,13 +1100,8 @@
 
       <!-- SET_ATTITUDE: Change pointing mode -->
       <xtce:MetaCommand name="SET_ATTITUDE" shortDescription="Set attitude control mode">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x40" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1189,13 +1128,8 @@
         <xtce:AncillaryDataSet>
           <xtce:AncillaryData name="tlm_side_effect">COMM_DOWNLINK_ACTIVE=1</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x50" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1216,13 +1150,8 @@
         <xtce:AncillaryDataSet>
           <xtce:AncillaryData name="tlm_side_effect">COMM_DOWNLINK_ACTIVE=0</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x51" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1236,13 +1165,8 @@
 
       <!-- ENABLE_BEACON: Toggle beacon mode for autonomous downlink -->
       <xtce:MetaCommand name="ENABLE_BEACON" shortDescription="Enable or disable autonomous beacon mode">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x52" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1267,13 +1191,8 @@
 
       <!-- FILE_LIST: Request listing of onboard files -->
       <xtce:MetaCommand name="FILE_LIST" shortDescription="Request listing of files in onboard storage">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x60" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1287,13 +1206,8 @@
 
       <!-- FILE_DELETE: Delete a file from onboard storage -->
       <xtce:MetaCommand name="FILE_DELETE" shortDescription="Delete a file from onboard storage by name">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x61" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1312,13 +1226,8 @@
 
       <!-- FILE_STATUS: Request storage status -->
       <xtce:MetaCommand name="FILE_STATUS" shortDescription="Request onboard storage status">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x62" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1334,13 +1243,8 @@
 
       <!-- LOAD_ATS: Load an ATS file into the sequence scheduler -->
       <xtce:MetaCommand name="LOAD_ATS" shortDescription="Load an ATS file into the sequence scheduler">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD5" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1358,13 +1262,8 @@
 
       <!-- START_ATS: Begin executing a loaded ATS -->
       <xtce:MetaCommand name="START_ATS" shortDescription="Begin executing a loaded ATS">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD6" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1383,13 +1282,8 @@
 
       <!-- STOP_ATS: Halt ATS execution, retain position for resume -->
       <xtce:MetaCommand name="STOP_ATS" shortDescription="Halt ATS execution, retain position">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD7" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1407,13 +1301,8 @@
 
       <!-- ABORT_ATS: Halt ATS execution and clear sequence -->
       <xtce:MetaCommand name="ABORT_ATS" shortDescription="Halt ATS execution and clear sequence">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD8" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1434,13 +1323,8 @@
 
       <!-- LOAD_RTS: Load an RTS file into the sequence scheduler -->
       <xtce:MetaCommand name="LOAD_RTS" shortDescription="Load an RTS file into the sequence scheduler">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD9" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1458,13 +1342,8 @@
 
       <!-- START_RTS: Begin executing a loaded RTS (baseline = now) -->
       <xtce:MetaCommand name="START_RTS" shortDescription="Begin executing a loaded RTS">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xDA" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1483,13 +1362,8 @@
 
       <!-- STOP_RTS: Halt RTS execution, retain position for resume -->
       <xtce:MetaCommand name="STOP_RTS" shortDescription="Halt RTS execution, retain position">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xDB" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1507,13 +1381,8 @@
 
       <!-- ABORT_RTS: Halt RTS execution and clear sequence -->
       <xtce:MetaCommand name="ABORT_RTS" shortDescription="Halt RTS execution and clear sequence">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xDC" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
@@ -1533,13 +1402,8 @@
       <!-- LINK_VALIDATE: ground issues timestamp, sim echoes three timestamps in HK.
            Enables round-trip / sim-processing-delay measurement. Opcode 0x70. -->
       <xtce:MetaCommand name="LINK_VALIDATE" shortDescription="Link validation round-trip timing probe">
-        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="VERSION" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="TYPE" argumentValue="1" />
-            <xtce:ArgumentAssignment argumentName="SEC_HDR_FLAG" argumentValue="0" />
-            <xtce:ArgumentAssignment argumentName="APID" argumentValue="64" />
-            <xtce:ArgumentAssignment argumentName="SEQ_FLAGS" argumentValue="3" />
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x70" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>

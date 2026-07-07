@@ -55,6 +55,19 @@ def test_imaging_sat_opcodes_are_declared_not_synthetic():
     assert all(p.name != "OPCODE" for c in d.commands for p in c.params)
 
 
+def test_imaging_sat_two_level_inheritance_resolves():
+    # Commands inherit CCSDSCommand -> ImagingSatCommand (which assigns the
+    # shared header values once) -> concrete command (which pins only its
+    # OPCODE). Opcode extraction and user-argument exclusion must both walk
+    # the full two-level chain.
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    sp = d.command_by_name("SET_POWER")
+    assert sp.opcode == 0x10 and not sp.synthetic  # own OPCODE, via the chain
+    # Header fields assigned on the intermediate ancestor stay hidden; only
+    # the command's real arguments remain operator-typed.
+    assert [p.name for p in sp.params] == ["SubsystemId", "PowerState"]
+
+
 def test_example_binary_fields_have_real_sizes():
     """Binary telemetry fields and command args carry their declared size, not 0
     (regression: BinaryDataEncoding SizeInBits/FixedValue was being dropped)."""
