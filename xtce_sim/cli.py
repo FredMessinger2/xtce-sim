@@ -67,9 +67,31 @@ _VERBOSE_OPT = click.option(
 )
 
 
+_BEHAVIOR_OPT = click.option(
+    "--behavior",
+    "behavior_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Behavior sidecar (default: <first-xtce-stem>.behavior.toml if it exists).",
+)
+
+
 def _maybe_enable_trace(verbose: int) -> None:
     if verbose:
         enable_trace(logging.DEBUG if verbose > 1 else logging.INFO)
+
+
+def _load_behavior_engine(
+    path: Path | None, simdef: SimDefinition
+) -> behavior.BehaviorEngine | None:
+    """Build the runtime engine from a sidecar; validation problems are fatal."""
+    if path is None:
+        return None
+    try:
+        spec = behavior.load_behavior(path, simdef)
+    except behavior.BehaviorError as exc:
+        raise click.ClickException(str(exc)) from exc
+    return behavior.BehaviorEngine(spec, simdef)
 
 
 def _build_and_dump(
@@ -243,6 +265,7 @@ def _inspect_behavior(path: Path | None, simdef: SimDefinition) -> None:
 @_OUT_OPT
 @_EMIT_PY_OPT
 @_VERBOSE_OPT
+@_BEHAVIOR_OPT
 def run(
     xtce: tuple[Path, ...],
     port: int,
@@ -254,12 +277,14 @@ def run(
     out_dir: Path | None,
     emit_py: bool,
     verbose: int,
+    behavior_path: Path | None,
 ) -> None:
     """Build, dump, then serve a CCSDS simulator on an explicit TCP port."""
     _maybe_enable_trace(verbose)
     simdef, resolved_id = _build_and_dump(xtce, instance_id, out_dir, emit_py)
 
     logger = setup_logging(resolved_id, color=color)
+    engine = _load_behavior_engine(behavior_path or behavior.sidecar_path(list(xtce)), simdef)
 
     server = SimServer(
         simdef,
@@ -267,9 +292,15 @@ def run(
         port=port,
         beacon_interval=interval,
         telemetry_source=LiveTelemetry() if live else None,
+        behavior_engine=engine,
         logger=logger,
     )
 
+    if engine is not None:
+        click.echo(
+            f"Behavior: {engine.spec.path} — {len(engine.spec.commands)} "
+            f"command(s) with effects, {len(engine.spec.initial)} initial value(s)"
+        )
     click.echo(f"Serving {resolved_id} on {host}:{port} (Ctrl-C to stop)")
     try:
         # serve_forever() binds, beacons, and cleans up (stop()) in its finally.

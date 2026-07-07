@@ -283,3 +283,178 @@ def test_describe_lines(simdef):
     lines = behavior.describe(spec)
     assert any(line.startswith("HEATER_ON:") for line in lines)
     assert any("tau=30.0s" in line for line in lines)
+
+
+# ---- runtime engine ---------------------------------------------------------
+
+
+@pytest.fixture()
+def engine(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    return behavior.BehaviorEngine(spec, simdef)
+
+
+def _cmd(simdef, name):
+    return simdef.command_by_name(name)
+
+
+def test_engine_seeds_initial_values(engine, simdef):
+    thermal = simdef.packet_by_name("THERMAL_STATUS")
+    values = engine.values_for(thermal)
+    assert values["THM_HEATER1_TEMP"] == 20.0
+    assert values["THM_HEATER1_SETPOINT"] == 40.0
+    # values_for filters per packet: imager fields don't leak into thermal.
+    assert "IMG_FOCAL_PLANE_TEMP" not in values
+
+
+def test_engine_set_resolves_enum_label(engine, simdef):
+    applied = engine.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    assert engine.state["IMG_STATE"] == 1  # "IDLE" label -> raw 1
+    assert any("IMG_STATE=1" in a for a in applied)
+    assert any("ramp(s) declared" in a for a in applied)  # inert until the tick engine
+
+
+def test_engine_copy_arg_resolves_labels_to_raw(engine, simdef):
+    # decode_command hands enum args over as labels; the overlay stores raw.
+    engine.apply_command(_cmd(simdef, "SET_MODE"), {"Mode": "IMAGING"})
+    assert engine.state["HK_SYSTEM_MODE"] == 3
+
+
+def test_engine_template_isolates_instances(engine, simdef):
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 2})
+    assert engine.state["THM_HEATER2_STATE"] == 1  # "ON" -> raw 1
+    assert "THM_HEATER1_STATE" not in engine.state  # heater 1 untouched
+
+
+def test_engine_increment_accumulates(tmp_path, simdef):
+    spec = _load(tmp_path, simdef, "[TAKE_IMAGE]\nIMG_CAPTURE_COUNT = { increment = 1 }\n")
+    eng = behavior.BehaviorEngine(spec, simdef)
+    cmd = _cmd(simdef, "TAKE_IMAGE")
+    eng.apply_command(cmd, {"ImageCount": 1})
+    eng.apply_command(cmd, {"ImageCount": 1})
+    assert eng.state["IMG_CAPTURE_COUNT"] == 2
+
+
+def test_engine_bad_copy_value_warns_and_skips(engine, simdef, caplog):
+    # A string argument copied into a numeric field can't be packed — the
+    # effect is skipped with a warning, never crashing the dispatch path.
+    import logging as _logging
+
+    with caplog.at_level(_logging.WARNING, logger="xtce_sim.behavior"):
+        engine.apply_command(_cmd(simdef, "SET_EXPOSURE"), {"ExposureMs": "fast", "GainLevel": 1})
+    assert "IMG_EXPOSURE_MS" not in engine.state
+    assert engine.state["IMG_GAIN"] == 1  # the valid effect still applied
+    assert any("does not fit" in r.getMessage() for r in caplog.records)
+
+
+def test_engine_clamps_int_to_wire_width(tmp_path, simdef):
+    spec = _load(tmp_path, simdef, "[SET_EXPOSURE]\nIMG_GAIN = \"@arg:GainLevel\"\n")
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "SET_EXPOSURE"), {"GainLevel": 99999})
+    field = next(
+        f for p in simdef.packets for f in p.fields if f.name == "IMG_GAIN"
+    )
+    assert eng.state["IMG_GAIN"] == (1 << field.size_bits) - 1  # clamped, no overflow
+
+
+async def test_server_end_to_end_command_changes_telemetry(simdef):
+    # The full loop: command in -> overlay mutated -> beacon carries it.
+    from xtce_sim import ccsds, client, codec
+    from xtce_sim.server import SimServer
+
+    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    engine = behavior.BehaviorEngine(spec, simdef)
+    server = SimServer(
+        simdef, host="127.0.0.1", port=0, beacon_interval=0.05,
+        behavior_engine=engine,
+    )
+    await server.start()
+    try:
+        import asyncio
+
+        cmd = simdef.command_by_name("IMAGER_ON")
+        await asyncio.to_thread(
+            client.send_command, "127.0.0.1", server.bound_port, cmd, {}
+        )
+        await asyncio.sleep(0.1)  # let the dispatch land
+
+        img = simdef.packet_by_name("IMAGER_STATUS")
+
+        def read_one():
+            for pkt in client.stream_packets(
+                "127.0.0.1", server.bound_port, timeout=2.0
+            ):
+                header = ccsds.CCSDSHeader.unpack(pkt[:6])
+                if header.apid == img.apid:
+                    return codec.unpack_telemetry(img, pkt[6:])
+            return None
+
+        values = await asyncio.to_thread(read_one)
+        assert values is not None
+        assert values["IMG_STATE"] == 1  # IDLE, set by the command
+        assert values["IMG_FOCAL_PLANE_TEMP"] == 20  # [_initial] seed (int field)
+    finally:
+        await server.stop()
+
+
+# ---- review-driven runtime cases --------------------------------------------
+
+
+def test_nonfinite_values_rejected_at_load(tmp_path, simdef):
+    # TOML permits nan/inf literals; they must never reach the engine.
+    assert "must be finite" in _errors(tmp_path, simdef, "[_initial]\nIMG_GAIN = nan\n")
+    assert "must be finite" in _errors(tmp_path, simdef, "[IMAGER_ON]\nIMG_GAIN = inf\n")
+
+
+def test_nonfinite_copied_argument_skipped_at_runtime(tmp_path, simdef):
+    # A float argument can decode to nan off the wire — skip, never crash.
+    spec = _load(tmp_path, simdef, '[SET_HEATER_SETPOINT]\nTHM_HEATER1_SETPOINT = "@arg:Setpoint"\n')
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "SET_HEATER_SETPOINT"), {"Setpoint": float("nan"), "HeaterId": 1})
+    assert "THM_HEATER1_SETPOINT" not in eng.state
+
+
+def test_copy_of_enum_arg_stores_raw_value(tmp_path, simdef):
+    # An enum argument decodes as its label; copying it into a field with
+    # DIFFERENT (or no) labels must store the raw value, same as templates.
+    spec = _load(tmp_path, simdef, '[SET_MODE]\nIMG_GAIN = "@arg:Mode"\n')
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "SET_MODE"), {"Mode": "IMAGING"})
+    assert eng.state["IMG_GAIN"] == 3  # raw value of IMAGING, not the label
+
+
+def test_overlay_wins_over_telemetry_source(engine, simdef):
+    # The behavior overlay must beat the synthetic layer at pack time.
+    from xtce_sim.server import SimServer
+
+    server = SimServer(
+        simdef, host="127.0.0.1", port=1,  # never started; just merging
+        behavior_engine=engine,
+        telemetry_source=lambda pkt: {f.name: 7 for f in pkt.fields},
+    )
+    thermal = simdef.packet_by_name("THERMAL_STATUS")
+    values = server._packet_values(thermal)
+    assert values["THM_HEATER1_TEMP"] == 20  # overlay ([_initial]) wins
+    assert values["THM_PANEL_TEMP_PX"] == 7 if "THM_PANEL_TEMP_PX" in values else True
+    # a field the overlay doesn't hold comes from the source:
+    non_overlay = [f.name for f in thermal.fields if f.name not in engine.state]
+    assert values[non_overlay[0]] == 7
+
+
+def test_ramp_only_command_leaves_state_untouched(engine, simdef):
+    before = dict(engine.state)
+    applied = engine.apply_command(_cmd(simdef, "HEATER_OFF"), {"HeaterId": 1})
+    # the set applied; the ramp is inert and changed no temperature
+    assert engine.state["THM_HEATER1_STATE"] == 0
+    assert engine.state["THM_HEATER1_TEMP"] == before["THM_HEATER1_TEMP"]
+    assert any("ramp(s) declared" in a for a in applied)
+
+
+def test_increment_saturates_at_wire_max(tmp_path, simdef):
+    # IMG_GAIN is uint8: 200 + 200 must saturate at 255, not wrap.
+    spec = _load(tmp_path, simdef, "[SET_EXPOSURE]\nIMG_GAIN = { increment = 200 }\n")
+    eng = behavior.BehaviorEngine(spec, simdef)
+    cmd = _cmd(simdef, "SET_EXPOSURE")
+    eng.apply_command(cmd, {"ExposureMs": 1, "GainLevel": 1})
+    eng.apply_command(cmd, {"ExposureMs": 1, "GainLevel": 1})
+    assert eng.state["IMG_GAIN"] == 255  # saturated, not wrapped

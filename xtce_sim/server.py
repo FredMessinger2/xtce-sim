@@ -54,6 +54,7 @@ class SimServer:
         queue_maxsize: int = 256,
         command_handler: Optional[CommandHandler] = None,
         telemetry_source: Optional[Callable[[object], dict]] = None,
+        behavior_engine: Optional[object] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.simdef = simdef
@@ -70,6 +71,9 @@ class SimServer:
         # Optional source of telemetry field values: source(packet_def) -> dict.
         # When None, packets beacon zeros.
         self.telemetry_source = telemetry_source
+        # Optional behavior.BehaviorEngine: commands mutate its overlay, and
+        # the overlay wins over telemetry_source values at pack time.
+        self.behavior_engine = behavior_engine
         self.logger = logger or logging.getLogger("xtce_sim")
 
         self._clients: dict[asyncio.StreamWriter, _ClientConn] = {}
@@ -172,8 +176,8 @@ class SimServer:
         if packet_def is None:
             self.logger.warning("send_packet: unknown APID 0x%X", apid)
             return
-        if values is None and self.telemetry_source is not None:
-            values = self.telemetry_source(packet_def)
+        if values is None:
+            values = self._packet_values(packet_def)
         payload = codec.pack_telemetry(packet_def, values)
         pkt = ccsds.build_telemetry_packet(apid, payload, self._seq.next(apid))
         wire = ccsds.frame(pkt)
@@ -187,6 +191,20 @@ class SimServer:
         else:
             for conn in list(self._clients.values()):
                 self._enqueue(conn, wire)
+
+    def _packet_values(self, packet_def) -> Optional[dict]:
+        """Field values for one packet: behavior overlay over synthetic base.
+
+        The synthetic layer (``--live`` values, or nothing) supplies defaults;
+        any field the behavior engine holds wins. Returns None when neither
+        layer has anything, so the packet packs as zeros exactly as before.
+        """
+        base = (self.telemetry_source(packet_def) if self.telemetry_source else {}) or {}
+        overlay = (
+            self.behavior_engine.values_for(packet_def) if self.behavior_engine else {}
+        )
+        merged = {**base, **overlay}
+        return merged or None
 
     def _enqueue(self, conn: _ClientConn, data: bytes) -> None:
         try:
@@ -291,11 +309,16 @@ class SimServer:
             self.logger.warning("received unknown opcode 0x%02X", opcode)
             return
 
-        # Decoding and the (arbitrary) command handler both run under one guard:
-        # a failure on one command must not tear down the client's connection.
+        # Decoding, behavior effects, and the (arbitrary) command handler all
+        # run under one guard: a failure on one command must not tear down the
+        # client's connection.
         try:
             args = codec.decode_command(command, payload)
             self.logger.info("command 0x%02X %s args=%s", opcode, command.name, args)
+            if self.behavior_engine is not None:
+                applied = self.behavior_engine.apply_command(command, args)
+                if applied:
+                    self.logger.info("  effects: %s", ", ".join(applied))
             if self.command_handler is not None:
                 await self.command_handler(self, command, args)
         except Exception:

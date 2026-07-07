@@ -29,12 +29,18 @@ values: write ``0``/``1`` or an enum label.
 Validation is strict and total: every command table, field name, argument
 reference, enum label, and verb key is checked against the resolved
 SimDefinition, and *all* problems are reported in one BehaviorError.
-This module only loads and describes; the runtime engine arrives separately.
+
+BehaviorEngine executes a loaded spec at runtime: it keeps an overlay of
+field values that wins over the synthetic generator when packets are packed,
+applies set/copy/increment effects when commands execute, and seeds the
+``[_initial]`` values at start. Ramps are parsed and validated but not yet
+executed (the tick engine is a separate feature).
 """
 
 from __future__ import annotations
 
 import itertools
+import logging
 import math
 import re
 import tomllib
@@ -341,6 +347,9 @@ def _check_scalar_for_field(
     if isinstance(value, bool):
         ctx.error(f"{where}: boolean values are ambiguous — use 0/1 or an enum label")
         return
+    if isinstance(value, float) and not math.isfinite(value):
+        ctx.error(f"{where}: value must be finite, got {value!r}")
+        return
     for concrete in _expansions(template, command) or []:
         f = ctx.fields.get(concrete)
         if f is not None:
@@ -449,3 +458,159 @@ def _product_size(value_sets: list[list[int]]) -> int:
     for values in value_sets:
         size *= max(1, len(values))
     return size
+
+
+# ---------------------------------------------------------------------------
+# runtime engine
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger("xtce_sim.behavior")
+
+
+class BehaviorEngine:
+    """Executes a BehaviorSpec: an overlay of field values driven by commands.
+
+    The overlay maps field name -> wire-ready value (enum labels resolved to
+    raw ints, strings encoded to bytes) and wins over the synthetic layer
+    when a packet is packed. All effect application is loud-but-liberal:
+    a value that cannot be applied is warned about and skipped — a behavior
+    problem must never take down the beacon or a command dispatch.
+    """
+
+    def __init__(self, spec: BehaviorSpec, simdef: SimDefinition):
+        self.spec = spec
+        self._fields = {f.name: f for p in simdef.packets for f in p.fields}
+        self._params = {
+            c.name: {p.name: p for p in c.params} for c in simdef.commands
+        }
+        self.state: dict[str, object] = {}
+        for fname, value in spec.initial.items():
+            self._store(f"[_initial] {fname}", fname, value)
+
+    # ---- packing side ------------------------------------------------------
+
+    def values_for(self, packet) -> dict:
+        """The overlay entries belonging to one packet (merge over synth)."""
+        return {
+            f.name: self.state[f.name] for f in packet.fields if f.name in self.state
+        }
+
+    # ---- command side ------------------------------------------------------
+
+    def apply_command(self, command, args: dict) -> list[str]:
+        """Apply a command's effects to the overlay.
+
+        ``args`` is the decoded argument dict (enum arguments arrive as
+        labels, exactly as ``codec.decode_command`` produces them). Returns
+        human-readable descriptions of the effects applied, for the server
+        log. Ramps are counted but not executed yet.
+        """
+        applied: list[str] = []
+        pending_ramps = 0
+        for eff in self.spec.commands.get(command.name, []):
+            if isinstance(eff, RampEffect):
+                pending_ramps += 1
+                continue
+            desc = self._apply_effect(command, eff, args)
+            if desc is not None:
+                applied.append(desc)
+        if pending_ramps:
+            applied.append(f"{pending_ramps} ramp(s) declared (engine pending)")
+        return applied
+
+    def _apply_effect(self, command, eff, args: dict) -> Optional[str]:
+        where = f"[{command.name}] {eff.field}"
+        fname = self._resolve_template(where, eff.field, command, args)
+        if fname is None:
+            return None
+        if isinstance(eff, SetEffect):
+            value = eff.value
+        elif isinstance(eff, CopyArgEffect):
+            if eff.arg not in args:
+                logger.warning("%s: argument %s missing from decode; skipped", where, eff.arg)
+                return None
+            # Same raw-value rule as templates: an enum argument arrives from
+            # decode as its label; store its raw value (the destination
+            # field's own enum may use different labels entirely).
+            value = self._raw_arg(command, args, eff.arg)
+        else:  # IncrementEffect
+            current = self.state.get(fname, 0)
+            value = (current if isinstance(current, (int, float)) else 0) + eff.by
+        stored = self._store(where, fname, value)
+        return None if stored is None else f"{fname}={stored!r}"
+
+    def _resolve_template(
+        self, where: str, template: str, command, args: dict
+    ) -> Optional[str]:
+        """Fill {Arg} placeholders with raw argument values; None on failure."""
+        def sub(match: re.Match) -> str:
+            return str(self._raw_arg(command, args, match.group(1)))
+
+        try:
+            fname = _TEMPLATE_RE.sub(sub, template)
+        except KeyError as exc:
+            logger.warning("%s: template argument %s missing; skipped", where, exc)
+            return None
+        if fname not in self._fields:
+            logger.warning("%s: resolved field %r does not exist; skipped", where, fname)
+            return None
+        return fname
+
+    def _raw_arg(self, command, args: dict, name: str):
+        """A decoded argument as its raw wire value (labels back to ints)."""
+        if name not in args:
+            raise KeyError(name)
+        value = args[name]
+        param = self._params.get(command.name, {}).get(name)
+        if isinstance(value, str) and param is not None and param.enumerations:
+            return param.enumerations.get(value, value)
+        return value
+
+    def _store(self, where: str, fname: str, value) -> Optional[object]:
+        """Coerce a value to wire form and write it into the overlay."""
+        field = self._fields[fname]
+        wire = _wire_value(field, value)
+        if wire is None:
+            logger.warning(
+                "%s: value %r does not fit field %s (%s); skipped",
+                where, value, fname, field.python_type,
+            )
+            return None
+        self.state[fname] = wire
+        return wire
+
+
+def _wire_value(field, value) -> Optional[object]:
+    """Coerce a behavior value to what struct packing expects, else None.
+
+    Enum labels resolve through the field's enumeration; strings encode to
+    bytes for string fields; numeric fields get ints (rounded and clamped to
+    the wire width) or floats. Unresolvable values return None.
+    """
+    if isinstance(value, str):
+        if field.enumerations and value in field.enumerations:
+            return field.enumerations[value]
+        if field.python_type in ("string", "bytes"):
+            return value.encode()
+        return None
+    if isinstance(value, (bytes, bytearray)):
+        return value if field.python_type in ("string", "bytes") else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None  # nan/inf can arrive via a copied float argument
+    if field.python_type in ("string", "bytes"):
+        return None
+    if field.python_type.startswith("float"):
+        return float(value)
+    return _clamp_int(field, int(round(value)))
+
+
+def _clamp_int(field, value: int) -> int:
+    """Clamp an integer to the field's wire range so packing never overflows."""
+    bits = field.size_bits or 8
+    if field.python_type.startswith("u"):
+        lo, hi = 0, (1 << bits) - 1
+    else:
+        lo, hi = -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+    return max(lo, min(hi, value))
