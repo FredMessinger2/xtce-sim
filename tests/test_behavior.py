@@ -458,3 +458,135 @@ def test_increment_saturates_at_wire_max(tmp_path, simdef):
     eng.apply_command(cmd, {"ExposureMs": 1, "GainLevel": 1})
     eng.apply_command(cmd, {"ExposureMs": 1, "GainLevel": 1})
     assert eng.state["IMG_GAIN"] == 255  # saturated, not wrapped
+
+
+# ---- coverage batch: the defensive branches, each pinned --------------------
+
+
+def test_sidecar_path_empty_list():
+    assert sidecar_path([]) is None
+
+
+def test_describe_increment_line(tmp_path, simdef):
+    spec = _load(tmp_path, simdef, "[TAKE_IMAGE]\nIMG_CAPTURE_COUNT = { increment = 2 }\n")
+    assert any("IMG_CAPTURE_COUNT += 2" in line for line in behavior.describe(spec))
+
+
+def test_non_table_bodies_rejected(tmp_path, simdef):
+    msg = _errors(tmp_path, simdef, "_initial = 5\nIMAGER_ON = 7\n")
+    assert "[_initial]: must be a table" in msg
+    assert "[IMAGER_ON]: must be a table" in msg
+
+
+def test_verb_count_must_be_exactly_one(tmp_path, simdef):
+    assert "exactly one of set/ramp_to/increment" in _errors(
+        tmp_path, simdef, '[IMAGER_ON]\nIMG_STATE = { emit = "interval" }\n'
+    )
+    assert "exactly one of set/ramp_to/increment" in _errors(
+        tmp_path, simdef, "[IMAGER_ON]\nIMG_STATE = { set = 1, increment = 1 }\n"
+    )
+
+
+def test_increment_amount_must_be_number(tmp_path, simdef):
+    assert "increment must be a number" in _errors(
+        tmp_path, simdef, '[IMAGER_ON]\nIMG_STATE = { increment = "lots" }\n'
+    )
+
+
+def test_ramp_target_bool_rejected(tmp_path, simdef):
+    assert "must be a number or an @FIELD reference" in _errors(
+        tmp_path, simdef, "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = true, tau = 5 }\n"
+    )
+
+
+def test_ramp_on_string_field_rejected(tmp_path, simdef):
+    # both the ramped field and an @target must be numeric
+    assert "not a numeric field" in _errors(
+        tmp_path, simdef, "[FILE_DELETE]\nFR_FILENAME = { ramp_to = 1, tau = 5 }\n"
+    )
+    assert "not a numeric field" in _errors(
+        tmp_path, simdef,
+        '[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = "@FR_FILENAME", tau = 5 }\n',
+    )
+
+
+def test_nested_table_set_value_rejected(tmp_path, simdef):
+    assert "unexpected table value" in _errors(
+        tmp_path, simdef, "[IMAGER_ON]\nIMG_STATE = { set = { deep = 1 } }\n"
+    )
+
+
+def test_numeric_value_for_string_field_rejected(tmp_path, simdef):
+    assert "numeric value for string field" in _errors(
+        tmp_path, simdef, "[FILE_DELETE]\nFR_FILENAME = 5\n"
+    )
+
+
+def test_unbounded_template_defers_to_runtime(tmp_path, simdef):
+    # ExposureMs spans 1..10000 (> the expansion cap), so the field-existence
+    # check defers — the file loads even though the name can't be verified.
+    spec = _load(tmp_path, simdef, '[SET_EXPOSURE]\n"IMG_{ExposureMs}_X" = 1\n')
+    assert spec.commands["SET_EXPOSURE"]
+    # ...and at runtime an unresolvable expansion warns and skips:
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "SET_EXPOSURE"), {"ExposureMs": 7, "GainLevel": 1})
+    assert "IMG_7_X" not in eng.state
+
+
+def test_enum_arg_template_expands_raw_values(tmp_path, simdef):
+    # Mode is enumerated: the template expands over its raw values, and the
+    # nonexistent expansions are all named in the error.
+    msg = _errors(tmp_path, simdef, '[SET_MODE]\n"X_{Mode}_Y" = 1\n')
+    assert "X_0_Y" in msg and "X_4_Y" in msg
+
+
+def test_engine_skips_when_template_arg_missing(engine, simdef, caplog):
+    import logging as _logging
+
+    with caplog.at_level(_logging.WARNING, logger="xtce_sim.behavior"):
+        engine.apply_command(_cmd(simdef, "HEATER_ON"), {})  # no HeaterId
+    assert any("template argument" in r.getMessage() for r in caplog.records)
+
+
+def test_engine_skips_when_copy_arg_missing(tmp_path, simdef, caplog):
+    import logging as _logging
+
+    spec = _load(tmp_path, simdef, '[SET_MODE]\nHK_SYSTEM_MODE = "@arg:Mode"\n')
+    eng = behavior.BehaviorEngine(spec, simdef)
+    with caplog.at_level(_logging.WARNING, logger="xtce_sim.behavior"):
+        eng.apply_command(_cmd(simdef, "SET_MODE"), {})
+    assert "HK_SYSTEM_MODE" not in eng.state
+    assert any("missing from decode" in r.getMessage() for r in caplog.records)
+
+
+def test_engine_string_set_encodes_for_string_field(tmp_path, simdef):
+    spec = _load(tmp_path, simdef, '[FILE_DELETE]\nFR_FILENAME = "gone.bin"\n')
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "FILE_DELETE"), {"Filename": b"x"})
+    assert eng.state["FR_FILENAME"] == b"gone.bin"
+
+
+def test_engine_copies_bytes_arg_into_string_field_only(tmp_path, simdef):
+    # decode hands string args over as bytes: fine into a string field,
+    # skipped (not crashed) into a numeric one.
+    spec = _load(
+        tmp_path, simdef,
+        '[FILE_DELETE]\nFR_FILENAME = "@arg:Filename"\nFR_FILE_SIZE = "@arg:Filename"\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "FILE_DELETE"), {"Filename": b"a.bin"})
+    assert eng.state["FR_FILENAME"] == b"a.bin"
+    assert "FR_FILE_SIZE" not in eng.state
+
+
+def test_engine_bool_value_skipped_at_runtime(tmp_path, simdef):
+    spec = _load(tmp_path, simdef, '[SET_EXPOSURE]\nIMG_GAIN = "@arg:GainLevel"\n')
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "SET_EXPOSURE"), {"GainLevel": True})
+    assert "IMG_GAIN" not in eng.state
+
+
+def test_engine_float_field_stores_float(tmp_path, simdef):
+    spec = _load(tmp_path, simdef, "[_initial]\nHK_ISSUED_TIMESTAMP = 1735689600.5\n")
+    eng = behavior.BehaviorEngine(spec, simdef)
+    assert eng.state["HK_ISSUED_TIMESTAMP"] == 1735689600.5  # float64, not rounded
