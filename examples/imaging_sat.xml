@@ -857,9 +857,6 @@
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
           <xtce:Argument name="Mode" argumentTypeRef="SystemModeArgType">
-            <xtce:AncillaryDataSet>
-              <xtce:AncillaryData name="tlm_field">HK_SYSTEM_MODE</xtce:AncillaryData>
-            </xtce:AncillaryDataSet>
           </xtce:Argument>
         </xtce:ArgumentList>
         <xtce:CommandContainer name="SET_MODE_Container">
@@ -918,10 +915,6 @@
 
       <!-- HEATER_ON: Enable heater -->
       <xtce:MetaCommand name="HEATER_ON" shortDescription="Enable a thermal heater">
-        <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_STATE=1</xtce:AncillaryData>
-          <xtce:AncillaryData name="tlm_func">THM_HEATER{HeaterId}_TEMP:thermal.heater_warming:@THM_HEATER{HeaterId}_SETPOINT</xtce:AncillaryData>
-        </xtce:AncillaryDataSet>
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x20" />
@@ -941,10 +934,6 @@
 
       <!-- HEATER_OFF: Disable heater -->
       <xtce:MetaCommand name="HEATER_OFF" shortDescription="Disable a thermal heater">
-        <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_STATE=0</xtce:AncillaryData>
-          <xtce:AncillaryData name="tlm_func">THM_HEATER{HeaterId}_TEMP:thermal.heater_cooling:20.0</xtce:AncillaryData>
-        </xtce:AncillaryDataSet>
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x21" />
@@ -964,9 +953,6 @@
 
       <!-- SET_HEATER_SETPOINT: Set heater target temperature -->
       <xtce:MetaCommand name="SET_HEATER_SETPOINT" shortDescription="Set heater target temperature">
-        <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">THM_HEATER{HeaterId}_SETPOINT={Setpoint}</xtce:AncillaryData>
-        </xtce:AncillaryDataSet>
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x22" />
@@ -990,10 +976,6 @@
 
       <!-- IMAGER_ON: Power on imager -->
       <xtce:MetaCommand name="IMAGER_ON" shortDescription="Power on the imager payload">
-        <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=1</xtce:AncillaryData>
-          <xtce:AncillaryData name="tlm_func">IMG_FOCAL_PLANE_TEMP:thermal.component_warming:35.0</xtce:AncillaryData>
-        </xtce:AncillaryDataSet>
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x30" />
@@ -1009,10 +991,6 @@
 
       <!-- IMAGER_OFF: Power off imager -->
       <xtce:MetaCommand name="IMAGER_OFF" shortDescription="Power off the imager payload">
-        <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=0</xtce:AncillaryData>
-          <xtce:AncillaryData name="tlm_func">IMG_FOCAL_PLANE_TEMP:thermal.component_cooling:20.0</xtce:AncillaryData>
-        </xtce:AncillaryDataSet>
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x31" />
@@ -1035,14 +1013,8 @@
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
           <xtce:Argument name="ExposureMs" argumentTypeRef="ExposureType">
-            <xtce:AncillaryDataSet>
-              <xtce:AncillaryData name="tlm_field">IMG_EXPOSURE_MS</xtce:AncillaryData>
-            </xtce:AncillaryDataSet>
           </xtce:Argument>
           <xtce:Argument name="GainLevel" argumentTypeRef="GainLevelType">
-            <xtce:AncillaryDataSet>
-              <xtce:AncillaryData name="tlm_field">IMG_GAIN</xtce:AncillaryData>
-            </xtce:AncillaryDataSet>
           </xtce:Argument>
         </xtce:ArgumentList>
         <xtce:CommandContainer name="SET_EXPOSURE_Container">
@@ -1057,9 +1029,6 @@
 
       <!-- TAKE_IMAGE: Capture image(s) -->
       <xtce:MetaCommand name="TAKE_IMAGE" shortDescription="Capture one or more images">
-        <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">IMG_STATE=2</xtce:AncillaryData>
-        </xtce:AncillaryDataSet>
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x33" />
@@ -1067,9 +1036,6 @@
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
           <xtce:Argument name="ImageCount" argumentTypeRef="ImageCountType">
-            <xtce:AncillaryDataSet>
-              <xtce:AncillaryData name="tlm_field">IMG_CAPTURE_COUNT</xtce:AncillaryData>
-            </xtce:AncillaryDataSet>
           </xtce:Argument>
         </xtce:ArgumentList>
         <xtce:CommandContainer name="TAKE_IMAGE_Container">
@@ -1107,9 +1073,6 @@
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
           <xtce:Argument name="AttitudeMode" argumentTypeRef="AttitudeModeArgType">
-            <xtce:AncillaryDataSet>
-              <xtce:AncillaryData name="tlm_field">HK_ATTITUDE_MODE</xtce:AncillaryData>
-            </xtce:AncillaryDataSet>
           </xtce:Argument>
         </xtce:ArgumentList>
         <xtce:CommandContainer name="SET_ATTITUDE_Container">
@@ -1125,9 +1088,6 @@
 
       <!-- DOWNLINK_START: Begin data downlink -->
       <xtce:MetaCommand name="DOWNLINK_START" shortDescription="Start stored data downlink">
-        <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">COMM_DOWNLINK_ACTIVE=1</xtce:AncillaryData>
-        </xtce:AncillaryDataSet>
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x50" />
@@ -1147,9 +1107,6 @@
 
       <!-- DOWNLINK_STOP: Stop data downlink -->
       <xtce:MetaCommand name="DOWNLINK_STOP" shortDescription="Stop data downlink">
-        <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">COMM_DOWNLINK_ACTIVE=0</xtce:AncillaryData>
-        </xtce:AncillaryDataSet>
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x51" />
@@ -1172,9 +1129,6 @@
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
           <xtce:Argument name="BeaconState" argumentTypeRef="EnableDisableType">
-            <xtce:AncillaryDataSet>
-              <xtce:AncillaryData name="tlm_field">COMM_BEACON_STATE</xtce:AncillaryData>
-            </xtce:AncillaryDataSet>
           </xtce:Argument>
         </xtce:ArgumentList>
         <xtce:CommandContainer name="ENABLE_BEACON_Container">

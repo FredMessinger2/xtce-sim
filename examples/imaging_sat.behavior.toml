@@ -1,0 +1,76 @@
+# Behavior definition for the ImagingSat example — sidecar to imaging_sat.xml.
+#
+# The XTCE defines the command/telemetry INTERFACE; this file defines what
+# each command DOES to telemetry: instant sets, argument copies, and
+# time-varying ramps. It was transcribed from the tlm_side_effect /
+# tlm_func / tlm_field AncillaryData that previously lived inside the XTCE
+# (behavior moved out of the interface definition, 2026-07).
+#
+# NOTE: the behavior engine that executes this file is under construction.
+# Until it lands, this file is the authoritative documentation of intended
+# behavior. Schema:
+#   FIELD = value                          set the field when the command executes
+#   FIELD = "@arg:Name"                    copy the command argument's value
+#   FIELD = { ramp_to = X, tau = S }       first-order approach toward X with
+#                                          time constant S seconds; X may be a
+#                                          number or "@FIELD" (read live each tick)
+#   {ArgName} inside a field name is filled from the command's arguments.
+
+[_initial]
+# Ambient / power-on conditions at sim start.
+THM_HEATER1_TEMP = 20.0
+THM_HEATER2_TEMP = 20.0
+THM_HEATER1_SETPOINT = 40.0
+THM_HEATER2_SETPOINT = 40.0
+IMG_FOCAL_PLANE_TEMP = 20.0
+
+[SET_MODE]
+HK_SYSTEM_MODE = "@arg:Mode"
+
+[HEATER_ON]
+"THM_HEATER{HeaterId}_STATE" = 1
+"THM_HEATER{HeaterId}_TEMP" = { ramp_to = "@THM_HEATER{HeaterId}_SETPOINT", tau = 30.0 }
+
+[HEATER_OFF]
+"THM_HEATER{HeaterId}_STATE" = 0
+# Passive cooling back to ambient is slower than powered heating.
+"THM_HEATER{HeaterId}_TEMP" = { ramp_to = 20.0, tau = 45.0 }
+
+[SET_HEATER_SETPOINT]
+"THM_HEATER{HeaterId}_SETPOINT" = "@arg:Setpoint"
+
+[IMAGER_ON]
+IMG_STATE = 1
+IMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = 20.0 }
+
+[IMAGER_OFF]
+IMG_STATE = 0
+IMG_FOCAL_PLANE_TEMP = { ramp_to = 20.0, tau = 30.0 }
+
+[SET_EXPOSURE]
+IMG_EXPOSURE_MS = "@arg:ExposureMs"
+IMG_GAIN = "@arg:GainLevel"
+
+[TAKE_IMAGE]
+IMG_STATE = 2
+# Faithful to the original annotation: the commanded count is COPIED into
+# the field (not accumulated).
+IMG_CAPTURE_COUNT = "@arg:ImageCount"
+
+[SET_ATTITUDE]
+HK_ATTITUDE_MODE = "@arg:AttitudeMode"
+
+# ---------------------------------------------------------------------------
+# Dangling in the source XTCE: the original annotations below targeted
+# COMM_* telemetry fields that are not defined in any packet, so they could
+# never have taken effect. Preserved as intent; enable them if a COMM
+# status packet is ever added to imaging_sat.xml.
+#
+# [DOWNLINK_START]
+# COMM_DOWNLINK_ACTIVE = 1
+#
+# [DOWNLINK_STOP]
+# COMM_DOWNLINK_ACTIVE = 0
+#
+# [ENABLE_BEACON]
+# COMM_BEACON_STATE = "@arg:BeaconState"
