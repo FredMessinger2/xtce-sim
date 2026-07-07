@@ -32,9 +32,11 @@ SimDefinition, and *all* problems are reported in one BehaviorError.
 
 BehaviorEngine executes a loaded spec at runtime: it keeps an overlay of
 field values that wins over the synthetic generator when packets are packed,
-applies set/copy/increment effects when commands execute, and seeds the
-``[_initial]`` values at start. Ramps are parsed and validated but not yet
-executed (the tick engine is a separate feature).
+applies set/copy/increment effects when commands execute, seeds the
+``[_initial]`` values at start, and advances active ramps each beacon tick
+(closed-form first-order step, so trajectories are identical at any tick
+size; ``@FIELD`` targets are re-read live; a new ramp on a field replaces
+the old one).
 """
 
 from __future__ import annotations
@@ -318,6 +320,9 @@ def _parse_ramp(
     elif isinstance(target, bool) or not isinstance(target, (int, float)):
         ctx.error(f"{where}: ramp_to must be a number or an @FIELD reference")
         return None
+    elif not math.isfinite(target):
+        ctx.error(f"{where}: ramp_to must be finite, got {target!r}")
+        return None
     else:
         target = float(target)
     _check_numeric_field(where, fname, command, ctx)
@@ -466,6 +471,30 @@ def _product_size(value_sets: list[list[int]]) -> int:
 
 logger = logging.getLogger("xtce_sim.behavior")
 
+# A ramp is complete when it gets within this distance of its target. Integer
+# fields land earlier in practice: the moment the stored (rounded) value
+# equals the stored target, the ramp retires.
+_RAMP_TOLERANCE = 1e-6
+
+
+@dataclass
+class _ActiveRamp:
+    """One running first-order approach on a field (registry entry).
+
+    ``value`` is the ramp's own float trajectory. The overlay stores the
+    wire-coerced view (rounded for integer fields); if the ramp advanced
+    from that stored value instead, sub-0.5 steps on an integer field would
+    round away every tick and the ramp would stall short of its target.
+    Retirement is driven by the float trajectory (tolerance or a stalled
+    step), not by the rounded overlay view.
+    """
+
+    field: str
+    target: float | str  # number, or "@FIELD" (already template-resolved)
+    tau: float
+    value: Optional[float] = None  # seeded from the overlay on first tick
+    warned: bool = False  # missing-target warning already issued (warn once)
+
 
 class BehaviorEngine:
     """Executes a BehaviorSpec: an overlay of field values driven by commands.
@@ -484,6 +513,8 @@ class BehaviorEngine:
             c.name: {p.name: p for p in c.params} for c in simdef.commands
         }
         self.state: dict[str, object] = {}
+        # Active ramps, keyed by resolved field name — newest replaces oldest.
+        self._ramps: dict[str, _ActiveRamp] = {}
         for fname, value in spec.initial.items():
             self._store(f"[_initial] {fname}", fname, value)
 
@@ -503,20 +534,86 @@ class BehaviorEngine:
         ``args`` is the decoded argument dict (enum arguments arrive as
         labels, exactly as ``codec.decode_command`` produces them). Returns
         human-readable descriptions of the effects applied, for the server
-        log. Ramps are counted but not executed yet.
+        log. Ramps register as active behaviors advanced by ``tick()``; a
+        new ramp on a field replaces any earlier one (HEATER_OFF's cooling
+        displaces HEATER_ON's warming).
         """
         applied: list[str] = []
-        pending_ramps = 0
         for eff in self.spec.commands.get(command.name, []):
             if isinstance(eff, RampEffect):
-                pending_ramps += 1
-                continue
-            desc = self._apply_effect(command, eff, args)
+                desc = self._start_ramp(command, eff, args)
+            else:
+                desc = self._apply_effect(command, eff, args)
             if desc is not None:
                 applied.append(desc)
-        if pending_ramps:
-            applied.append(f"{pending_ramps} ramp(s) declared (engine pending)")
         return applied
+
+    def _start_ramp(self, command, eff: RampEffect, args: dict) -> Optional[str]:
+        """Register a ramp: resolve its field and target templates now."""
+        where = f"[{command.name}] {eff.field}"
+        fname = self._resolve_template(where, eff.field, command, args)
+        if fname is None:
+            return None
+        target = eff.target
+        if isinstance(target, str):  # "@FIELD", possibly templated
+            resolved = self._resolve_template(where, target[1:], command, args)
+            if resolved is None:
+                return None
+            target = f"@{resolved}"
+        self._ramps[fname] = _ActiveRamp(field=fname, target=target, tau=eff.tau)
+        return f"{fname} ramping to {target} (tau={eff.tau}s)"
+
+    def tick(self, dt: float) -> None:
+        """Advance every active ramp by *dt* seconds.
+
+        Uses the closed-form first-order step, so the curve is exact for any
+        tick size — a 5-second beacon interval samples the same trajectory a
+        0.5-second one does. The ramp advances its own float trajectory (the
+        overlay stores the wire-coerced view) and completes when it gets
+        within _RAMP_TOLERANCE of the target. An @FIELD target is re-read every tick, so changing a
+        setpoint mid-ramp bends the curve.
+        """
+        if dt <= 0:
+            return
+        for fname, ramp in list(self._ramps.items()):
+            target = self._ramp_target(ramp)
+            if target is None:
+                continue
+            if ramp.value is None:
+                ramp.value = self._ramp_current(fname)
+            previous = ramp.value
+            step = 1.0 - math.exp(-dt / ramp.tau)
+            ramp.value += (target - ramp.value) * step
+            self._store(f"[ramp] {fname}", fname, ramp.value)
+            # Retire on tolerance, or when a step makes no float progress
+            # (very large magnitudes stall at ~1 ULP before the tolerance).
+            if abs(target - ramp.value) <= _RAMP_TOLERANCE or ramp.value == previous:
+                # land exactly on target, then retire the ramp
+                self._store(f"[ramp] {fname}", fname, target)
+                del self._ramps[fname]
+                logger.debug("[ramp] %s reached %s; complete", fname, target)
+
+    def _ramp_target(self, ramp: "_ActiveRamp") -> Optional[float]:
+        """The ramp's target value right now (live @FIELD lookup)."""
+        if isinstance(ramp.target, str):  # "@FIELD"
+            value = self.state.get(ramp.target[1:])
+            if not isinstance(value, (int, float)):
+                if not ramp.warned:  # once per ramp, not once per beacon tick
+                    ramp.warned = True
+                    logger.warning(
+                        "[ramp] %s: target %s has no numeric value yet; holding "
+                        "(suppressing further warnings for this ramp)",
+                        ramp.field, ramp.target,
+                    )
+                return None
+            ramp.warned = False
+            return float(value)
+        return float(ramp.target)
+
+    def _ramp_current(self, fname: str) -> float:
+        current = self.state.get(fname, 0)
+        return float(current) if isinstance(current, (int, float)) else 0.0
+
 
     def _apply_effect(self, command, eff, args: dict) -> Optional[str]:
         where = f"[{command.name}] {eff.field}"
@@ -537,7 +634,13 @@ class BehaviorEngine:
             current = self.state.get(fname, 0)
             value = (current if isinstance(current, (int, float)) else 0) + eff.by
         stored = self._store(where, fname, value)
-        return None if stored is None else f"{fname}={stored!r}"
+        if stored is None:
+            return None
+        # Last command wins: an explicit set/copy/increment on a ramped field
+        # cancels the ramp — otherwise the next tick would silently revert it.
+        if self._ramps.pop(fname, None) is not None:
+            logger.debug("[ramp] %s cancelled by direct write", fname)
+        return f"{fname}={stored!r}"
 
     def _resolve_template(
         self, where: str, template: str, command, args: dict

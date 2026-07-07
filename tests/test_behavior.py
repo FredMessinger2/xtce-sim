@@ -311,7 +311,7 @@ def test_engine_set_resolves_enum_label(engine, simdef):
     applied = engine.apply_command(_cmd(simdef, "IMAGER_ON"), {})
     assert engine.state["IMG_STATE"] == 1  # "IDLE" label -> raw 1
     assert any("IMG_STATE=1" in a for a in applied)
-    assert any("ramp(s) declared" in a for a in applied)  # inert until the tick engine
+    assert any("ramping to 35.0" in a for a in applied)  # ramp registered, live
 
 
 def test_engine_copy_arg_resolves_labels_to_raw(engine, simdef):
@@ -441,13 +441,13 @@ def test_overlay_wins_over_telemetry_source(engine, simdef):
     assert values[non_overlay[0]] == 7
 
 
-def test_ramp_only_command_leaves_state_untouched(engine, simdef):
+def test_ramp_registration_moves_nothing_until_tick(engine, simdef):
     before = dict(engine.state)
     applied = engine.apply_command(_cmd(simdef, "HEATER_OFF"), {"HeaterId": 1})
-    # the set applied; the ramp is inert and changed no temperature
+    # the set applied; the ramp is registered but only tick() moves values
     assert engine.state["THM_HEATER1_STATE"] == 0
     assert engine.state["THM_HEATER1_TEMP"] == before["THM_HEATER1_TEMP"]
-    assert any("ramp(s) declared" in a for a in applied)
+    assert any("ramping to 20.0" in a for a in applied)
 
 
 def test_increment_saturates_at_wire_max(tmp_path, simdef):
@@ -590,3 +590,189 @@ def test_engine_float_field_stores_float(tmp_path, simdef):
     spec = _load(tmp_path, simdef, "[_initial]\nHK_ISSUED_TIMESTAMP = 1735689600.5\n")
     eng = behavior.BehaviorEngine(spec, simdef)
     assert eng.state["HK_ISSUED_TIMESTAMP"] == 1735689600.5  # float64, not rounded
+
+
+# ---- ramp tick engine (unit 4a) ---------------------------------------------
+
+
+def test_ramp_advances_toward_target_and_completes(engine, simdef):
+    import math
+
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    # tau=30 toward the 40.0 setpoint from 20.0: one 30s tick covers 1-1/e.
+    engine.tick(30.0)
+    expected = 20.0 + (40.0 - 20.0) * (1.0 - math.exp(-1.0))
+    assert engine.state["THM_HEATER1_TEMP"] == round(expected)  # int16 field view
+    # after many time constants the ramp lands exactly and retires
+    for _ in range(20):
+        engine.tick(30.0)
+    assert engine.state["THM_HEATER1_TEMP"] == 40
+    assert "THM_HEATER1_TEMP" not in engine._ramps
+
+
+def test_ramp_trajectory_is_tick_size_independent(tmp_path, simdef):
+    spec = _load(
+        tmp_path, simdef,
+        "[_initial]\nHK_ISSUED_TIMESTAMP = 0.0\n"
+        "[IMAGER_ON]\nHK_ISSUED_TIMESTAMP = { ramp_to = 100.0, tau = 10 }\n",
+    )
+    coarse = behavior.BehaviorEngine(spec, simdef)
+    fine = behavior.BehaviorEngine(spec, simdef)
+    cmd = _cmd(simdef, "IMAGER_ON")
+    coarse.apply_command(cmd, {})
+    fine.apply_command(cmd, {})
+    coarse.tick(10.0)  # one 10s step
+    for _ in range(100):
+        fine.tick(0.1)  # a hundred 0.1s steps
+    assert abs(coarse.state["HK_ISSUED_TIMESTAMP"] - fine.state["HK_ISSUED_TIMESTAMP"]) < 1e-6
+
+
+def test_ramp_integer_field_does_not_stall_on_small_steps(engine, simdef):
+    # int16 field, tiny dt/tau steps: the float trajectory must keep moving
+    # even while the stored (rounded) value holds still.
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    for _ in range(4000):  # 0.1s steps against tau=30
+        engine.tick(0.1)
+    assert engine.state["THM_HEATER1_TEMP"] == 40  # reached, not stalled at 20
+
+
+def test_ramp_target_reread_live_each_tick(engine, simdef):
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    engine.tick(30.0)
+    part_way = engine.state["THM_HEATER1_TEMP"]
+    # raise the setpoint mid-ramp: the curve bends toward the new target
+    engine.apply_command(_cmd(simdef, "SET_HEATER_SETPOINT"), {"HeaterId": 1, "Setpoint": 55})
+    for _ in range(20):
+        engine.tick(30.0)
+    assert part_way < 40 < engine.state["THM_HEATER1_TEMP"] == 55
+
+
+def test_new_ramp_replaces_old_per_field(engine, simdef):
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    for _ in range(10):
+        engine.tick(30.0)  # warm up toward 40
+    engine.apply_command(_cmd(simdef, "HEATER_OFF"), {"HeaterId": 1})  # cooling replaces
+    for _ in range(30):
+        engine.tick(30.0)
+    assert engine.state["THM_HEATER1_TEMP"] == 20  # cooled back to ambient
+    # heater 2 was never involved
+    assert "THM_HEATER2_TEMP" not in engine._ramps
+
+
+def test_ramp_holds_when_target_field_not_numeric_yet(tmp_path, simdef, caplog):
+    import logging as _logging
+
+    # @FIELD target with no value in the overlay: hold (warn), don't move.
+    spec = _load(
+        tmp_path, simdef,
+        '[HEATER_ON]\n"THM_HEATER{HeaterId}_TEMP" = { ramp_to = "@THM_HEATER{HeaterId}_SETPOINT", tau = 30.0 }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)  # no [_initial]: setpoint unset
+    eng.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    with caplog.at_level(_logging.WARNING, logger="xtce_sim.behavior"):
+        eng.tick(30.0)
+    assert "THM_HEATER1_TEMP" not in eng.state  # held, nothing written
+    assert any("has no numeric value yet" in r.getMessage() for r in caplog.records)
+
+
+def test_tick_ignores_nonpositive_dt(engine, simdef):
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    engine.tick(0.0)
+    engine.tick(-5.0)
+    assert engine.state["THM_HEATER1_TEMP"] == 20  # unmoved
+
+
+async def test_server_beacon_ticks_ramps_end_to_end(simdef):
+    # Full loop: HEATER_ON, then watch the temperature climb across beacons.
+    import asyncio
+
+    from xtce_sim import ccsds, client, codec
+    from xtce_sim.server import SimServer
+
+    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    engine = behavior.BehaviorEngine(spec, simdef)
+    server = SimServer(
+        simdef, host="127.0.0.1", port=0, beacon_interval=0.05,
+        behavior_engine=engine,
+    )
+    await server.start()
+    try:
+        cmd = simdef.command_by_name("HEATER_ON")
+        await asyncio.to_thread(
+            client.send_command, "127.0.0.1", server.bound_port, cmd, {"HeaterId": "1"}
+        )
+        await asyncio.sleep(1.0)  # ~20 beacon ticks against tau=30
+        thermal = simdef.packet_by_name("THERMAL_STATUS")
+
+        def read_one():
+            for pkt in client.stream_packets("127.0.0.1", server.bound_port, timeout=2.0):
+                header = ccsds.CCSDSHeader.unpack(pkt[:6])
+                if header.apid == thermal.apid:
+                    return codec.unpack_telemetry(thermal, pkt[6:])
+            return None
+
+        values = await asyncio.to_thread(read_one)
+        assert values is not None
+        assert values["THM_HEATER1_STATE"] == 1  # ON
+        assert values["THM_HEATER1_TEMP"] > 20  # physics moved it
+    finally:
+        await server.stop()
+
+
+def test_float_field_ramp_lands_exactly_and_retires(tmp_path, simdef):
+    spec = _load(
+        tmp_path, simdef,
+        "[_initial]\nHK_ISSUED_TIMESTAMP = 0.0\n"
+        "[IMAGER_ON]\nHK_ISSUED_TIMESTAMP = { ramp_to = 100.0, tau = 5 }\n",
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    for _ in range(40):  # 40 * 5s = 40 time constants
+        eng.tick(5.0)
+    assert eng.state["HK_ISSUED_TIMESTAMP"] == 100.0  # exact landing
+    assert "HK_ISSUED_TIMESTAMP" not in eng._ramps  # retired
+
+
+def test_direct_write_cancels_active_ramp(engine, simdef):
+    # Last command wins: an explicit set on a ramped field cancels the ramp,
+    # so the next tick cannot silently revert the operator's value.
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    engine.tick(30.0)
+    assert "THM_HEATER1_TEMP" in engine._ramps
+    # a direct copy onto the ramped field (via setpoint command redirected)...
+    spec_over = engine.spec.commands.setdefault("NOOP", [])
+    from xtce_sim.behavior import SetEffect
+    spec_over.append(SetEffect(field="THM_HEATER1_TEMP", value=33))
+    engine.apply_command(_cmd(simdef, "NOOP"), {})
+    assert engine.state["THM_HEATER1_TEMP"] == 33
+    assert "THM_HEATER1_TEMP" not in engine._ramps  # ramp cancelled
+    engine.tick(30.0)
+    assert engine.state["THM_HEATER1_TEMP"] == 33  # value survives ticks
+
+
+def test_missing_ramp_target_warns_once_not_per_tick(tmp_path, simdef, caplog):
+    import logging as _logging
+
+    spec = _load(
+        tmp_path, simdef,
+        '[HEATER_ON]\n"THM_HEATER{HeaterId}_TEMP" = { ramp_to = "@THM_HEATER{HeaterId}_SETPOINT", tau = 30.0 }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)  # setpoint never seeded
+    eng.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    with caplog.at_level(_logging.WARNING, logger="xtce_sim.behavior"):
+        for _ in range(10):
+            eng.tick(1.0)
+    warnings = [r for r in caplog.records if "no numeric value yet" in r.getMessage()]
+    assert len(warnings) == 1  # once per ramp, not once per beacon tick
+    # and the ramp recovers when the target appears (seed it directly —
+    # this minimal spec has no SET_HEATER_SETPOINT table):
+    eng.state["THM_HEATER1_SETPOINT"] = 40
+    eng.tick(30.0)
+    assert eng.state["THM_HEATER1_TEMP"] > 0  # moving now
+
+
+def test_infinite_ramp_target_rejected_at_load(tmp_path, simdef):
+    assert "must be finite" in _errors(
+        tmp_path, simdef,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = inf, tau = 5 }\n",
+    )

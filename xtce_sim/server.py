@@ -226,6 +226,14 @@ class SimServer:
         swallowed. ``stop()`` awaits the task and suppresses it there.
         """
         while True:
+            # Physics advance regardless of connected clients: the vehicle
+            # keeps warming/cooling whether or not anyone is watching. Guarded
+            # like the sends below — a behavior bug must not kill the beacon.
+            if self.behavior_engine is not None:
+                try:
+                    self.behavior_engine.tick(self.beacon_interval)
+                except Exception:
+                    self.logger.exception("behavior tick failed")
             if self._clients:
                 for packet_def in self.simdef.packets:
                     # One packet failing (e.g. a bad telemetry_source value)
