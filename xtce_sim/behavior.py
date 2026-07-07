@@ -40,7 +40,7 @@ import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 from xtce_sim.definition import CommandDef, SimDefinition
 
@@ -52,7 +52,7 @@ _VERB_KEYS = {"set", "ramp_to", "tau", "increment", "emit"}
 # execution time.
 _MAX_EXPANSIONS = 100
 
-Scalar = Union[int, float, bool, str]
+Scalar = int | float | bool | str
 
 
 class BehaviorError(ValueError):
@@ -83,12 +83,12 @@ class IncrementEffect:
 @dataclass
 class RampEffect:
     field: str
-    target: Union[float, str]  # number, or "@FIELD" (possibly templated)
+    target: float | str  # number, or "@FIELD" (possibly templated)
     tau: float
     emit: str = "interval"
 
 
-Effect = Union[SetEffect, CopyArgEffect, IncrementEffect, RampEffect]
+Effect = SetEffect | CopyArgEffect | IncrementEffect | RampEffect
 
 
 @dataclass
