@@ -26,7 +26,7 @@ from pathlib import Path
 
 import click
 
-from xtce_sim import ccsds, client, codec, render
+from xtce_sim import behavior, ccsds, client, codec, render
 from xtce_sim.definition import SimDefinition
 from xtce_sim.exercise import command_arg_sets, run_exercise
 from xtce_sim.generate import GeneratorError, emit_python, format_json, format_text
@@ -156,7 +156,17 @@ def generate(
     help="Also print the full resolved command/telemetry report "
     "(same content as runs/<id>/cmd_tlm.txt; still writes nothing).",
 )
-def inspect(xtce: tuple[Path, ...], full: bool, dump: bool) -> None:
+@click.option(
+    "--behavior",
+    "behavior_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Behavior sidecar to validate and narrate (default: "
+    "<first-xtce-stem>.behavior.toml if it exists).",
+)
+def inspect(
+    xtce: tuple[Path, ...], full: bool, dump: bool, behavior_path: Path | None
+) -> None:
     """Narrate what the parser sees in an XTCE file and what it infers.
 
     Parses and builds (writing nothing to disk), tracing the parser's
@@ -166,6 +176,10 @@ def inspect(xtce: tuple[Path, ...], full: bool, dump: bool) -> None:
     never read (unsupported XTCE features). Lines marked ``~`` are
     inferences and gaps rather than explicit declarations. ``--dump``
     appends the full resolved inventory (every command and packet).
+
+    A behavior sidecar (found by convention or via --behavior) is loaded,
+    fully validated against the definition — any problem is a hard error —
+    and narrated: what every command does to telemetry.
     """
     enable_trace(logging.DEBUG if full else logging.INFO)
     try:
@@ -176,10 +190,25 @@ def inspect(xtce: tuple[Path, ...], full: bool, dump: bool) -> None:
         click.echo()
         click.echo(format_text(simdef))
         click.echo()
+    _inspect_behavior(behavior_path or behavior.sidecar_path(list(xtce)), simdef)
     click.echo(
         f"OK: {simdef.space_system_name} — {len(simdef.commands)} command(s), "
         f"{len(simdef.packets)} packet(s)"
     )
+
+
+def _inspect_behavior(path: Path | None, simdef: SimDefinition) -> None:
+    """Validate and narrate a behavior sidecar; validation problems are fatal."""
+    if path is None:
+        return
+    try:
+        spec = behavior.load_behavior(path, simdef)
+    except behavior.BehaviorError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"\nBehavior ({path}):")
+    for line in behavior.describe(spec):
+        click.echo(f"  {line}")
+    click.echo()
 
 
 @main.command()
