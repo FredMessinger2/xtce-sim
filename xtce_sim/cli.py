@@ -469,9 +469,20 @@ def monitor(
         raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
 
 
+def _stdout_isatty() -> bool:
+    """Read at call time (and patchable in tests — CliRunner swaps sys.stdout)."""
+    return sys.stdout.isatty()
+
+
 def _run_stream(host, port, style, decode, show_all_fields, count) -> None:
-    """Compact / table styles: render each packet as it arrives."""
+    """Compact / table styles: render each packet as it arrives.
+
+    On a TTY the table style repaints in place (cursor-home + erase-below,
+    written with the frame in one go, so there is no blank-frame flash);
+    when piped, tables append so the output stays greppable.
+    """
     shown = 0
+    table_in_place = style == "table" and _stdout_isatty()
     for packet in client.stream_packets(host, port):
         decoded = decode(packet)
         if decoded is None:
@@ -479,7 +490,13 @@ def _run_stream(host, port, style, decode, show_all_fields, count) -> None:
         apid, name, seq, meta, prefix = decoded
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         if style == "table":
-            click.echo(render.render_table(ts, apid, name, seq, meta))
+            frame = render.render_table(ts, apid, name, seq, meta)
+            if table_in_place:
+                # color=True keeps the escape intact even where click would
+                # strip ANSI (we already know we're on a TTY).
+                click.echo("\033[H\033[J" + frame, color=True)
+            else:
+                click.echo(frame)
         else:
             click.echo(
                 render.render_compact(

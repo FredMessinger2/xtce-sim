@@ -306,3 +306,22 @@ async def test_dashboard_frames_are_complete_snapshots(simdef, tmp_path):
         assert result.output.count("HOUSEKEEPING") == 2
     finally:
         await server.stop()
+
+
+async def test_table_style_repaints_in_place_on_tty(simdef, tmp_path, monkeypatch):
+    # On a TTY each table frame is prefixed with cursor-home + erase-below
+    # (single write -> no flash); piped output (the other monitor tests)
+    # stays plain and greppable. CliRunner swaps sys.stdout during invoke,
+    # so the TTY check is patched via the cli helper, not sys.stdout itself.
+    monkeypatch.setattr(cli, "_stdout_isatty", lambda: True)
+    def_json = _def_json(tmp_path, simdef)
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=0.02)
+    await server.start()
+    try:
+        result = await _invoke_monitor(
+            server, ["--def", def_json, "--style", "table", "--count", "2"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "\033[H\033[J" in result.output  # in-place repaint marker
+    finally:
+        await server.stop()
