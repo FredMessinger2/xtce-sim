@@ -43,6 +43,7 @@ class FieldInfo:
     python_type: str  # 'uint8', 'int16', 'float32', 'string', ...
     unit: Optional[str] = None
     description: Optional[str] = None
+    enumerations: Optional[dict[str, int]] = None  # label -> raw value
 
 
 @dataclass
@@ -156,6 +157,7 @@ class SimDefinition:
                         python_type=f["python_type"],
                         unit=f.get("unit"),
                         description=f.get("description"),
+                        enumerations=f.get("enumerations"),
                     )
                     for f in t.get("fields", [])
                 ],

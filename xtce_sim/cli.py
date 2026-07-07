@@ -318,13 +318,25 @@ def _decode_packet(
     if packet_def is not None:
         try:
             values = codec.unpack_telemetry(packet_def, packet[6:])
-            meta = [(f.name, values[f.name], f.unit) for f in packet_def.fields]
+            meta = [
+                (f.name, _label_or_value(f, values[f.name]), f.unit)
+                for f in packet_def.fields
+            ]
             prefix = prefixes.setdefault(
                 header.apid, render.common_prefix([f.name for f in packet_def.fields])
             )
         except struct.error:
             meta = [("<raw>", packet[6:22].hex(), None)]
     return header.apid, name, header.seq_count, meta, prefix
+
+
+def _label_or_value(field, value):
+    """Display an enumerated field's label when the raw value matches one."""
+    if field.enumerations:
+        label = next((k for k, v in field.enumerations.items() if v == value), None)
+        if label is not None:
+            return label
+    return value
 
 
 @main.command()

@@ -272,6 +272,24 @@ def test_decode_packet_branches(simdef):
     assert bad_meta and bad_meta[0][0] == "<raw>"
 
 
+def test_decode_packet_shows_enum_labels():
+    # An enumerated field displays its label; unmatched raw values stay raw.
+    d = SimDefinition.from_xtce(EXAMPLES / "imaging_sat.xml")
+    hk = d.packet_by_name("HOUSEKEEPING")
+    frame = ccsds.build_telemetry_packet(
+        hk.apid, codec.pack_telemetry(hk, {"HK_SYSTEM_MODE": 3}), 1
+    )
+    _, _, _, meta, _ = cli._decode_packet(frame, d, set(), {})
+    values = {name: value for name, value, _ in meta}
+    assert values["HK_SYSTEM_MODE"] == "IMAGING"  # 3 -> label
+    frame = ccsds.build_telemetry_packet(
+        hk.apid, codec.pack_telemetry(hk, {"HK_SYSTEM_MODE": 99}), 2
+    )
+    _, _, _, meta, _ = cli._decode_packet(frame, d, set(), {})
+    values = {name: value for name, value, _ in meta}
+    assert values["HK_SYSTEM_MODE"] == 99  # no label for 99 -> raw value
+
+
 async def test_dashboard_frames_are_complete_snapshots(simdef, tmp_path):
     """Each dashboard frame is a full cycle (all APIDs), painted once per cycle."""
     def_json = _def_json(tmp_path, simdef)

@@ -424,6 +424,7 @@ def _fields_for_param(param, xtce_def: XTCEDefinition) -> list[FieldInfo]:
                     python_type=python_type_for_param(member_type),
                     unit=member_type.unit or None,
                     description=member.description or member_type.description or None,
+                    enumerations=_enum_map(member_type),
                 )
             )
         logger.info(
@@ -444,8 +445,16 @@ def _fields_for_param(param, xtce_def: XTCEDefinition) -> list[FieldInfo]:
             python_type=python_type_for_param(ptype),
             unit=ptype.unit or None,
             description=desc,
+            enumerations=_enum_map(ptype),
         )
     ]
+
+
+def _enum_map(ptype) -> Optional[dict[str, int]]:
+    """label -> value map for an enumerated parameter type, else None."""
+    if isinstance(ptype, EnumeratedParameterType) and ptype.enumerations:
+        return {e.label: e.value for e in ptype.enumerations}
+    return None
 
 
 def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
@@ -556,6 +565,8 @@ def _field_detail(f) -> str:
     detail = f"      {f.name:<24} {f.python_type:<8} {f.size_bits}b"
     if f.unit:
         detail += f"  [{f.unit}]"
+    if f.enumerations:
+        detail += f"  enum={f.enumerations}"
     if f.description:
         detail += f"  — {f.description}"
     return detail
@@ -664,6 +675,7 @@ def to_dict(simdef: SimDefinition) -> dict:
                         "python_type": f.python_type,
                         "unit": f.unit,
                         "description": f.description,
+                        "enumerations": f.enumerations,
                     }
                     for f in pkt.fields
                 ],
@@ -777,6 +789,7 @@ def emit_python(simdef: SimDefinition) -> str:
         "    python_type: str",
         "    unit: Optional[str] = None",
         "    description: Optional[str] = None",
+        "    enumerations: Optional[dict] = None",
         "",
         "",
         "class CommandOpcode(IntEnum):",
@@ -864,4 +877,6 @@ def _field_info_repr(f: FieldInfo) -> str:
         args.append(f"unit={f.unit!r}")
     if f.description is not None:
         args.append(f"description={f.description!r}")
+    if f.enumerations is not None:
+        args.append(f"enumerations={f.enumerations!r}")
     return f"FieldInfo({', '.join(args)})"

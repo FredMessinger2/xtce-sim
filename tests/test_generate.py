@@ -55,6 +55,51 @@ def test_imaging_sat_opcodes_are_declared_not_synthetic():
     assert all(p.name != "OPCODE" for c in d.commands for p in c.params)
 
 
+def test_telemetry_field_enumerations_are_preserved():
+    # Enumerated telemetry types carry their label map into the built field,
+    # through the JSON dump, and into the text report (they used to be
+    # dropped at build time, leaving monitor showing raw ints).
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    hk = d.packet_by_name("HOUSEKEEPING")
+    mode = next(f for f in hk.fields if f.name == "HK_SYSTEM_MODE")
+    assert mode.enumerations == {
+        "SAFE": 0, "STANDBY": 1, "NOMINAL": 2, "IMAGING": 3, "DOWNLINK": 4
+    }
+    # Non-enumerated fields stay None.
+    volts = next(f for f in hk.fields if f.name == "HK_BUS_VOLTAGE")
+    assert volts.enumerations is None
+    # JSON round-trip preserves the map.
+    d2 = SimDefinition.from_dict(json.loads(format_json(d)))
+    mode2 = next(
+        f for f in d2.packet_by_name("HOUSEKEEPING").fields
+        if f.name == "HK_SYSTEM_MODE"
+    )
+    assert mode2.enumerations == mode.enumerations
+    # The text report shows it.
+    assert "enum={'SAFE': 0" in format_text(d)
+
+
+def test_aggregate_member_enum_and_old_json_compat():
+    # An aggregate member whose type is enumerated carries the map too.
+    ff = SimDefinition.from_xtce(
+        Path(__file__).resolve().parent / "data" / "full_features.xml"
+    )
+    fix = next(
+        f for p in ff.packets for f in p.fields if f.name.endswith("_Fix")
+    )
+    assert fix.enumerations  # GPS aggregate's Fix member is ModeType (enum)
+    # A cmd_tlm.json written BEFORE this feature has no "enumerations" key on
+    # fields — loading it must not break, and the field defaults to None.
+    old_style = json.loads(format_json(ff))
+    for pkt in old_style["telemetry"]:
+        for f in pkt["fields"]:
+            f.pop("enumerations", None)
+    d = SimDefinition.from_dict(old_style)
+    assert all(
+        f.enumerations is None for p in d.packets for f in p.fields
+    )
+
+
 def test_imaging_sat_two_level_inheritance_resolves():
     # Commands inherit CCSDSCommand -> ImagingSatCommand (which assigns the
     # shared header values once) -> concrete command (which pins only its
