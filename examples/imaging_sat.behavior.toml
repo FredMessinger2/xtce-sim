@@ -1,20 +1,24 @@
 # Behavior definition for the ImagingSat example — sidecar to imaging_sat.xml.
 #
 # The XTCE defines the command/telemetry INTERFACE; this file defines what
-# each command DOES to telemetry: instant sets, argument copies, and
-# time-varying ramps. It was transcribed from the tlm_side_effect /
-# tlm_func / tlm_field AncillaryData that previously lived inside the XTCE
-# (behavior moved out of the interface definition, 2026-07).
-#
-# NOTE: the behavior engine that executes this file is under construction.
-# Until it lands, this file is the authoritative documentation of intended
-# behavior. Schema:
+# the plant DOES: what each command changes, and how values evolve on their
+# own. Schema:
 #   FIELD = value                          set the field when the command executes
 #   FIELD = "@arg:Name"                    copy the command argument's value
+#   FIELD = { increment = N }              add N to the field's current value
 #   FIELD = { ramp_to = X, tau = S }       first-order approach toward X with
 #                                          time constant S seconds; X may be a
 #                                          number or "@FIELD" (read live each tick)
+#   FIELD = { oscillate = C, amplitude = A, period = P }
+#                                          wave around center C (number or "@FIELD");
+#                                          optional shape = "sine"|"triangle"|"sawtooth"
+#                                          and phase = seconds into the cycle
+#   FIELD = { hold = V }                   keep re-asserting V (number or "@FIELD")
+#   noise = STDDEV                         optional on ramp_to/oscillate/hold:
+#                                          Gaussian jitter, seeded per field
 #   {ArgName} inside a field name is filled from the command's arguments.
+#   [_initial] seeds one-shot values at boot; [_signals] starts continuous
+#   behaviors (ramp_to/oscillate/hold) at boot with no command needed.
 
 [_initial]
 # Ambient / power-on conditions at sim start.
@@ -41,11 +45,11 @@ HK_SYSTEM_MODE = "@arg:Mode"
 
 [IMAGER_ON]
 IMG_STATE = "IDLE"          # powered and ready
-IMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = 20.0 }
+IMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = 20.0, noise = 0.2 }
 
 [IMAGER_OFF]
 IMG_STATE = "OFF"
-IMG_FOCAL_PLANE_TEMP = { ramp_to = 20.0, tau = 30.0 }
+IMG_FOCAL_PLANE_TEMP = { ramp_to = 20.0, tau = 30.0, noise = 0.2 }
 
 [SET_EXPOSURE]
 IMG_EXPOSURE_MS = "@arg:ExposureMs"
@@ -56,6 +60,10 @@ IMG_STATE = "CAPTURING"
 # Faithful to the original annotation: the commanded count is COPIED into
 # the field (not accumulated).
 IMG_CAPTURE_COUNT = "@arg:ImageCount"
+# Capturing works the focal plane harder than idling: heat toward a hotter
+# operating point. Cools back to 35 only via IMAGER_ON (or 20 via IMAGER_OFF)
+# — there is no timed "capture finished" trigger yet.
+IMG_FOCAL_PLANE_TEMP = { ramp_to = 45.0, tau = 15.0, noise = 0.2 }
 
 [SET_ATTITUDE]
 HK_ATTITUDE_MODE = "@arg:AttitudeMode"
@@ -74,3 +82,18 @@ HK_ATTITUDE_MODE = "@arg:AttitudeMode"
 #
 # [ENABLE_BEACON]
 # COMM_BEACON_STATE = "@arg:BeaconState"
+
+# ---------------------------------------------------------------------------
+# Ambient signals — continuous behaviors running from boot, no command needed.
+# The structural panels ride the ~90-minute orbit thermal cycle (phase-
+# staggered: when +X faces the sun, -X faces deep space), the radiator sits
+# cold, and the power bus breathes with seeded (reproducible) noise.
+[_signals]
+THM_PANEL_PLUS_X = { oscillate = 10.0, amplitude = 25.0, period = 5400, noise = 0.5 }
+THM_PANEL_MINUS_X = { oscillate = 10.0, amplitude = 25.0, period = 5400, phase = 2700, noise = 0.5 }
+THM_PANEL_PLUS_Y = { oscillate = 10.0, amplitude = 25.0, period = 5400, phase = 1350, noise = 0.5 }
+THM_PANEL_MINUS_Y = { oscillate = 10.0, amplitude = 25.0, period = 5400, phase = 4050, noise = 0.5 }
+THM_RADIATOR = { hold = -5.0, noise = 0.4 }
+PWR_SOLAR_VOLTAGE = { oscillate = 16.0, amplitude = 12.0, period = 5400, noise = 0.3 }
+PWR_BATTERY_VOLTAGE = { hold = 24.0, noise = 0.3 }
+PWR_BATTERY_TEMP = { hold = 15.0, noise = 0.4 }

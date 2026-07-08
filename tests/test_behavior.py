@@ -218,7 +218,7 @@ def test_table_form_set_accepts_arg_copy_with_emit(tmp_path, simdef):
 
 
 def test_stray_tau_rejected_outside_ramp(tmp_path, simdef):
-    assert "tau is only valid with ramp_to" in _errors(
+    assert "['tau'] not valid with set" in _errors(
         tmp_path, simdef, "[IMAGER_ON]\nIMG_STATE = { set = 1, tau = 5 }\n"
     )
 
@@ -607,7 +607,7 @@ def test_ramp_advances_toward_target_and_completes(engine, simdef):
     for _ in range(20):
         engine.tick(30.0)
     assert engine.state["THM_HEATER1_TEMP"] == 40
-    assert "THM_HEATER1_TEMP" not in engine._ramps
+    assert "THM_HEATER1_TEMP" not in engine._behaviors
 
 
 def test_ramp_trajectory_is_tick_size_independent(tmp_path, simdef):
@@ -656,7 +656,7 @@ def test_new_ramp_replaces_old_per_field(engine, simdef):
         engine.tick(30.0)
     assert engine.state["THM_HEATER1_TEMP"] == 20  # cooled back to ambient
     # heater 2 was never involved
-    assert "THM_HEATER2_TEMP" not in engine._ramps
+    assert "THM_HEATER2_TEMP" not in engine._behaviors
 
 
 def test_ramp_holds_when_target_field_not_numeric_yet(tmp_path, simdef, caplog):
@@ -730,7 +730,7 @@ def test_float_field_ramp_lands_exactly_and_retires(tmp_path, simdef):
     for _ in range(40):  # 40 * 5s = 40 time constants
         eng.tick(5.0)
     assert eng.state["HK_ISSUED_TIMESTAMP"] == 100.0  # exact landing
-    assert "HK_ISSUED_TIMESTAMP" not in eng._ramps  # retired
+    assert "HK_ISSUED_TIMESTAMP" not in eng._behaviors  # retired
 
 
 def test_direct_write_cancels_active_ramp(engine, simdef):
@@ -738,14 +738,14 @@ def test_direct_write_cancels_active_ramp(engine, simdef):
     # so the next tick cannot silently revert the operator's value.
     engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
     engine.tick(30.0)
-    assert "THM_HEATER1_TEMP" in engine._ramps
+    assert "THM_HEATER1_TEMP" in engine._behaviors
     # a direct copy onto the ramped field (via setpoint command redirected)...
     spec_over = engine.spec.commands.setdefault("NOOP", [])
     from xtce_sim.behavior import SetEffect
     spec_over.append(SetEffect(field="THM_HEATER1_TEMP", value=33))
     engine.apply_command(_cmd(simdef, "NOOP"), {})
     assert engine.state["THM_HEATER1_TEMP"] == 33
-    assert "THM_HEATER1_TEMP" not in engine._ramps  # ramp cancelled
+    assert "THM_HEATER1_TEMP" not in engine._behaviors  # ramp cancelled
     engine.tick(30.0)
     assert engine.state["THM_HEATER1_TEMP"] == 33  # value survives ticks
 
@@ -776,3 +776,253 @@ def test_infinite_ramp_target_rejected_at_load(tmp_path, simdef):
         tmp_path, simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = inf, tau = 5 }\n",
     )
+
+
+# ---- oscillate / hold / noise / signals (unit 4b) ---------------------------
+
+
+def test_shipped_sidecar_signals_load(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    assert len(spec.signals) == 8
+    kinds = {type(e) for e in spec.signals}
+    from xtce_sim.behavior import HoldEffect, OscillateEffect
+    assert kinds == {OscillateEffect, HoldEffect}
+
+
+def test_oscillate_validation(tmp_path, simdef):
+    assert "requires amplitude and period" in _errors(
+        tmp_path, simdef, "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10 }\n"
+    )
+    assert "period must be a positive number" in _errors(
+        tmp_path, simdef,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10, amplitude = 5, period = 0 }\n",
+    )
+    assert "shape must be one of" in _errors(
+        tmp_path, simdef,
+        '[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10, amplitude = 5, period = 60, shape = "square" }\n',
+    )
+    assert "noise must be a non-negative number" in _errors(
+        tmp_path, simdef,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10, amplitude = 5, period = 60, noise = -1 }\n",
+    )
+    # attributes are verb-scoped: amplitude with ramp_to is a typo
+    assert "['amplitude'] not valid with ramp_to" in _errors(
+        tmp_path, simdef,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 5, tau = 3, amplitude = 2 }\n",
+    )
+
+
+def test_signals_validation(tmp_path, simdef):
+    msg = _errors(
+        tmp_path, simdef,
+        "[_signals]\nIMG_STATE = 1\nNOT_A_FIELD = { hold = 1 }\n"
+        '"THM_HEATER{HeaterId}_TEMP" = { hold = 1 }\n',
+    )
+    assert "signals must be continuous behaviors" in msg
+    assert "unknown telemetry field" in msg
+    assert "templates are not allowed here" in msg
+
+
+def test_oscillate_wave_math_no_noise(tmp_path, simdef):
+    # sine: quarter period -> center + amplitude, exactly (no noise)
+    spec = _load(
+        tmp_path, simdef,
+        "[_signals]\nTHM_PANEL_PLUS_X = { oscillate = 10.0, amplitude = 20.0, period = 100 }\n",
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.tick(25.0)  # t = period/4
+    assert eng.state["THM_PANEL_PLUS_X"] == 30  # 10 + 20*sin(pi/2)
+    eng.tick(25.0)  # t = period/2
+    assert eng.state["THM_PANEL_PLUS_X"] == 10  # back through center
+    eng.tick(25.0)  # t = 3/4 period
+    assert eng.state["THM_PANEL_PLUS_X"] == -10  # trough
+
+
+def test_triangle_and_sawtooth_shapes():
+    from xtce_sim.behavior import _wave
+
+    assert _wave("triangle", 0.25) == 1.0 and _wave("triangle", 0.75) == -1.0
+    assert _wave("triangle", 0.0) == 0.0 and _wave("triangle", 0.5) == 0.0
+    assert _wave("sawtooth", 0.25) == 0.5 and _wave("sawtooth", 0.75) == -0.5
+
+
+def test_noise_is_deterministic_across_runs(tmp_path, simdef):
+    text = "[_signals]\nPWR_BATTERY_TEMP = { hold = 15.0, noise = 2.0 }\n"
+    seq = []
+    for _ in range(2):
+        eng = behavior.BehaviorEngine(_load(tmp_path, simdef, text), simdef)
+        values = []
+        for _ in range(5):
+            eng.tick(1.0)
+            values.append(eng.state["PWR_BATTERY_TEMP"])
+        seq.append(values)
+    assert seq[0] == seq[1]  # seeded per field: reproducible
+    assert len(set(seq[0])) > 1  # ...but actually noisy
+
+
+def test_boot_signals_run_without_commands(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.tick(1350.0)  # quarter orbit
+    assert eng.state["THM_PANEL_PLUS_X"] > 25  # near peak (35 ± noise)
+    assert eng.state["THM_RADIATOR"] != 0  # holding around -5
+
+
+def test_noisy_ramp_degrades_into_noisy_hold(tmp_path, simdef):
+    from xtce_sim.behavior import _ActiveHold
+
+    spec = _load(
+        tmp_path, simdef,
+        "[_initial]\nHK_ISSUED_TIMESTAMP = 0.0\n"
+        "[IMAGER_ON]\nHK_ISSUED_TIMESTAMP = { ramp_to = 100.0, tau = 2, noise = 0.5 }\n",
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    for _ in range(30):
+        eng.tick(2.0)
+    beh = eng._behaviors.get("HK_ISSUED_TIMESTAMP")
+    assert isinstance(beh, _ActiveHold)  # settled but still breathing
+    assert beh.noise == 0.5
+    eng.tick(2.0)
+    assert abs(eng.state["HK_ISSUED_TIMESTAMP"] - 100.0) < 3.0  # jitter near target
+
+
+def test_command_behavior_replaces_boot_signal(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    eng = behavior.BehaviorEngine(spec, simdef)
+    from xtce_sim.behavior import HoldEffect, _ActiveOsc
+
+    assert isinstance(eng._behaviors["THM_PANEL_PLUS_X"], _ActiveOsc)
+    # a command declaring a hold on the same field displaces the signal
+    eng.spec.commands.setdefault("NOOP", []).append(
+        HoldEffect(field="THM_PANEL_PLUS_X", value=0.0)
+    )
+    eng.apply_command(_cmd(simdef, "NOOP"), {})
+    assert not isinstance(eng._behaviors["THM_PANEL_PLUS_X"], _ActiveOsc)
+
+
+def test_direct_set_cancels_boot_signal(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    eng = behavior.BehaviorEngine(spec, simdef)
+    from xtce_sim.behavior import SetEffect
+
+    eng.spec.commands.setdefault("NOOP", []).append(
+        SetEffect(field="THM_RADIATOR", value=0)
+    )
+    eng.apply_command(_cmd(simdef, "NOOP"), {})
+    assert "THM_RADIATOR" not in eng._behaviors  # signal cancelled
+    eng.tick(1.0)
+    assert eng.state["THM_RADIATOR"] == 0  # value survives ticks
+
+
+# ---- 4b defensive branches ---------------------------------------------------
+
+
+def test_spec_signals_default_to_empty_list(tmp_path):
+    spec = behavior.BehaviorSpec(path=tmp_path, initial={}, commands={})
+    assert spec.signals == []
+
+
+def test_signals_body_must_be_table(tmp_path, simdef):
+    assert "must be a table" in _errors(tmp_path, simdef, "_signals = 5\n")
+
+
+def test_signal_parse_error_reported_not_registered(tmp_path, simdef):
+    # a bad verb body inside [_signals] errors without crashing the loader
+    assert "not valid with hold" in _errors(
+        tmp_path, simdef, "[_signals]\nTHM_RADIATOR = { hold = 1, tau = 2 }\n"
+    )
+
+
+def test_center_and_hold_value_validation(tmp_path, simdef):
+    assert "must be an @FIELD reference" in _errors(
+        tmp_path, simdef,
+        '[_signals]\nTHM_RADIATOR = { oscillate = "FOO", amplitude = 1, period = 60 }\n',
+    )
+    assert "must be a finite number or @FIELD" in _errors(
+        tmp_path, simdef,
+        "[_signals]\nTHM_RADIATOR = { oscillate = true, amplitude = 1, period = 60 }\n",
+    )
+    assert "amplitude must be a non-negative number" in _errors(
+        tmp_path, simdef,
+        "[_signals]\nTHM_RADIATOR = { oscillate = 1, amplitude = -1, period = 60 }\n",
+    )
+    assert "phase must be a finite number" in _errors(
+        tmp_path, simdef,
+        "[_signals]\nTHM_RADIATOR = { oscillate = 1, amplitude = 1, period = 60, phase = nan }\n",
+    )
+    assert "noise must be a non-negative number" in _errors(
+        tmp_path, simdef, "[_signals]\nTHM_RADIATOR = { hold = 1, noise = -1 }\n"
+    )
+    assert "noise must be a non-negative number" in _errors(
+        tmp_path, simdef,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 5, tau = 1, noise = -1 }\n",
+    )
+
+
+def test_oscillate_center_can_be_live_reference(tmp_path, simdef):
+    spec = _load(
+        tmp_path, simdef,
+        '[_initial]\nTHM_HEATER1_SETPOINT = 20\n'
+        '[_signals]\nTHM_RADIATOR = { oscillate = "@THM_HEATER1_SETPOINT", amplitude = 4, period = 8 }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.tick(2.0)  # quarter period: 20 + 4
+    assert eng.state["THM_RADIATOR"] == 24
+
+
+def test_hold_with_unresolvable_template_ref_skips(simdef, caplog, tmp_path):
+    from xtce_sim.behavior import HoldEffect
+
+    spec = behavior.BehaviorSpec(path=tmp_path, initial={}, commands={})
+    spec.commands["NOOP"] = [
+        HoldEffect(field="THM_RADIATOR", value="@THM_HEATER{HeaterId}_SETPOINT")
+    ]
+    eng = behavior.BehaviorEngine(spec, simdef)
+    with caplog.at_level("WARNING"):
+        eng.apply_command(_cmd(simdef, "NOOP"), {})  # HeaterId not supplied
+    assert "THM_RADIATOR" not in eng._behaviors
+    assert "skipped" in caplog.text
+
+
+def test_tick_skips_behavior_with_missing_live_ref(simdef, caplog, tmp_path):
+    from xtce_sim.behavior import _ActiveHold, _ActiveOsc
+
+    spec = behavior.BehaviorSpec(path=tmp_path, initial={}, commands={})
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng._behaviors["THM_RADIATOR"] = _ActiveHold(field="THM_RADIATOR", value="@GHOST")
+    eng._behaviors["THM_PANEL_PLUS_X"] = _ActiveOsc(
+        field="THM_PANEL_PLUS_X", center="@GHOST", amplitude=1.0,
+        period=10.0, shape="sine", phase=0.0,
+    )
+    with caplog.at_level("WARNING"):
+        eng.tick(1.0)
+        eng.tick(1.0)
+    assert "THM_RADIATOR" not in eng.state  # skipped, not zeroed
+    assert "THM_PANEL_PLUS_X" not in eng.state
+    assert caplog.text.count("@GHOST") <= 2  # warn-once per behavior
+
+
+def test_signal_with_templated_reference_is_load_error(tmp_path, simdef):
+    # review defect: this used to crash the loader with AttributeError
+    assert "templates are not allowed here" in _errors(
+        tmp_path, simdef,
+        '[_signals]\nTHM_RADIATOR = { hold = "@THM_HEATER{HeaterId}_SETPOINT" }\n',
+    )
+
+
+def test_noisy_ramp_settles_on_landed_value_not_live_target(tmp_path, simdef):
+    # review defect: the degraded hold used to keep tracking @FIELD, so a
+    # later setpoint change teleported the value instead of freezing it.
+    spec = _load(
+        tmp_path, simdef,
+        "[_initial]\nTHM_HEATER1_SETPOINT = 40\n"
+        '[HEATER_ON]\nTHM_HEATER1_TEMP = { ramp_to = "@THM_HEATER1_SETPOINT", tau = 2, noise = 0.1 }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    for _ in range(40):
+        eng.tick(2.0)
+    eng.state["THM_HEATER1_SETPOINT"] = 100  # operator moves the setpoint
+    eng.tick(2.0)
+    assert abs(eng.state["THM_HEATER1_TEMP"] - 40) < 3  # stayed put (± noise)

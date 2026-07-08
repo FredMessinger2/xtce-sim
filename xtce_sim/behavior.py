@@ -18,7 +18,15 @@ table per command plus an optional ``[_initial]`` table of start-up values:
 Verbs: a bare scalar sets the field; ``"@arg:Name"`` copies a command
 argument; ``{ increment = n }`` adds; ``{ ramp_to = X, tau = S }`` starts a
 first-order approach toward X (a number, or ``"@FIELD"`` read live each
-tick). ``{ArgName}`` inside a field name or ``@`` target is filled with the
+tick); ``{ oscillate = C, amplitude = A, period = P }`` runs a continuous
+wave around center C (``shape`` = "sine"/"triangle"/"sawtooth", optional
+``phase`` seconds); ``{ hold = V }`` keeps re-asserting V. Continuous verbs
+(ramp_to/oscillate/hold) accept ``noise = stddev`` — seeded per field, so
+runs are reproducible — and a completed noisy ramp degrades into a noisy
+hold at its target. An optional ``[_signals]`` table starts continuous
+behaviors at boot (ambient realism: orbit thermal cycles, bus ripple) with
+no command needed; a command's behavior on the same field replaces a
+signal, and a direct set cancels it, exactly like ramps. ``{ArgName}`` inside a field name or ``@`` target is filled with the
 argument's decoded **raw integer** value at execution time (an enumerated
 argument substitutes its raw value, not its label). Any effect may carry
 ``emit = "immediate"`` to request out-of-cycle emission of its packet
@@ -44,6 +52,7 @@ from __future__ import annotations
 import itertools
 import logging
 import math
+import random
 import re
 import tomllib
 from dataclasses import dataclass
@@ -54,7 +63,11 @@ from xtce_sim.definition import CommandDef, SimDefinition
 
 _TEMPLATE_RE = re.compile(r"\{(\w+)\}")
 _EMIT_VALUES = ("interval", "immediate")
-_VERB_KEYS = {"set", "ramp_to", "tau", "increment", "emit"}
+_VERB_KEYS = {
+    "set", "ramp_to", "tau", "increment", "emit",
+    "oscillate", "amplitude", "period", "shape", "phase", "hold", "noise",
+}
+_WAVE_SHAPES = ("sine", "triangle", "sawtooth")
 # Templated args are expanded for load-time validation up to this many
 # combinations; beyond it (or for unbounded args) field checks defer to
 # execution time.
@@ -93,19 +106,48 @@ class RampEffect:
     field: str
     target: float | str  # number, or "@FIELD" (possibly templated)
     tau: float
+    noise: float = 0.0  # gaussian stddev added to the emitted value
     emit: str = "interval"
 
 
-Effect = SetEffect | CopyArgEffect | IncrementEffect | RampEffect
+@dataclass
+class OscillateEffect:
+    field: str
+    center: float | str  # number, or "@FIELD" (possibly templated)
+    amplitude: float
+    period: float  # seconds (a period, never a frequency)
+    shape: str = "sine"  # sine | triangle | sawtooth
+    phase: float = 0.0  # seconds of offset into the cycle
+    noise: float = 0.0
+    emit: str = "interval"
+
+
+@dataclass
+class HoldEffect:
+    field: str
+    value: float | str  # number, or "@FIELD" (tracked live)
+    noise: float = 0.0
+    emit: str = "interval"
+
+
+Effect = (
+    SetEffect | CopyArgEffect | IncrementEffect
+    | RampEffect | OscillateEffect | HoldEffect
+)
 
 
 @dataclass
 class BehaviorSpec:
-    """A validated behavior file: initial values plus per-command effects."""
+    """A validated behavior file: initial values, boot signals, command effects."""
 
     path: Path
     initial: dict[str, Scalar]
     commands: dict[str, list[Effect]]  # command name -> effects
+    signals: list[Effect] = None  # continuous behaviors started at boot
+
+    def __post_init__(self):
+        if self.signals is None:
+            self.signals = []
 
 
 def sidecar_path(xtce_paths: list[Path]) -> Optional[Path]:
@@ -136,11 +178,15 @@ def load_behavior(path: Path, simdef: SimDefinition) -> BehaviorSpec:
 
     ctx = _Context(simdef)
     initial: dict[str, Scalar] = {}
+    signals: list[Effect] = []
     commands: dict[str, list[Effect]] = {}
 
     for table, body in data.items():
         if table == "_initial":
             initial = _load_initial(body, ctx)
+            continue
+        if table == "_signals":
+            signals = _load_signals(body, ctx)
             continue
         command = simdef.command_by_name(table)
         if command is None:
@@ -153,7 +199,9 @@ def load_behavior(path: Path, simdef: SimDefinition) -> BehaviorSpec:
         raise BehaviorError(
             f"{path}: {len(ctx.errors)} problem(s):\n  - {problems}"
         )
-    return BehaviorSpec(path=Path(path), initial=initial, commands=commands)
+    return BehaviorSpec(
+        path=Path(path), initial=initial, commands=commands, signals=signals
+    )
 
 
 def describe(spec: BehaviorSpec) -> list[str]:
@@ -163,6 +211,10 @@ def describe(spec: BehaviorSpec) -> list[str]:
         lines.append(f"initial values: {len(spec.initial)} field(s)")
         for fname, value in spec.initial.items():
             lines.append(f"  {fname} = {value!r}")
+    if spec.signals:
+        lines.append(f"boot signals: {len(spec.signals)}")
+        for eff in spec.signals:
+            lines.append(f"  {_describe_effect(eff)}")
     for cmd, effects in spec.commands.items():
         lines.append(f"{cmd}:")
         for eff in effects:
@@ -178,7 +230,17 @@ def _describe_effect(eff: Effect) -> str:
         return f"{eff.field} = @arg:{eff.arg}{tail}"
     if isinstance(eff, IncrementEffect):
         return f"{eff.field} += {eff.by}{tail}"
-    return f"{eff.field} ramps to {eff.target} (tau={eff.tau}s){tail}"
+    if isinstance(eff, OscillateEffect):
+        noise = f" ±noise({eff.noise})" if eff.noise else ""
+        return (
+            f"{eff.field} oscillates ({eff.shape}) around {eff.center} "
+            f"amplitude {eff.amplitude}, period {eff.period}s{noise}{tail}"
+        )
+    if isinstance(eff, HoldEffect):
+        noise = f" ±noise({eff.noise})" if eff.noise else ""
+        return f"{eff.field} holds at {eff.value}{noise}{tail}"
+    noise = f" ±noise({eff.noise})" if eff.noise else ""
+    return f"{eff.field} ramps to {eff.target} (tau={eff.tau}s){noise}{tail}"
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +281,34 @@ def _load_initial(body, ctx: _Context) -> dict[str, Scalar]:
         _check_scalar_for_field(f"[_initial] {fname}", fname, value, None, ctx)
         initial[fname] = value
     return initial
+
+
+def _load_signals(body, ctx: _Context) -> list[Effect]:
+    """[_signals]: continuous behaviors started at boot (no command context)."""
+    signals: list[Effect] = []
+    if not isinstance(body, dict):
+        ctx.error("[_signals]: must be a table of FIELD = behavior")
+        return signals
+    for fname, spec in body.items():
+        where = f"[_signals] {fname}"
+        if _TEMPLATE_RE.search(fname):
+            ctx.error(f"{where}: templates are not allowed here — no command context")
+            continue
+        if fname not in ctx.fields:
+            ctx.error(f"{where}: unknown telemetry field")
+            continue
+        if not isinstance(spec, dict) or not any(
+            k in spec for k in ("ramp_to", "oscillate", "hold")
+        ):
+            ctx.error(
+                f"{where}: signals must be continuous behaviors "
+                "(ramp_to/oscillate/hold); use [_initial] for one-shot values"
+            )
+            continue
+        eff = _parse_effect_table(where, fname, spec, None, ctx)
+        if eff is not None:
+            signals.append(eff)
+    return signals
 
 
 def _load_command_table(
@@ -276,18 +366,119 @@ def _parse_effect_table(
     if emit not in _EMIT_VALUES:
         ctx.error(f"{where}: emit must be one of {_EMIT_VALUES}, got {emit!r}")
         return None
-    verbs = [k for k in ("set", "ramp_to", "increment") if k in spec]
+    verbs = [k for k in ("set", "ramp_to", "increment", "oscillate", "hold") if k in spec]
     if len(verbs) != 1:
-        ctx.error(f"{where}: exactly one of set/ramp_to/increment required, got {verbs}")
+        ctx.error(
+            f"{where}: exactly one of set/ramp_to/increment/oscillate/hold "
+            f"required, got {verbs}"
+        )
         return None
-    if "tau" in spec and verbs[0] != "ramp_to":
-        ctx.error(f"{where}: tau is only valid with ramp_to")
+    if not _attrs_match_verb(where, spec, verbs[0], ctx):
         return None
     if verbs[0] == "set":
         return _scalar_effect(where, fname, spec["set"], command, ctx, emit)
     if verbs[0] == "increment":
         return _parse_increment(where, fname, spec, command, emit, ctx)
+    if verbs[0] == "oscillate":
+        return _parse_oscillate(where, fname, spec, command, emit, ctx)
+    if verbs[0] == "hold":
+        return _parse_hold(where, fname, spec, command, emit, ctx)
     return _parse_ramp(where, fname, spec, command, emit, ctx)
+
+
+_VERB_ATTRS = {
+    "set": set(),
+    "increment": set(),
+    "ramp_to": {"tau", "noise"},
+    "oscillate": {"amplitude", "period", "shape", "phase", "noise"},
+    "hold": {"noise"},
+}
+
+
+def _attrs_match_verb(where: str, spec: dict, verb: str, ctx: _Context) -> bool:
+    """Attributes must belong to their verb (tau without ramp_to is a typo)."""
+    attrs = set(spec) - {verb, "emit"}
+    stray = attrs - _VERB_ATTRS[verb]
+    if stray:
+        ctx.error(f"{where}: {sorted(stray)} not valid with {verb}")
+        return False
+    return True
+
+
+def _finite_number(value) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+    )
+
+
+def _parse_noise(where: str, spec: dict, ctx: _Context) -> Optional[float]:
+    """Validated noise stddev (0.0 when absent); None means invalid."""
+    noise = spec.get("noise", 0.0)
+    if not _finite_number(noise) or noise < 0:
+        ctx.error(f"{where}: noise must be a non-negative number, got {noise!r}")
+        return None
+    return float(noise)
+
+
+def _parse_center(where: str, key: str, spec, command, ctx: _Context):
+    """A number or @FIELD reference (validated numeric); None on error."""
+    value = spec[key]
+    if isinstance(value, str):
+        if not value.startswith("@"):
+            ctx.error(f"{where}: {key} string value must be an @FIELD reference")
+            return None
+        _check_field_template(where, value[1:], command, ctx, numeric=True)
+        return value
+    if not _finite_number(value):
+        ctx.error(f"{where}: {key} must be a finite number or @FIELD, got {value!r}")
+        return None
+    return float(value)
+
+
+def _parse_oscillate(
+    where: str, fname: str, spec: dict, command, emit: str, ctx: _Context
+) -> Optional[OscillateEffect]:
+    center = _parse_center(where, "oscillate", spec, command, ctx)
+    noise = _parse_noise(where, spec, ctx)
+    if center is None or noise is None:
+        return None
+    if "amplitude" not in spec or "period" not in spec:
+        ctx.error(f"{where}: oscillate requires amplitude and period")
+        return None
+    amplitude, period = spec["amplitude"], spec["period"]
+    if not _finite_number(amplitude) or amplitude < 0:
+        ctx.error(f"{where}: amplitude must be a non-negative number, got {amplitude!r}")
+        return None
+    if not _finite_number(period) or period <= 0:
+        ctx.error(f"{where}: period must be a positive number of seconds, got {period!r}")
+        return None
+    shape = spec.get("shape", "sine")
+    if shape not in _WAVE_SHAPES:
+        ctx.error(f"{where}: shape must be one of {_WAVE_SHAPES}, got {shape!r}")
+        return None
+    phase = spec.get("phase", 0.0)
+    if not _finite_number(phase):
+        ctx.error(f"{where}: phase must be a finite number of seconds, got {phase!r}")
+        return None
+    _check_numeric_field(where, fname, command, ctx)
+    return OscillateEffect(
+        field=fname, center=center, amplitude=float(amplitude),
+        period=float(period), shape=shape, phase=float(phase),
+        noise=noise, emit=emit,
+    )
+
+
+def _parse_hold(
+    where: str, fname: str, spec: dict, command, emit: str, ctx: _Context
+) -> Optional[HoldEffect]:
+    value = _parse_center(where, "hold", spec, command, ctx)
+    noise = _parse_noise(where, spec, ctx)
+    if value is None or noise is None:
+        return None
+    _check_numeric_field(where, fname, command, ctx)
+    return HoldEffect(field=fname, value=value, noise=noise, emit=emit)
 
 
 def _parse_increment(
@@ -325,8 +516,13 @@ def _parse_ramp(
         return None
     else:
         target = float(target)
+    noise = _parse_noise(where, spec, ctx)
+    if noise is None:
+        return None
     _check_numeric_field(where, fname, command, ctx)
-    return RampEffect(field=fname, target=target, tau=float(tau), emit=emit)
+    return RampEffect(
+        field=fname, target=target, tau=float(tau), noise=noise, emit=emit
+    )
 
 
 def _has_arg(command: CommandDef, name: str) -> bool:
@@ -398,6 +594,9 @@ def _check_field_template(
     field-existence check defers to execution time.
     """
     args = _TEMPLATE_RE.findall(template)
+    if args and command is None:  # [_signals] etc. have no arguments to fill
+        ctx.error(f"{where}: templates are not allowed here — no command context")
+        return
     for arg in args:
         if not _has_arg(command, arg):
             ctx.error(f"{where}: template argument {{{arg}}} — command has no argument {arg!r}")
@@ -477,6 +676,11 @@ logger = logging.getLogger("xtce_sim.behavior")
 _RAMP_TOLERANCE = 1e-6
 
 
+def _field_rng(fname: str) -> random.Random:
+    """A per-field RNG with a stable seed: noisy runs are reproducible."""
+    return random.Random(f"xtce-sim:{fname}")
+
+
 @dataclass
 class _ActiveRamp:
     """One running first-order approach on a field (registry entry).
@@ -486,14 +690,70 @@ class _ActiveRamp:
     from that stored value instead, sub-0.5 steps on an integer field would
     round away every tick and the ramp would stall short of its target.
     Retirement is driven by the float trajectory (tolerance or a stalled
-    step), not by the rounded overlay view.
+    step), not by the rounded overlay view. A noisy ramp emits
+    trajectory+noise and degrades into a noisy hold at its target.
     """
 
     field: str
     target: float | str  # number, or "@FIELD" (already template-resolved)
     tau: float
+    noise: float = 0.0
     value: Optional[float] = None  # seeded from the overlay on first tick
     warned: bool = False  # missing-target warning already issued (warn once)
+    rng: Optional[random.Random] = None
+
+
+@dataclass
+class _ActiveOsc:
+    """A continuous wave around a (possibly live @FIELD) center."""
+
+    field: str
+    center: float | str
+    amplitude: float
+    period: float
+    shape: str
+    phase: float
+    noise: float = 0.0
+    elapsed: float = 0.0  # seconds since the behavior started
+    warned: bool = False
+    rng: Optional[random.Random] = None
+
+
+@dataclass
+class _ActiveHold:
+    """Keeps re-asserting a value (or tracking @FIELD), optionally noisy."""
+
+    field: str
+    value: float | str
+    noise: float = 0.0
+    warned: bool = False
+    rng: Optional[random.Random] = None
+
+
+_ActiveBehavior = _ActiveRamp | _ActiveOsc | _ActiveHold
+
+
+def _describe_active(eff, ref) -> str:
+    """Short start-log phrasing for a registered behavior."""
+    if isinstance(eff, RampEffect):
+        return f"ramping to {ref} (tau={eff.tau}s)"
+    if isinstance(eff, OscillateEffect):
+        return f"oscillating ({eff.shape}) around {ref}, period {eff.period}s"
+    return f"holding at {ref}"
+
+
+def _wave(shape: str, frac: float) -> float:
+    """Unit wave in [-1, 1] at cycle fraction *frac* (all start at 0, rising)."""
+    if shape == "sine":
+        return math.sin(2.0 * math.pi * frac)
+    if shape == "triangle":
+        if frac < 0.25:
+            return 4.0 * frac
+        if frac < 0.75:
+            return 2.0 - 4.0 * frac
+        return 4.0 * frac - 4.0
+    # sawtooth: rise 0->1 over the first half, jump to -1, rise back to 0
+    return 2.0 * frac if frac < 0.5 else 2.0 * frac - 2.0
 
 
 class BehaviorEngine:
@@ -513,10 +773,14 @@ class BehaviorEngine:
             c.name: {p.name: p for p in c.params} for c in simdef.commands
         }
         self.state: dict[str, object] = {}
-        # Active ramps, keyed by resolved field name — newest replaces oldest.
-        self._ramps: dict[str, _ActiveRamp] = {}
+        # Active continuous behaviors (ramps/oscillations/holds), keyed by
+        # resolved field name — newest replaces oldest.
+        self._behaviors: dict[str, _ActiveBehavior] = {}
         for fname, value in spec.initial.items():
             self._store(f"[_initial] {fname}", fname, value)
+        # Boot signals: ambient behaviors running from t=0, no command needed.
+        for eff in spec.signals:
+            self._start_behavior(None, eff, {})
 
     # ---- packing side ------------------------------------------------------
 
@@ -540,28 +804,50 @@ class BehaviorEngine:
         """
         applied: list[str] = []
         for eff in self.spec.commands.get(command.name, []):
-            if isinstance(eff, RampEffect):
-                desc = self._start_ramp(command, eff, args)
+            if isinstance(eff, (RampEffect, OscillateEffect, HoldEffect)):
+                desc = self._start_behavior(command, eff, args)
             else:
                 desc = self._apply_effect(command, eff, args)
             if desc is not None:
                 applied.append(desc)
         return applied
 
-    def _start_ramp(self, command, eff: RampEffect, args: dict) -> Optional[str]:
-        """Register a ramp: resolve its field and target templates now."""
-        where = f"[{command.name}] {eff.field}"
+    def _start_behavior(self, command, eff, args: dict) -> Optional[str]:
+        """Register a continuous behavior, resolving templates now.
+
+        ``command`` is None for boot signals (whose loader forbids templates,
+        so resolution is a no-op there).
+        """
+        origin = command.name if command is not None else "_signals"
+        where = f"[{origin}] {eff.field}"
         fname = self._resolve_template(where, eff.field, command, args)
         if fname is None:
             return None
-        target = eff.target
-        if isinstance(target, str):  # "@FIELD", possibly templated
-            resolved = self._resolve_template(where, target[1:], command, args)
+        ref = eff.target if isinstance(eff, RampEffect) else (
+            eff.center if isinstance(eff, OscillateEffect) else eff.value
+        )
+        if isinstance(ref, str):  # "@FIELD", possibly templated
+            resolved = self._resolve_template(where, ref[1:], command, args)
             if resolved is None:
                 return None
-            target = f"@{resolved}"
-        self._ramps[fname] = _ActiveRamp(field=fname, target=target, tau=eff.tau)
-        return f"{fname} ramping to {target} (tau={eff.tau}s)"
+            ref = f"@{resolved}"
+        rng = _field_rng(fname) if eff.noise else None
+        self._behaviors[fname] = self._make_active(eff, fname, ref, rng)
+        return f"{fname} {_describe_active(eff, ref)}"
+
+    @staticmethod
+    def _make_active(eff, fname: str, ref, rng) -> _ActiveBehavior:
+        if isinstance(eff, RampEffect):
+            return _ActiveRamp(
+                field=fname, target=ref, tau=eff.tau, noise=eff.noise, rng=rng
+            )
+        if isinstance(eff, OscillateEffect):
+            return _ActiveOsc(
+                field=fname, center=ref, amplitude=eff.amplitude,
+                period=eff.period, shape=eff.shape, phase=eff.phase,
+                noise=eff.noise, rng=rng,
+            )
+        return _ActiveHold(field=fname, value=ref, noise=eff.noise, rng=rng)
 
     def tick(self, dt: float) -> None:
         """Advance every active ramp by *dt* seconds.
@@ -575,40 +861,75 @@ class BehaviorEngine:
         """
         if dt <= 0:
             return
-        for fname, ramp in list(self._ramps.items()):
-            target = self._ramp_target(ramp)
-            if target is None:
-                continue
-            if ramp.value is None:
-                ramp.value = self._ramp_current(fname)
-            previous = ramp.value
-            step = 1.0 - math.exp(-dt / ramp.tau)
-            ramp.value += (target - ramp.value) * step
-            self._store(f"[ramp] {fname}", fname, ramp.value)
-            # Retire on tolerance, or when a step makes no float progress
-            # (very large magnitudes stall at ~1 ULP before the tolerance).
-            if abs(target - ramp.value) <= _RAMP_TOLERANCE or ramp.value == previous:
-                # land exactly on target, then retire the ramp
-                self._store(f"[ramp] {fname}", fname, target)
-                del self._ramps[fname]
-                logger.debug("[ramp] %s reached %s; complete", fname, target)
+        for fname, beh in list(self._behaviors.items()):
+            if isinstance(beh, _ActiveRamp):
+                self._tick_ramp(fname, beh, dt)
+            elif isinstance(beh, _ActiveOsc):
+                self._tick_osc(fname, beh, dt)
+            else:
+                self._tick_hold(fname, beh)
 
-    def _ramp_target(self, ramp: "_ActiveRamp") -> Optional[float]:
-        """The ramp's target value right now (live @FIELD lookup)."""
-        if isinstance(ramp.target, str):  # "@FIELD"
-            value = self.state.get(ramp.target[1:])
+    def _tick_ramp(self, fname: str, ramp: _ActiveRamp, dt: float) -> None:
+        target = self._live_number(ramp, ramp.target)
+        if target is None:
+            return
+        if ramp.value is None:
+            ramp.value = self._ramp_current(fname)
+        previous = ramp.value
+        step = 1.0 - math.exp(-dt / ramp.tau)
+        ramp.value += (target - ramp.value) * step
+        self._store(f"[ramp] {fname}", fname, self._noisy(ramp, ramp.value))
+        # Retire on tolerance, or when a step makes no float progress
+        # (very large magnitudes stall at ~1 ULP before the tolerance).
+        if abs(target - ramp.value) <= _RAMP_TOLERANCE or ramp.value == previous:
+            # land exactly on target, then retire — a noisy ramp degrades
+            # into a noisy hold there (settled but still breathing).
+            self._store(f"[ramp] {fname}", fname, target)
+            if ramp.noise:
+                # hold the landed number, not the @FIELD reference — noise
+                # must not turn a settled ramp into a live tracker.
+                self._behaviors[fname] = _ActiveHold(
+                    field=fname, value=target, noise=ramp.noise, rng=ramp.rng
+                )
+            else:
+                del self._behaviors[fname]
+            logger.debug("[ramp] %s reached %s; complete", fname, target)
+
+    def _tick_osc(self, fname: str, osc: _ActiveOsc, dt: float) -> None:
+        center = self._live_number(osc, osc.center)
+        if center is None:
+            return
+        osc.elapsed += dt
+        frac = ((osc.elapsed + osc.phase) / osc.period) % 1.0
+        value = center + osc.amplitude * _wave(osc.shape, frac)
+        self._store(f"[oscillate] {fname}", fname, self._noisy(osc, value))
+
+    def _tick_hold(self, fname: str, hold: _ActiveHold) -> None:
+        value = self._live_number(hold, hold.value)
+        if value is None:
+            return
+        self._store(f"[hold] {fname}", fname, self._noisy(hold, value))
+
+    @staticmethod
+    def _noisy(beh, value: float) -> float:
+        return value + beh.rng.gauss(0.0, beh.noise) if beh.rng else value
+
+    def _live_number(self, beh, ref) -> Optional[float]:
+        """A behavior's number-or-@FIELD reference, resolved right now."""
+        if isinstance(ref, str):  # "@FIELD"
+            value = self.state.get(ref[1:])
             if not isinstance(value, (int, float)):
-                if not ramp.warned:  # once per ramp, not once per beacon tick
-                    ramp.warned = True
+                if not beh.warned:  # once per behavior, not once per tick
+                    beh.warned = True
                     logger.warning(
-                        "[ramp] %s: target %s has no numeric value yet; holding "
-                        "(suppressing further warnings for this ramp)",
-                        ramp.field, ramp.target,
+                        "%s: reference %s has no numeric value yet; holding "
+                        "(suppressing further warnings for this behavior)",
+                        beh.field, ref,
                     )
                 return None
-            ramp.warned = False
+            beh.warned = False
             return float(value)
-        return float(ramp.target)
+        return float(ref)
 
     def _ramp_current(self, fname: str) -> float:
         current = self.state.get(fname, 0)
@@ -636,10 +957,11 @@ class BehaviorEngine:
         stored = self._store(where, fname, value)
         if stored is None:
             return None
-        # Last command wins: an explicit set/copy/increment on a ramped field
-        # cancels the ramp — otherwise the next tick would silently revert it.
-        if self._ramps.pop(fname, None) is not None:
-            logger.debug("[ramp] %s cancelled by direct write", fname)
+        # Last command wins: an explicit set/copy/increment on a field with an
+        # active behavior cancels it — otherwise the next tick would silently
+        # revert the write.
+        if self._behaviors.pop(fname, None) is not None:
+            logger.debug("[behavior] %s cancelled by direct write", fname)
         return f"{fname}={stored!r}"
 
     def _resolve_template(
