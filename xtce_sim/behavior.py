@@ -55,7 +55,7 @@ import math
 import random
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -143,11 +143,8 @@ class BehaviorSpec:
     path: Path
     initial: dict[str, Scalar]
     commands: dict[str, list[Effect]]  # command name -> effects
-    signals: list[Effect] = None  # continuous behaviors started at boot
-
-    def __post_init__(self):
-        if self.signals is None:
-            self.signals = []
+    # Continuous behaviors started at boot.
+    signals: list[Effect] = field(default_factory=list)
 
 
 def sidecar_path(xtce_paths: list[Path]) -> Optional[Path]:
@@ -356,7 +353,7 @@ def _scalar_effect(
 
 
 def _parse_effect_table(
-    where: str, fname: str, spec: dict, command: CommandDef, ctx: _Context
+    where: str, fname: str, spec: dict, command: CommandDef | None, ctx: _Context
 ) -> Optional[Effect]:
     unknown = set(spec) - _VERB_KEYS
     if unknown:
@@ -422,7 +419,7 @@ def _parse_noise(where: str, spec: dict, ctx: _Context) -> Optional[float]:
     return float(noise)
 
 
-def _parse_center(where: str, key: str, spec, command, ctx: _Context):
+def _parse_center(where: str, key: str, spec, command: CommandDef | None, ctx: _Context):
     """A number or @FIELD reference (validated numeric); None on error."""
     value = spec[key]
     if isinstance(value, str):
@@ -438,7 +435,7 @@ def _parse_center(where: str, key: str, spec, command, ctx: _Context):
 
 
 def _parse_oscillate(
-    where: str, fname: str, spec: dict, command, emit: str, ctx: _Context
+    where: str, fname: str, spec: dict, command: CommandDef | None, emit: str, ctx: _Context
 ) -> Optional[OscillateEffect]:
     center = _parse_center(where, "oscillate", spec, command, ctx)
     noise = _parse_noise(where, spec, ctx)
@@ -471,7 +468,7 @@ def _parse_oscillate(
 
 
 def _parse_hold(
-    where: str, fname: str, spec: dict, command, emit: str, ctx: _Context
+    where: str, fname: str, spec: dict, command: CommandDef | None, emit: str, ctx: _Context
 ) -> Optional[HoldEffect]:
     value = _parse_center(where, "hold", spec, command, ctx)
     noise = _parse_noise(where, spec, ctx)
@@ -493,7 +490,7 @@ def _parse_increment(
 
 
 def _parse_ramp(
-    where: str, fname: str, spec: dict, command: CommandDef, emit: str, ctx: _Context
+    where: str, fname: str, spec: dict, command: CommandDef | None, emit: str, ctx: _Context
 ) -> Optional[RampEffect]:
     if "tau" not in spec:
         ctx.error(f"{where}: ramp_to requires tau (time constant in seconds)")
@@ -581,7 +578,7 @@ def _check_scalar_against(where: str, concrete: str, f, value, ctx: _Context) ->
 def _check_field_template(
     where: str,
     template: str,
-    command: CommandDef,
+    command: CommandDef | None,
     ctx: _Context,
     *,
     numeric: bool = False,
@@ -823,9 +820,12 @@ class BehaviorEngine:
         fname = self._resolve_template(where, eff.field, command, args)
         if fname is None:
             return None
-        ref = eff.target if isinstance(eff, RampEffect) else (
-            eff.center if isinstance(eff, OscillateEffect) else eff.value
-        )
+        if isinstance(eff, RampEffect):
+            ref = eff.target
+        elif isinstance(eff, OscillateEffect):
+            ref = eff.center
+        else:
+            ref = eff.value
         if isinstance(ref, str):  # "@FIELD", possibly templated
             resolved = self._resolve_template(where, ref[1:], command, args)
             if resolved is None:
@@ -861,7 +861,9 @@ class BehaviorEngine:
         """
         if dt <= 0:
             return
-        for fname, beh in list(self._behaviors.items()):
+        # Iterate a snapshot: completed ramps delete themselves mid-loop.
+        snapshot = self._behaviors.copy()
+        for fname, beh in snapshot.items():
             if isinstance(beh, _ActiveRamp):
                 self._tick_ramp(fname, beh, dt)
             elif isinstance(beh, _ActiveOsc):
