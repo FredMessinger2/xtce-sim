@@ -252,8 +252,8 @@ class XTCEParser:
         with_anc = sum(1 for c in definition.meta_commands.values() if c.ancillary_data)
         if with_anc:
             logger.info(
-                "~ %d command(s) carry ancillary data (e.g. tlm_side_effect) — "
-                "parsed but not applied by the sim",
+                "~ %d command(s) carry ancillary data — "
+                "parsed and preserved but not interpreted by the sim",
                 with_anc,
             )
 
@@ -1225,8 +1225,8 @@ class XTCEParser:
         """Parse a ``<AncillaryDataSet>`` under *parent* into ``{name: value}``.
 
         With ``merge=False`` a repeated name keeps the last value; with
-        ``merge=True`` repeated names are joined with ``;`` (used for
-        command-level data such as tlm_side_effect).
+        ``merge=True`` repeated names are joined with ``;`` (used at the
+        command level, where a name may legitimately repeat).
         """
         data: dict[str, str] = {}
         anc_set = self._find(parent, "AncillaryDataSet")
@@ -1292,7 +1292,7 @@ class XTCEParser:
         if arg_list is not None:
             arguments = self._parse_command_arguments(arg_list, definition)
 
-        # Command-level AncillaryDataSet (e.g. tlm_side_effect), semicolon-merged.
+        # Command-level AncillaryDataSet, semicolon-merged.
         cmd_anc_data = self._parse_ancillary_data(elem, merge=True)
 
         container = None

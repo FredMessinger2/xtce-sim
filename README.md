@@ -112,9 +112,18 @@ xtce-sim inspect examples/imaging_sat.xml
 
 ```text
 parsing examples/imaging_sat.xml (SpaceSystem 'ImagingSat')
-resolved inheritance: 30 command(s) with a base command (30 fixing inherited args via assignments), ...
-~ 8 command(s) carry ancillary data (e.g. tlm_side_effect) — parsed but not applied by the sim
-~ NOOP: no opcode in the XTCE — synthetic 0xC0 assigned
+resolved inheritance: 31 command(s) with a base command (31 fixing inherited args via assignments), ...
+~ ignored 9 <DefaultSignificance> element(s) (e.g. under MetaCommand 'NOOP') — present in the XTCE but not read by this parser
+built ImagingSat: 30 dispatchable command(s), 8 telemetry packet(s)
+
+Behavior (examples/imaging_sat.behavior.toml):
+  initial values: 5 field(s)
+  boot signals: 8
+    THM_PANEL_PLUS_X oscillates (sine) around 10.0 amplitude 25.0, period 5400.0s ±noise(0.5)
+    ...
+  HEATER_ON:
+    THM_HEATER{HeaterId}_STATE = 'ON'
+    THM_HEATER{HeaterId}_TEMP ramps to @THM_HEATER{HeaterId}_SETPOINT (tau=30.0s)
 ...
 OK: ImagingSat — 30 command(s), 8 packet(s)
 ```

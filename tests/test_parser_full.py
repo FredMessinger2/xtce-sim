@@ -229,10 +229,10 @@ def test_command_inheritance_and_opcode(defn):
     assert do_thing.argument_assignments == {"OPCODE": "10"}
     # Command + argument ancillary data parsed (command-level values are
     # semicolon-merged; per-argument values are kept as-is).
-    assert "tlm_side_effect" in do_thing.ancillary_data
-    assert "Counter=1;ModeParam=SAFE" == do_thing.ancillary_data["tlm_side_effect"]
+    assert "ops_note" in do_thing.ancillary_data
+    assert "crew=blue;shift=day" == do_thing.ancillary_data["ops_note"]
     dur = next(a for a in do_thing.arguments if a.name == "Duration")
-    assert dur.ancillary_data["tlm_field"] == "Counter"
+    assert dur.ancillary_data["db_key"] == "Counter"
 
 
 def test_argument_type_kinds(defn):

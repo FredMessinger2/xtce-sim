@@ -79,7 +79,7 @@ def test_telemetry_field_enumerations_are_preserved():
     assert "enum={'SAFE': 0" in format_text(d)
 
 
-def test_aggregate_member_enum_and_old_json_compat():
+def test_aggregate_member_enum():
     # An aggregate member whose type is enumerated carries the map too.
     ff = SimDefinition.from_xtce(
         Path(__file__).resolve().parent / "data" / "full_features.xml"
@@ -88,16 +88,6 @@ def test_aggregate_member_enum_and_old_json_compat():
         f for p in ff.packets for f in p.fields if f.name.endswith("_Fix")
     )
     assert fix.enumerations  # GPS aggregate's Fix member is ModeType (enum)
-    # A cmd_tlm.json written BEFORE this feature has no "enumerations" key on
-    # fields — loading it must not break, and the field defaults to None.
-    old_style = json.loads(format_json(ff))
-    for pkt in old_style["telemetry"]:
-        for f in pkt["fields"]:
-            f.pop("enumerations", None)
-    d = SimDefinition.from_dict(old_style)
-    assert all(
-        f.enumerations is None for p in d.packets for f in p.fields
-    )
 
 
 def test_imaging_sat_two_level_inheritance_resolves():

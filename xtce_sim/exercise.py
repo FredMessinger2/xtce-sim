@@ -5,10 +5,10 @@ per enum label and per numeric min/max boundary, varying a single parameter at
 a time — and optionally confirms the sim keeps serving valid telemetry
 throughout. A smoke test for a whole XTCE command set.
 
-The sim has no command->telemetry side effects yet (a ``tlm_side_effect``
-mechanism exists in the XTCE metadata but is not applied), so "verify" here
-means telemetry *health* — the sim stayed alive and every packet still
-decoded — not a per-command effect.
+"Verify" here means telemetry *health* — the sim stayed alive and every
+packet still decoded — not per-command effects. (When a behavior sidecar is
+loaded, commands do change telemetry, but this exerciser does not yet check
+that each command produced its declared effect.)
 """
 
 from __future__ import annotations

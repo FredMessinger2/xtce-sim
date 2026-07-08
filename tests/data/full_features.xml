@@ -310,16 +310,16 @@
         <xtce:ArgumentList>
           <xtce:Argument name="Duration" argumentTypeRef="U8Arg">
             <xtce:AncillaryDataSet>
-              <xtce:AncillaryData name="tlm_field">Counter</xtce:AncillaryData>
+              <xtce:AncillaryData name="db_key">Counter</xtce:AncillaryData>
             </xtce:AncillaryDataSet>
           </xtce:Argument>
           <xtce:Argument name="State" argumentTypeRef="StateArg" />
           <xtce:Argument name="Gain" argumentTypeRef="F32Arg" />
         </xtce:ArgumentList>
         <xtce:AncillaryDataSet>
-          <xtce:AncillaryData name="tlm_side_effect">Counter=1</xtce:AncillaryData>
-          <xtce:AncillaryData name="tlm_side_effect">ModeParam=SAFE</xtce:AncillaryData>
-          <xtce:AncillaryData name="tlm_func">Voltage:mod.fn:1:2</xtce:AncillaryData>
+          <xtce:AncillaryData name="ops_note">crew=blue</xtce:AncillaryData>
+          <xtce:AncillaryData name="ops_note">shift=day</xtce:AncillaryData>
+          <xtce:AncillaryData name="ground_script">validate.py</xtce:AncillaryData>
         </xtce:AncillaryDataSet>
         <xtce:CommandContainer name="DoThingContainer">
           <xtce:EntryList>
