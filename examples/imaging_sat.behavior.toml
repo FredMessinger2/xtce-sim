@@ -16,6 +16,7 @@
 #   FIELD = { hold = V }                   keep re-asserting V (number or "@FIELD")
 #   noise = STDDEV                         optional on ramp_to/oscillate/hold:
 #                                          Gaussian jitter, seeded per field
+#   An "@FIELD" reference must not name the field itself (unbounded drift).
 #   {ArgName} inside a field name is filled from the command's arguments.
 #   [_initial] seeds one-shot values at boot; [_signals] starts continuous
 #   behaviors (ramp_to/oscillate/hold) at boot with no command needed.

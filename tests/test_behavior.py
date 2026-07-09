@@ -488,7 +488,7 @@ def test_verb_count_must_be_exactly_one(tmp_path, simdef):
 
 
 def test_increment_amount_must_be_number(tmp_path, simdef):
-    assert "increment must be a number" in _errors(
+    assert "increment must be a finite number" in _errors(
         tmp_path, simdef, '[IMAGER_ON]\nIMG_STATE = { increment = "lots" }\n'
     )
 
@@ -1026,3 +1026,95 @@ def test_noisy_ramp_settles_on_landed_value_not_live_target(tmp_path, simdef):
     eng.state["THM_HEATER1_SETPOINT"] = 100  # operator moves the setpoint
     eng.tick(2.0)
     assert abs(eng.state["THM_HEATER1_TEMP"] - 40) < 3  # stayed put (± noise)
+
+
+# ---- review fixes: self-reference, finiteness, non-numeric guard, ----------
+# ---- oscillator clock, per-engine rng                            ----------
+
+
+def test_self_reference_rejected_at_load(tmp_path, simdef):
+    msg = _errors(
+        tmp_path, simdef,
+        '[_signals]\nTHM_RADIATOR = { hold = "@THM_RADIATOR", noise = 0.3 }\n'
+        'PWR_BATTERY_TEMP = { oscillate = "@PWR_BATTERY_TEMP", amplitude = 1, period = 60 }\n'
+        '[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = "@IMG_FOCAL_PLANE_TEMP", tau = 5 }\n',
+    )
+    assert msg.count("must not reference its own field") == 3
+
+
+def test_templated_self_reference_skipped_at_runtime(tmp_path, simdef, caplog):
+    # A concrete field with a templated reference is not equal at load
+    # (identical templates ARE caught there) but can resolve to itself.
+    spec = _load(
+        tmp_path, simdef,
+        '[HEATER_ON]\nTHM_HEATER1_TEMP = '
+        '{ hold = "@THM_HEATER{HeaterId}_TEMP", noise = 0.5 }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    with caplog.at_level("WARNING"):
+        eng.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    assert "names its own field" in caplog.text
+    assert "THM_HEATER1_TEMP" not in eng._behaviors
+
+
+def test_tau_and_increment_must_be_finite(tmp_path, simdef):
+    assert "tau must be a positive number" in _errors(
+        tmp_path, simdef,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35, tau = inf }\n",
+    )
+    assert "tau must be a positive number" in _errors(
+        tmp_path, simdef,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35, tau = nan }\n",
+    )
+    assert "increment must be a finite number" in _errors(
+        tmp_path, simdef, "[IMAGER_ON]\nIMG_GAIN = { increment = inf }\n"
+    )
+
+
+def test_continuous_behavior_on_string_field_refused_once(simdef, caplog):
+    from xtce_sim.behavior import HoldEffect
+
+    spec = behavior.BehaviorSpec(path=None, initial={}, commands={})
+    spec.commands["NOOP"] = [HoldEffect(field="EVT_MESSAGE", value=5.0)]
+    eng = behavior.BehaviorEngine(spec, simdef)
+    with caplog.at_level("WARNING"):
+        eng.apply_command(_cmd(simdef, "NOOP"), {})
+        for _ in range(5):
+            eng.tick(1.0)
+    assert "EVT_MESSAGE" not in eng._behaviors  # refused at start, not per tick
+    assert caplog.text.count("not a numeric field") == 1
+
+
+def test_oscillator_clock_advances_while_center_unresolved(tmp_path, simdef):
+    # Center resolves only after 25s (quarter period); the wave must resume
+    # at its true phase, not restart from zero.
+    spec = _load(
+        tmp_path, simdef,
+        '[_signals]\nTHM_RADIATOR = '
+        '{ oscillate = "@THM_HEATER1_SETPOINT", amplitude = 20, period = 100 }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    for _ in range(25):
+        eng.tick(1.0)  # unresolved: no writes, but the clock runs
+    assert "THM_RADIATOR" not in eng.state
+    eng.state["THM_HEATER1_SETPOINT"] = 10
+    eng.tick(25.0)  # now at t=50 = half period: sine crosses center
+    assert eng.state["THM_RADIATOR"] == 10
+
+
+def test_restarted_behavior_continues_noise_stream(tmp_path, simdef):
+    # Re-issuing a noisy behavior must NOT replay the same gauss draws.
+    text = "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { hold = 30.0, noise = 2.0 }\n"
+    eng = behavior.BehaviorEngine(_load(tmp_path, simdef, text), simdef)
+    eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    first = [eng.tick(1.0) or eng.state["IMG_FOCAL_PLANE_TEMP"] for _ in range(4)]
+    eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})  # restart the behavior
+    second = [eng.tick(1.0) or eng.state["IMG_FOCAL_PLANE_TEMP"] for _ in range(4)]
+    assert first != second  # stream continues, no replay
+    # ...while two fresh engines still reproduce each other exactly.
+    eng_a = behavior.BehaviorEngine(_load(tmp_path, simdef, text), simdef)
+    eng_b = behavior.BehaviorEngine(_load(tmp_path, simdef, text), simdef)
+    for e in (eng_a, eng_b):
+        e.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+        e.tick(1.0)
+    assert eng_a.state["IMG_FOCAL_PLANE_TEMP"] == eng_b.state["IMG_FOCAL_PLANE_TEMP"]

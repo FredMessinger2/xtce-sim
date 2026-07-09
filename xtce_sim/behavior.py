@@ -20,10 +20,14 @@ argument; ``{ increment = n }`` adds; ``{ ramp_to = X, tau = S }`` starts a
 first-order approach toward X (a number, or ``"@FIELD"`` read live each
 tick); ``{ oscillate = C, amplitude = A, period = P }`` runs a continuous
 wave around center C (``shape`` = "sine"/"triangle"/"sawtooth", optional
-``phase`` seconds); ``{ hold = V }`` keeps re-asserting V. Continuous verbs
-(ramp_to/oscillate/hold) accept ``noise = stddev`` — seeded per field, so
-runs are reproducible — and a completed noisy ramp degrades into a noisy
-hold at its target. An optional ``[_signals]`` table starts continuous
+``phase`` seconds); ``{ hold = V }`` keeps re-asserting V. An ``@FIELD``
+reference must not name the field itself — feeding a field its own output
+turns noise/waves into unbounded drift — so literal self-references are
+load errors and a template that resolves to its own field is skipped at
+execution. Continuous verbs (ramp_to/oscillate/hold) accept ``noise =
+stddev`` — one seeded RNG per field per engine, so separate runs reproduce
+each other while a restarted behavior continues its stream — and a
+completed noisy ramp degrades into a noisy hold at its target. An optional ``[_signals]`` table starts continuous
 behaviors at boot (ambient realism: orbit thermal cycles, bus ripple) with
 no command needed; a command's behavior on the same field replaces a
 signal, and a direct set cancels it, exactly like ramps. ``{ArgName}`` inside a field name or ``@`` target is filled with the
@@ -419,12 +423,19 @@ def _parse_noise(where: str, spec: dict, ctx: _Context) -> Optional[float]:
     return float(noise)
 
 
-def _parse_center(where: str, key: str, spec, command: CommandDef | None, ctx: _Context):
+def _parse_center(
+    where: str, key: str, fname: str, spec, command: CommandDef | None, ctx: _Context
+):
     """A number or @FIELD reference (validated numeric); None on error."""
     value = spec[key]
     if isinstance(value, str):
         if not value.startswith("@"):
             ctx.error(f"{where}: {key} string value must be an @FIELD reference")
+            return None
+        if value == f"@{fname}":
+            # Feeding a field its own output compounds noise/wave offsets
+            # into unbounded drift instead of moving around a fixed point.
+            ctx.error(f"{where}: {key} must not reference its own field")
             return None
         _check_field_template(where, value[1:], command, ctx, numeric=True)
         return value
@@ -437,7 +448,7 @@ def _parse_center(where: str, key: str, spec, command: CommandDef | None, ctx: _
 def _parse_oscillate(
     where: str, fname: str, spec: dict, command: CommandDef | None, emit: str, ctx: _Context
 ) -> Optional[OscillateEffect]:
-    center = _parse_center(where, "oscillate", spec, command, ctx)
+    center = _parse_center(where, "oscillate", fname, spec, command, ctx)
     noise = _parse_noise(where, spec, ctx)
     if center is None or noise is None:
         return None
@@ -470,7 +481,7 @@ def _parse_oscillate(
 def _parse_hold(
     where: str, fname: str, spec: dict, command: CommandDef | None, emit: str, ctx: _Context
 ) -> Optional[HoldEffect]:
-    value = _parse_center(where, "hold", spec, command, ctx)
+    value = _parse_center(where, "hold", fname, spec, command, ctx)
     noise = _parse_noise(where, spec, ctx)
     if value is None or noise is None:
         return None
@@ -482,8 +493,8 @@ def _parse_increment(
     where: str, fname: str, spec: dict, command: CommandDef, emit: str, ctx: _Context
 ) -> Optional[IncrementEffect]:
     by = spec["increment"]
-    if isinstance(by, bool) or not isinstance(by, (int, float)):
-        ctx.error(f"{where}: increment must be a number, got {by!r}")
+    if not _finite_number(by):
+        ctx.error(f"{where}: increment must be a finite number, got {by!r}")
         return None
     _check_numeric_field(where, fname, command, ctx)
     return IncrementEffect(field=fname, by=by, emit=emit)
@@ -496,13 +507,16 @@ def _parse_ramp(
         ctx.error(f"{where}: ramp_to requires tau (time constant in seconds)")
         return None
     tau = spec["tau"]
-    if isinstance(tau, bool) or not isinstance(tau, (int, float)) or tau <= 0:
+    if not _finite_number(tau) or tau <= 0:
         ctx.error(f"{where}: tau must be a positive number, got {tau!r}")
         return None
     target = spec["ramp_to"]
     if isinstance(target, str):
         if not target.startswith("@"):
             ctx.error(f"{where}: ramp_to string target must be an @FIELD reference")
+            return None
+        if target == f"@{fname}":
+            ctx.error(f"{where}: ramp_to must not reference its own field")
             return None
         _check_field_template(where, target[1:], command, ctx, numeric=True)
     elif isinstance(target, bool) or not isinstance(target, (int, float)):
@@ -773,6 +787,10 @@ class BehaviorEngine:
         # Active continuous behaviors (ramps/oscillations/holds), keyed by
         # resolved field name — newest replaces oldest.
         self._behaviors: dict[str, _ActiveBehavior] = {}
+        # One RNG per field for the engine's lifetime: restarting a behavior
+        # continues its noise stream instead of replaying it, while separate
+        # runs still reproduce (the seed is stable per field).
+        self._rngs: dict[str, random.Random] = {}
         for fname, value in spec.initial.items():
             self._store(f"[_initial] {fname}", fname, value)
         # Boot signals: ambient behaviors running from t=0, no command needed.
@@ -820,6 +838,11 @@ class BehaviorEngine:
         fname = self._resolve_template(where, eff.field, command, args)
         if fname is None:
             return None
+        if self._fields[fname].python_type in ("string", "bytes"):
+            # A continuous behavior on a text field would warn every tick
+            # forever (it never retires); refuse it once instead.
+            logger.warning("%s: %s is not a numeric field; skipped", where, fname)
+            return None
         if isinstance(eff, RampEffect):
             ref = eff.target
         elif isinstance(eff, OscillateEffect):
@@ -830,8 +853,13 @@ class BehaviorEngine:
             resolved = self._resolve_template(where, ref[1:], command, args)
             if resolved is None:
                 return None
+            if resolved == fname:  # template args can make @ref land on itself
+                logger.warning(
+                    "%s: reference @%s names its own field; skipped", where, fname
+                )
+                return None
             ref = f"@{resolved}"
-        rng = _field_rng(fname) if eff.noise else None
+        rng = self._rngs.setdefault(fname, _field_rng(fname)) if eff.noise else None
         self._behaviors[fname] = self._make_active(eff, fname, ref, rng)
         return f"{fname} {_describe_active(eff, ref)}"
 
@@ -898,10 +926,13 @@ class BehaviorEngine:
             logger.debug("[ramp] %s reached %s; complete", fname, target)
 
     def _tick_osc(self, fname: str, osc: _ActiveOsc, dt: float) -> None:
+        # The clock advances even while an @FIELD center is unresolved, so a
+        # late-arriving center doesn't shift this wave's phase against time
+        # (or against phase-staggered siblings).
+        osc.elapsed += dt
         center = self._live_number(osc, osc.center)
         if center is None:
             return
-        osc.elapsed += dt
         frac = ((osc.elapsed + osc.phase) / osc.period) % 1.0
         value = center + osc.amplitude * _wave(osc.shape, frac)
         self._store(f"[oscillate] {fname}", fname, self._noisy(osc, value))
