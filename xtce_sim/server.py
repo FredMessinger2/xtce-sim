@@ -327,6 +327,18 @@ class SimServer:
                 applied = self.behavior_engine.apply_command(command, args)
                 if applied:
                     self.logger.info("  effects: %s", ", ".join(applied))
+                # Effects marked emit = "immediate" push their packet out now,
+                # as an extra emission; the beacon keeps its own schedule.
+                # Guarded per packet like the beacon: one bad packet must not
+                # drop the others or the command handler.
+                for apid in sorted(self.behavior_engine.pop_immediate_apids()):
+                    try:
+                        self.send_packet(apid)
+                        self.logger.info("  immediate: APID 0x%X emitted", apid)
+                    except Exception:
+                        self.logger.exception(
+                            "immediate: failed to send APID 0x%X", apid
+                        )
             if self.command_handler is not None:
                 await self.command_handler(self, command, args)
         except Exception:

@@ -32,11 +32,13 @@ behaviors at boot (ambient realism: orbit thermal cycles, bus ripple) with
 no command needed; a command's behavior on the same field replaces a
 signal, and a direct set cancels it, exactly like ramps. ``{ArgName}`` inside a field name or ``@`` target is filled with the
 argument's decoded **raw integer** value at execution time (an enumerated
-argument substitutes its raw value, not its label). Any effect may carry
-``emit = "immediate"`` to request out-of-cycle emission of its packet
-(reserved; the fast path is a later feature) — for a copy that is written
-``{ set = "@arg:Name", emit = "immediate" }``. Booleans are rejected as
-values: write ``0``/``1`` or an enum label.
+argument substitutes its raw value, not its label). An instant effect
+(set/copy/increment) may carry ``emit = "immediate"``: the packet containing
+the field is emitted out-of-cycle the moment the command executes, while the
+beacon keeps its own schedule — for a copy that is written
+``{ set = "@arg:Name", emit = "immediate" }``. Continuous verbs reject it
+(they pace with the beacon by nature). Booleans are rejected as values:
+write ``0``/``1`` or an enum label.
 
 Validation is strict and total: every command table, field name, argument
 reference, enum label, and verb key is checked against the resolved
@@ -67,10 +69,22 @@ from xtce_sim.definition import CommandDef, SimDefinition
 
 _TEMPLATE_RE = re.compile(r"\{(\w+)\}")
 _EMIT_VALUES = ("interval", "immediate")
-_VERB_KEYS = {
-    "set", "ramp_to", "tau", "increment", "emit",
-    "oscillate", "amplitude", "period", "shape", "phase", "hold", "noise",
+# The verb grammar, single-sourced: per-verb attributes, the universal
+# attributes every verb accepts, and which verbs are continuous (tick-driven).
+# Everything else — the full key set, the signals filter, the dispatch order —
+# derives from these three, so a new verb or attribute is added in one place.
+_VERB_ATTRS = {
+    "set": set(),
+    "increment": set(),
+    "ramp_to": {"tau", "noise"},
+    "oscillate": {"amplitude", "period", "shape", "phase", "noise"},
+    "hold": {"noise"},
 }
+_UNIVERSAL_ATTRS = {"emit"}
+_CONTINUOUS_VERBS = ("ramp_to", "oscillate", "hold")
+_VERB_KEYS = (
+    set(_VERB_ATTRS) | _UNIVERSAL_ATTRS | set().union(*_VERB_ATTRS.values())
+)
 _WAVE_SHAPES = ("sine", "triangle", "sawtooth")
 # Templated args are expanded for load-time validation up to this many
 # combinations; beyond it (or for unbounded args) field checks defer to
@@ -138,6 +152,9 @@ Effect = (
     SetEffect | CopyArgEffect | IncrementEffect
     | RampEffect | OscillateEffect | HoldEffect
 )
+# The effect classes behind _CONTINUOUS_VERBS: registered as active behaviors
+# and advanced by tick(), versus the instant set/copy/increment.
+_CONTINUOUS_EFFECTS = (RampEffect, OscillateEffect, HoldEffect)
 
 
 @dataclass
@@ -299,7 +316,7 @@ def _load_signals(body, ctx: _Context) -> list[Effect]:
             ctx.error(f"{where}: unknown telemetry field")
             continue
         if not isinstance(spec, dict) or not any(
-            k in spec for k in ("ramp_to", "oscillate", "hold")
+            k in spec for k in _CONTINUOUS_VERBS
         ):
             ctx.error(
                 f"{where}: signals must be continuous behaviors "
@@ -367,14 +384,21 @@ def _parse_effect_table(
     if emit not in _EMIT_VALUES:
         ctx.error(f"{where}: emit must be one of {_EMIT_VALUES}, got {emit!r}")
         return None
-    verbs = [k for k in ("set", "ramp_to", "increment", "oscillate", "hold") if k in spec]
+    verbs = [k for k in _VERB_ATTRS if k in spec]
     if len(verbs) != 1:
         ctx.error(
-            f"{where}: exactly one of set/ramp_to/increment/oscillate/hold "
+            f"{where}: exactly one of {'/'.join(_VERB_ATTRS)} "
             f"required, got {verbs}"
         )
         return None
     if not _attrs_match_verb(where, spec, verbs[0], ctx):
+        return None
+    if emit == "immediate" and verbs[0] in _CONTINUOUS_VERBS:
+        ctx.error(
+            f"{where}: emit = \"immediate\" is not valid with {verbs[0]} — "
+            "continuous behaviors pace with the beacon; mark an instant "
+            "set/increment on another field instead"
+        )
         return None
     if verbs[0] == "set":
         return _scalar_effect(where, fname, spec["set"], command, ctx, emit)
@@ -387,18 +411,9 @@ def _parse_effect_table(
     return _parse_ramp(where, fname, spec, command, emit, ctx)
 
 
-_VERB_ATTRS = {
-    "set": set(),
-    "increment": set(),
-    "ramp_to": {"tau", "noise"},
-    "oscillate": {"amplitude", "period", "shape", "phase", "noise"},
-    "hold": {"noise"},
-}
-
-
 def _attrs_match_verb(where: str, spec: dict, verb: str, ctx: _Context) -> bool:
     """Attributes must belong to their verb (tau without ramp_to is a typo)."""
-    attrs = set(spec) - {verb, "emit"}
+    attrs = set(spec) - {verb} - _UNIVERSAL_ATTRS
     stray = attrs - _VERB_ATTRS[verb]
     if stray:
         ctx.error(f"{where}: {sorted(stray)} not valid with {verb}")
@@ -510,25 +525,9 @@ def _parse_ramp(
     if not _finite_number(tau) or tau <= 0:
         ctx.error(f"{where}: tau must be a positive number, got {tau!r}")
         return None
-    target = spec["ramp_to"]
-    if isinstance(target, str):
-        if not target.startswith("@"):
-            ctx.error(f"{where}: ramp_to string target must be an @FIELD reference")
-            return None
-        if target == f"@{fname}":
-            ctx.error(f"{where}: ramp_to must not reference its own field")
-            return None
-        _check_field_template(where, target[1:], command, ctx, numeric=True)
-    elif isinstance(target, bool) or not isinstance(target, (int, float)):
-        ctx.error(f"{where}: ramp_to must be a number or an @FIELD reference")
-        return None
-    elif not math.isfinite(target):
-        ctx.error(f"{where}: ramp_to must be finite, got {target!r}")
-        return None
-    else:
-        target = float(target)
+    target = _parse_center(where, "ramp_to", fname, spec, command, ctx)
     noise = _parse_noise(where, spec, ctx)
-    if noise is None:
+    if target is None or noise is None:
         return None
     _check_numeric_field(where, fname, command, ctx)
     return RampEffect(
@@ -784,6 +783,13 @@ class BehaviorEngine:
             c.name: {p.name: p for p in c.params} for c in simdef.commands
         }
         self.state: dict[str, object] = {}
+        self._field_apid = {
+            f.name: p.apid for p in simdef.packets for f in p.fields
+        }
+        # APIDs whose packets should be emitted out-of-cycle because a just-
+        # applied effect was marked emit = "immediate". The server drains this
+        # via pop_immediate_apids() after each apply_command.
+        self._pending_immediate: set[int] = set()
         # Active continuous behaviors (ramps/oscillations/holds), keyed by
         # resolved field name — newest replaces oldest.
         self._behaviors: dict[str, _ActiveBehavior] = {}
@@ -794,8 +800,15 @@ class BehaviorEngine:
         for fname, value in spec.initial.items():
             self._store(f"[_initial] {fname}", fname, value)
         # Boot signals: ambient behaviors running from t=0, no command needed.
+        # The loader only emits continuous effects here; gate anyway so a
+        # hand-built spec can't crash the constructor with a discrete one.
         for eff in spec.signals:
-            self._start_behavior(None, eff, {})
+            if isinstance(eff, _CONTINUOUS_EFFECTS):
+                self._start_behavior(None, eff, {})
+            else:
+                logger.warning(
+                    "[_signals] %s: not a continuous behavior; skipped", eff.field
+                )
 
     # ---- packing side ------------------------------------------------------
 
@@ -818,8 +831,11 @@ class BehaviorEngine:
         displaces HEATER_ON's warming).
         """
         applied: list[str] = []
+        # A fresh start per command: nothing left over from an earlier apply
+        # that errored before its APIDs were drained.
+        self._pending_immediate.clear()
         for eff in self.spec.commands.get(command.name, []):
-            if isinstance(eff, (RampEffect, OscillateEffect, HoldEffect)):
+            if isinstance(eff, _CONTINUOUS_EFFECTS):
                 desc = self._start_behavior(command, eff, args)
             else:
                 desc = self._apply_effect(command, eff, args)
@@ -995,7 +1011,18 @@ class BehaviorEngine:
         # revert the write.
         if self._behaviors.pop(fname, None) is not None:
             logger.debug("[behavior] %s cancelled by direct write", fname)
+        if eff.emit == "immediate":
+            self._pending_immediate.add(self._field_apid[fname])
         return f"{fname}={stored!r}"
+
+    def pop_immediate_apids(self) -> set[int]:
+        """APIDs needing an out-of-cycle emission, cleared on read.
+
+        Several immediate effects landing in one packet yield that packet's
+        APID once; a skipped effect contributes nothing.
+        """
+        apids, self._pending_immediate = self._pending_immediate, set()
+        return apids
 
     def _resolve_template(
         self, where: str, template: str, command, args: dict
@@ -1025,7 +1052,13 @@ class BehaviorEngine:
         return value
 
     def _store(self, where: str, fname: str, value) -> Optional[object]:
-        """Coerce a value to wire form and write it into the overlay."""
+        """Coerce a value to wire form and write it into the overlay.
+
+        This is the low-level write used by ticks and seeding; it does NOT
+        cancel an active behavior on the field. A write that should count as
+        "the operator set this" must go through _apply_effect, or the field's
+        behavior will silently revert it on the next tick.
+        """
         field = self._fields[fname]
         wire = _wire_value(field, value)
         if wire is None:

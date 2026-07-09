@@ -74,16 +74,16 @@ def test_effect_kinds_parse(tmp_path, simdef):
         """
         [IMAGER_ON]
         IMG_STATE = 1
-        IMG_CAPTURE_COUNT = { increment = 1 }
-        IMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = 20, emit = "immediate" }
+        IMG_CAPTURE_COUNT = { increment = 1, emit = "immediate" }
+        IMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = 20 }
         [SET_EXPOSURE]
         IMG_EXPOSURE_MS = "@arg:ExposureMs"
         """,
     )
     kinds = {type(e) for e in spec.commands["IMAGER_ON"]}
     assert kinds == {SetEffect, IncrementEffect, RampEffect}
-    ramp = next(e for e in spec.commands["IMAGER_ON"] if isinstance(e, RampEffect))
-    assert ramp.emit == "immediate"
+    inc = next(e for e in spec.commands["IMAGER_ON"] if isinstance(e, IncrementEffect))
+    assert inc.emit == "immediate"
     assert isinstance(spec.commands["SET_EXPOSURE"][0], CopyArgEffect)
 
 
@@ -479,10 +479,10 @@ def test_non_table_bodies_rejected(tmp_path, simdef):
 
 
 def test_verb_count_must_be_exactly_one(tmp_path, simdef):
-    assert "exactly one of set/ramp_to/increment" in _errors(
+    assert "exactly one of set/increment/ramp_to" in _errors(
         tmp_path, simdef, '[IMAGER_ON]\nIMG_STATE = { emit = "interval" }\n'
     )
-    assert "exactly one of set/ramp_to/increment" in _errors(
+    assert "exactly one of set/increment/ramp_to" in _errors(
         tmp_path, simdef, "[IMAGER_ON]\nIMG_STATE = { set = 1, increment = 1 }\n"
     )
 
@@ -494,7 +494,7 @@ def test_increment_amount_must_be_number(tmp_path, simdef):
 
 
 def test_ramp_target_bool_rejected(tmp_path, simdef):
-    assert "must be a number or an @FIELD reference" in _errors(
+    assert "must be a finite number or @FIELD" in _errors(
         tmp_path, simdef, "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = true, tau = 5 }\n"
     )
 
@@ -772,7 +772,7 @@ def test_missing_ramp_target_warns_once_not_per_tick(tmp_path, simdef, caplog):
 
 
 def test_infinite_ramp_target_rejected_at_load(tmp_path, simdef):
-    assert "must be finite" in _errors(
+    assert "must be a finite number or @FIELD" in _errors(
         tmp_path, simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = inf, tau = 5 }\n",
     )
@@ -1118,3 +1118,140 @@ def test_restarted_behavior_continues_noise_stream(tmp_path, simdef):
         e.apply_command(_cmd(simdef, "IMAGER_ON"), {})
         e.tick(1.0)
     assert eng_a.state["IMG_FOCAL_PLANE_TEMP"] == eng_b.state["IMG_FOCAL_PLANE_TEMP"]
+
+
+# ---- unit 5: immediate emission ---------------------------------------------
+
+
+def test_immediate_rejected_on_continuous_verbs(tmp_path, simdef):
+    msg = _errors(
+        tmp_path, simdef,
+        '[IMAGER_ON]\n'
+        'IMG_FOCAL_PLANE_TEMP = { ramp_to = 35, tau = 5, emit = "immediate" }\n'
+        '[_signals]\n'
+        'THM_RADIATOR = { hold = -5, emit = "immediate" }\n'
+        'PWR_SOLAR_VOLTAGE = { oscillate = 16, amplitude = 2, period = 60, emit = "immediate" }\n',
+    )
+    assert msg.count('emit = "immediate" is not valid with') == 3
+
+
+def test_immediate_apids_collected_deduped_and_cleared(tmp_path, simdef):
+    spec = _load(
+        tmp_path, simdef,
+        '[IMAGER_ON]\n'
+        'IMG_STATE = { set = "IDLE", emit = "immediate" }\n'
+        'IMG_GAIN = { set = 2, emit = "immediate" }\n'          # same packet
+        'THM_HEATER1_STATE = { set = "ON", emit = "immediate" }\n'  # other packet
+        'IMG_EXPOSURE_MS = 5\n',                                  # interval-paced
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    imager = simdef.packet_by_name("IMAGER_STATUS").apid
+    thermal = simdef.packet_by_name("THERMAL_STATUS").apid
+    assert eng.pop_immediate_apids() == {imager, thermal}  # deduped per packet
+    assert eng.pop_immediate_apids() == set()  # cleared on read
+
+
+def test_immediate_skipped_effect_emits_nothing(tmp_path, simdef):
+    spec = _load(
+        tmp_path, simdef,
+        '[SET_EXPOSURE]\n'
+        'IMG_EXPOSURE_MS = { set = "@arg:ExposureMs", emit = "immediate" }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "SET_EXPOSURE"), {})  # arg missing: warn-skip
+    assert eng.pop_immediate_apids() == set()
+
+
+async def test_immediate_emission_end_to_end(tmp_path, simdef):
+    # With a 5s beacon, the only way IMAGER_STATUS arrives within 2s of the
+    # command is the immediate path.
+    import asyncio
+
+    from xtce_sim import ccsds, client, codec
+    from xtce_sim.server import SimServer
+
+    spec = _load(
+        tmp_path, simdef,
+        '[TAKE_IMAGE]\nIMG_STATE = { set = "CAPTURING", emit = "immediate" }\n',
+    )
+    engine = behavior.BehaviorEngine(spec, simdef)
+    server = SimServer(
+        simdef, host="127.0.0.1", port=0, beacon_interval=5.0,
+        behavior_engine=engine,
+    )
+    await server.start()
+    try:
+        imager = simdef.packet_by_name("IMAGER_STATUS")
+
+        def read_one():
+            for pkt in client.stream_packets("127.0.0.1", server.bound_port, timeout=2.0):
+                header = ccsds.CCSDSHeader.unpack(pkt[:6])
+                if header.apid == imager.apid:
+                    return codec.unpack_telemetry(imager, pkt[6:])
+            return None
+
+        reader = asyncio.create_task(asyncio.to_thread(read_one))
+        for _ in range(100):  # wait until the monitor is registered
+            if server.client_count >= 1:
+                break
+            await asyncio.sleep(0.05)
+        assert server.client_count >= 1
+        cmd = simdef.command_by_name("TAKE_IMAGE")
+        await asyncio.to_thread(
+            client.send_command, "127.0.0.1", server.bound_port, cmd, {"ImageCount": "1"}
+        )
+        values = await reader
+        assert values is not None  # arrived out-of-cycle, not on the 5s beacon
+        assert values["IMG_STATE"] == 2  # CAPTURING
+    finally:
+        await server.stop()
+
+
+async def test_failing_immediate_send_skips_but_continues(tmp_path, simdef):
+    # One bad packet must not drop the other immediate emissions or the
+    # command handler (same per-packet guard the beacon has).
+    import asyncio
+
+    from xtce_sim import client
+    from xtce_sim.server import SimServer
+
+    spec = _load(
+        tmp_path, simdef,
+        '[TAKE_IMAGE]\n'
+        'IMG_STATE = { set = "CAPTURING", emit = "immediate" }\n'
+        'EVT_EVENT_ID = { set = 11, emit = "immediate" }\n',
+    )
+    engine = behavior.BehaviorEngine(spec, simdef)
+    handled = []
+
+    async def handler(server, command, args):
+        handled.append(command.name)
+
+    server = SimServer(
+        simdef, host="127.0.0.1", port=0, beacon_interval=60.0,
+        behavior_engine=engine, command_handler=handler,
+    )
+    imager_apid = simdef.packet_by_name("IMAGER_STATUS").apid
+    sent = []
+    real_send = server.send_packet
+
+    def flaky_send(apid, **kwargs):
+        if apid == imager_apid:
+            raise RuntimeError("boom")
+        sent.append(apid)
+        return real_send(apid, **kwargs)
+
+    server.send_packet = flaky_send
+    await server.start()
+    try:
+        cmd = simdef.command_by_name("TAKE_IMAGE")
+        await asyncio.to_thread(
+            client.send_command, "127.0.0.1", server.bound_port, cmd, {"ImageCount": "1"}
+        )
+        await asyncio.sleep(0.3)
+        event_apid = simdef.packet_by_name("EVENT_LOG").apid
+        assert sent == [event_apid]  # the other packet still went out
+        assert handled == ["TAKE_IMAGE"]  # handler still ran
+    finally:
+        await server.stop()
