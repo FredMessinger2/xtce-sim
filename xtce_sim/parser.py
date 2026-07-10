@@ -1435,23 +1435,42 @@ class XTCEParser:
             self._store_type(definition.parameter_types, param_type)
 
     def _parse_calibrator(self, data_enc: ET.Element) -> Optional[Calibrator]:
-        """Parse DefaultCalibrator with PolynomialCalibrator."""
+        """Parse DefaultCalibrator: PolynomialCalibrator or SplineCalibrator."""
         default_cal = self._find(data_enc, "DefaultCalibrator")
         if default_cal is None:
             return None
 
         poly_cal = self._find(default_cal, "PolynomialCalibrator")
-        if poly_cal is None:
+        if poly_cal is not None:
+            coefficients = []
+            for term in self._findall(poly_cal, "Term"):
+                coef = float(self._get_attr(term, "coefficient", "0"))
+                exp = int(self._get_attr(term, "exponent", "0"))
+                if exp < 0:
+                    # The XTCE schema requires non-negative exponents; a
+                    # negative one would make raw=0 packets undefined.
+                    logger.warning(
+                        "! PolynomialCalibrator term with negative exponent "
+                        "%d ignored (schema requires >= 0)",
+                        exp,
+                    )
+                    continue
+                coefficients.append((coef, exp))
+            if coefficients:
+                return Calibrator(coefficients=coefficients)
             return None
 
-        coefficients = []
-        for term in self._findall(poly_cal, "Term"):
-            coef = float(self._get_attr(term, "coefficient", "0"))
-            exp = int(self._get_attr(term, "exponent", "0"))
-            coefficients.append((coef, exp))
+        spline_cal = self._find(default_cal, "SplineCalibrator")
+        if spline_cal is not None:
+            points = []
+            for point in self._findall(spline_cal, "SplinePoint"):
+                raw = float(self._get_attr(point, "raw", "0"))
+                calibrated = float(self._get_attr(point, "calibrated", "0"))
+                points.append((raw, calibrated))
+            if len(points) >= 2:
+                return Calibrator(spline_points=sorted(points))
+            return None
 
-        if coefficients:
-            return Calibrator(coefficients=coefficients)
         return None
 
     def _parse_integer_parameter_type(self, elem: ET.Element) -> IntegerParameterType:

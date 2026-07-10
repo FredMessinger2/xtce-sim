@@ -238,11 +238,17 @@ xtce-sim run my_vehicle.xml --id sat-a --port 5000 --live
 16:57:14.844  0x01 HOUSEKEEPING     seq 1      TIMESTAMP=1735689609 s  SYSTEM_STATUS=NOMINAL  COLLECTION_MODE=BURST  CMD_RECV_COUNT=18  +19 more
 ```
 
-`--live` values are raw wire values (uncalibrated), chosen by field-name
-heuristics — a light stand-in, not physics. The third layer is the
+`--live` heuristics choose plausible engineering values ("about 8 volts") — a
+light stand-in, not physics. A field whose XTCE declares a calibrator
+transmits the raw count that decodes back to that value, so the wire stays
+honest. The third layer is the
 [behavior sidecar](#behavior-making-commands-change-telemetry): any field it
 governs overrides both other layers, so seeded values, command effects, and
 ambient signals always win over zeros and `--live` synthetics.
+
+When the XTCE declares calibrators (polynomial or spline), the wire always
+carries raw counts and `monitor` converts them, showing engineering units by
+default; pass `--raw` to see the counts as transmitted.
 
 Every `run` and `generate` writes the resolved command/telemetry to `runs/<id>/`
 (`cmd_tlm.txt` for humans, `cmd_tlm.json` for machines; add `--emit-py` for an

@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import math
 import struct
 from pathlib import Path
 
@@ -194,3 +195,90 @@ def test_cli_generate_writes_files(tmp_path):
     assert len(mod.COMMAND_PARAMS) == 55
     for apid, fmt in mod.PACKET_FORMATS.items():
         struct.calcsize(fmt)  # must not raise
+
+
+# ---- calibrators: raw counts on the wire, engineering units on display -------
+
+
+def test_polynomial_calibrator_carried_into_field():
+    d = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    hk = d.packet_by_name("HOUSEKEEPING")
+    volts = next(f for f in hk.fields if f.name == "HK_BATTERY_VOLTAGE")
+    assert volts.calibrator is not None
+    assert volts.calibrator.coefficients == [(0.125, 1)]
+    assert volts.calibrator.apply(60) == 7.5  # 60 counts * 0.125 V/count
+    # the wire stays raw: the field's own type is the unsigned encoding
+    assert volts.python_type == "uint8"
+
+
+def test_spline_calibrator_parsed_and_applied():
+    d = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    hk = d.packet_by_name("HOUSEKEEPING")
+    therm = next(f for f in hk.fields if f.name == "HK_TEMP_THERMISTOR")
+    cal = therm.calibrator
+    assert cal is not None and len(cal.spline_points) == 5
+    assert cal.apply(0) == -40.0  # exact declared point
+    assert cal.apply(1024) == 0.0
+    assert cal.apply(512) == -20.0  # linear midpoint between (0,-40) and (1024,0)
+    assert cal.apply(-100) == -40.0  # clamped below the table
+    assert cal.apply(9999) == 125.0  # clamped above the table
+
+
+def test_calibrator_round_trips_through_json():
+    d = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    d2 = SimDefinition.from_dict(json.loads(format_json(d)))
+    hk2 = d2.packet_by_name("HOUSEKEEPING")
+    volts = next(f for f in hk2.fields if f.name == "HK_BATTERY_VOLTAGE")
+    therm = next(f for f in hk2.fields if f.name == "HK_TEMP_THERMISTOR")
+    assert volts.calibrator.apply(60) == 7.5
+    assert therm.calibrator.apply(512) == -20.0
+    # uncalibrated fields stay clean
+    count = next(f for f in hk2.fields if f.name == "HK_CMD_RECV_COUNT")
+    assert count.calibrator is None
+
+
+def test_text_report_marks_calibrated_fields():
+    d = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    text = format_text(d)
+    assert "cal=poly(1 terms)" in text
+    assert "cal=spline(5 pts)" in text
+
+
+def test_spline_no_longer_reported_ignored():
+    from click.testing import CliRunner as _Runner
+
+    result = _Runner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle.xml")])
+    assert result.exit_code == 0
+    assert "SplineCalibrator" not in result.output  # consumed, not ignored
+
+
+def test_negative_polynomial_exponent_rejected(tmp_path):
+    # A negative exponent would make raw=0 undefined (ZeroDivisionError in
+    # the monitor); the parser drops the term with a warning, mirroring the
+    # XTCE schema's non-negative requirement.
+    xml = (EXAMPLES / "my_vehicle.xml").read_text().replace(
+        '<xtce:Term coefficient="0.125" exponent="1" />',
+        '<xtce:Term coefficient="0.125" exponent="-1" />',
+        1,
+    )
+    bad = tmp_path / "bad.xml"
+    bad.write_text(xml)
+    d = SimDefinition.from_xtce(bad)
+    volts = next(
+        f for f in d.packet_by_name("HOUSEKEEPING").fields
+        if f.name == "HK_BATTERY_VOLTAGE"
+    )
+    assert volts.calibrator is None  # sole term dropped -> no calibrator
+
+
+def test_calibrator_defensive_edges():
+    from xtce_sim.definition import CalibratorInfo
+
+    # NaN through a spline propagates instead of masquerading as 0.0.
+    cal = CalibratorInfo(spline_points=[(0.0, -40.0), (100.0, 60.0)])
+    assert math.isnan(cal.apply(float("nan")))
+    # An empty calibrator dict in hand-edited JSON collapses to None.
+    assert CalibratorInfo.from_dict({}) is None
+    assert CalibratorInfo.from_dict({"coefficients": []}) is None
+    # Negative exponents are dropped at the JSON ingress too.
+    assert CalibratorInfo.from_dict({"coefficients": [[2.0, -1]]}) is None

@@ -68,13 +68,20 @@ def _base_signal(name: str, t: float) -> float:
     return 50 + 40 * math.sin(t / 6)
 
 
-def _synth_value(python_type: str, name: str, t: float):
-    if python_type in ("string", "bytes"):
+def _synth_value(field, t: float):
+    if field.python_type in ("string", "bytes"):
         return b""
-    value = _base_signal(name.upper(), t)
-    if python_type in ("float32", "float64"):
+    value = _base_signal(field.name.upper(), t)
+    # The heuristics think in engineering units ("about 8 volts"). A field
+    # with a calibrator transmits raw counts, so send the count that
+    # calibrates back to the plausible value (when the inverse exists).
+    if field.calibrator is not None:
+        raw = field.calibrator.invert(value)
+        if raw is not None:
+            value = raw
+    if field.python_type in ("float32", "float64"):
         return value
-    lo, hi = _INT_BOUNDS.get(python_type, (0, 255))
+    lo, hi = _INT_BOUNDS.get(field.python_type, (0, 255))
     # Saturate (clamp) into range — NOT modulo-wrap, so a near-zero negative
     # value on an unsigned field reads as ~0, not as the type's maximum.
     return max(lo, min(hi, int(round(value))))
@@ -97,4 +104,4 @@ class LiveTelemetry:
 
     def values_at(self, packet: PacketDef, t: float) -> dict:
         """Pure, time-parameterized values for a packet (used by tests)."""
-        return {f.name: _synth_value(f.python_type, f.name, t) for f in packet.fields}
+        return {f.name: _synth_value(f, t) for f in packet.fields}

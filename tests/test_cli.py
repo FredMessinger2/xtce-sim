@@ -325,3 +325,49 @@ async def test_table_style_repaints_in_place_on_tty(simdef, tmp_path, monkeypatc
         assert "\033[H\033[J" in result.output  # in-place repaint marker
     finally:
         await server.stop()
+
+
+# ---- calibrated display: engineering units by default, --raw for counts ------
+
+
+def _hk_packet_bytes(simdef):
+    """One HOUSEKEEPING packet with known raw counts in the calibrated fields."""
+    hk = simdef.packet_by_name("HOUSEKEEPING")
+    values = {f.name: 0 for f in hk.fields if f.python_type != "bytes"}
+    values["HK_BATTERY_VOLTAGE"] = 60  # * 0.125 -> 7.5 V
+    values["HK_TEMP_THERMISTOR"] = 512  # spline -> -20.0 degC
+    payload = codec.pack_telemetry(hk, values)
+    return ccsds.build_telemetry_packet(hk.apid, payload), hk
+
+
+def test_decode_shows_engineering_units_by_default():
+    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    packet, hk = _hk_packet_bytes(simdef)
+    _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {})
+    rows = dict((name, value) for name, value, _ in meta)
+    assert rows["HK_BATTERY_VOLTAGE"] == 7.5
+    assert rows["HK_TEMP_THERMISTOR"] == -20.0
+    assert rows["HK_CMD_RECV_COUNT"] == 0  # uncalibrated fields untouched
+
+
+def test_decode_raw_shows_wire_counts():
+    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    packet, hk = _hk_packet_bytes(simdef)
+    _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {}, raw=True)
+    rows = dict((name, value) for name, value, _ in meta)
+    assert rows["HK_BATTERY_VOLTAGE"] == 60
+    assert rows["HK_TEMP_THERMISTOR"] == 512
+
+
+def test_display_value_enum_label_beats_calibrator():
+    # An enumerated field never calibrates: the label is the display value.
+    from xtce_sim.definition import CalibratorInfo, FieldInfo
+
+    f = FieldInfo(
+        name="X", size_bits=8, python_type="uint8",
+        enumerations={"ON": 1},
+        calibrator=CalibratorInfo(coefficients=[(2.0, 1)]),
+    )
+    assert cli._display_value(f, 1) == "ON"
+    assert cli._display_value(f, 3) == 6.0  # no label match -> calibrated
+    assert cli._display_value(f, 3, raw=True) == 3

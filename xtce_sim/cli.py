@@ -359,12 +359,17 @@ def send(
 
 
 def _decode_packet(
-    packet: bytes, simdef: SimDefinition, wanted: set[str], prefixes: dict[int, str]
+    packet: bytes,
+    simdef: SimDefinition,
+    wanted: set[str],
+    prefixes: dict[int, str],
+    raw: bool = False,
 ):
     """Decode one CCSDS frame -> (apid, name, seq, meta, prefix), or None to skip.
 
     ``prefixes`` is a per-APID cache of the shared field-name prefix (mutated).
     Skips runt frames (<6 bytes) and, when a filter is active, unwanted packets.
+    ``raw`` shows wire counts instead of calibrated engineering values.
     """
     if len(packet) < 6:  # runt frame from a misbehaving/other-protocol server
         return None
@@ -379,7 +384,7 @@ def _decode_packet(
         try:
             values = codec.unpack_telemetry(packet_def, packet[6:])
             meta = [
-                (f.name, _label_or_value(f, values[f.name]), f.unit)
+                (f.name, _display_value(f, values[f.name], raw), f.unit)
                 for f in packet_def.fields
             ]
             prefix = prefixes.setdefault(
@@ -390,12 +395,24 @@ def _decode_packet(
     return header.apid, name, header.seq_count, meta, prefix
 
 
-def _label_or_value(field, value):
-    """Display an enumerated field's label when the raw value matches one."""
+def _display_value(field, value, raw: bool = False):
+    """The value as an operator wants to read it.
+
+    Enumerated fields show their label; calibrated fields show the
+    engineering value converted from the raw wire count (suppressed by
+    ``raw``, which shows the counts as transmitted).
+    """
     if field.enumerations:
         label = next((k for k, v in field.enumerations.items() if v == value), None)
         if label is not None:
             return label
+    if (
+        not raw
+        and field.calibrator is not None
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+    ):
+        return field.calibrator.apply(value)
     return value
 
 
@@ -438,6 +455,11 @@ def _label_or_value(field, value):
     help="Stop after N updates — packets in compact/table, frames in dashboard "
     "(0 = run forever).",
 )
+@click.option(
+    "--raw",
+    is_flag=True,
+    help="Show raw wire counts instead of calibrated engineering units.",
+)
 def monitor(
     port: int,
     host: str,
@@ -447,6 +469,7 @@ def monitor(
     style: str,
     show_all_fields: bool,
     count: int,
+    raw: bool,
 ) -> None:
     """Connect to a running sim and pretty-print decoded live telemetry."""
     simdef = _load_definition(instance_id, def_path)
@@ -454,7 +477,7 @@ def monitor(
     instance = instance_id or (def_path.stem if def_path else host)
     prefixes: dict[int, str] = {}
     decode = functools.partial(
-        _decode_packet, simdef=simdef, wanted=wanted, prefixes=prefixes
+        _decode_packet, simdef=simdef, wanted=wanted, prefixes=prefixes, raw=raw
     )
 
     click.echo(f"Monitoring {host}:{port} (style={style}, Ctrl-C to stop)")

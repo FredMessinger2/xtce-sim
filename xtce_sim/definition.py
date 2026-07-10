@@ -15,6 +15,7 @@ or emit an optional importable snapshot (generated.py).
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -35,6 +36,99 @@ class ParamInfo:
 
 
 @dataclass
+class CalibratorInfo:
+    """Raw-count → engineering-unit conversion for one telemetry field.
+
+    Exactly one of the two forms is populated: polynomial ``coefficients``
+    as (coefficient, exponent) pairs, or piecewise-linear ``spline_points``
+    as (raw, calibrated) pairs sorted by raw. Spline evaluation clamps to
+    the end points outside the declared range (XTCE's no-extrapolation
+    default). The wire always carries the raw counts; this is a view.
+    """
+
+    coefficients: list[tuple[float, int]] = field(default_factory=list)
+    spline_points: list[tuple[float, float]] = field(default_factory=list)
+
+    def apply(self, raw: float) -> float:
+        """The engineering value for a raw wire count."""
+        if self.spline_points:
+            return self._apply_spline(raw)
+        # Negative exponents are rejected at every ingress (parser, from_dict),
+        # so raw=0 can never hit a division by zero here.
+        return float(sum(c * raw**e for c, e in self.coefficients))
+
+    def _apply_spline(self, raw: float) -> float:
+        pts = self.spline_points
+        if math.isnan(raw):
+            return raw  # propagate — never dress NaN up as a reading
+        if raw <= pts[0][0]:
+            return pts[0][1]
+        if raw >= pts[-1][0]:
+            return pts[-1][1]
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            if x0 <= raw <= x1:
+                return y0 if x1 == x0 else y0 + (y1 - y0) * (raw - x0) / (x1 - x0)
+        return pts[-1][1]  # total: the between-clamps loop always matches
+
+    def invert(self, engineering: float) -> Optional[float]:
+        """The raw count that calibrates to *engineering*, when well-defined.
+
+        Covers the affine polynomial case and monotonic splines (clamped to
+        the table ends); returns None when there is no unique inverse
+        (higher-order polynomials, non-monotonic splines).
+        """
+        if self.spline_points:
+            return self._invert_spline(engineering)
+        by_exp: dict[int, float] = {}
+        for c, e in self.coefficients:
+            by_exp[e] = by_exp.get(e, 0.0) + c
+        linear = by_exp.get(1, 0.0)
+        if linear and all(e in (0, 1) for e in by_exp):
+            return (engineering - by_exp.get(0, 0.0)) / linear
+        return None
+
+    def _invert_spline(self, engineering: float) -> Optional[float]:
+        pts = self.spline_points
+        cals = [c for _, c in pts]
+        ascending = all(a < b for a, b in zip(cals, cals[1:]))
+        descending = all(a > b for a, b in zip(cals, cals[1:]))
+        if not (ascending or descending):
+            return None
+        first, last = pts[0], pts[-1]
+        past_first = engineering <= first[1] if ascending else engineering >= first[1]
+        past_last = engineering >= last[1] if ascending else engineering <= last[1]
+        if past_first:
+            return first[0]
+        if past_last:
+            return last[0]
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            if min(y0, y1) <= engineering <= max(y0, y1):
+                if y1 == y0:
+                    return x0
+                return x0 + (x1 - x0) * (engineering - y0) / (y1 - y0)
+        return None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Optional["CalibratorInfo"]:
+        """A CalibratorInfo from its JSON form, or None if it is empty.
+
+        Negative-exponent polynomial terms are dropped (mirroring the
+        parser): they would make a raw count of 0 undefined.
+        """
+        cal = cls(
+            coefficients=[
+                (float(c), int(e))
+                for c, e in data.get("coefficients") or []
+                if int(e) >= 0
+            ],
+            spline_points=sorted(
+                (float(r), float(v)) for r, v in data.get("spline_points") or []
+            ),
+        )
+        return cal if (cal.coefficients or cal.spline_points) else None
+
+
+@dataclass
 class FieldInfo:
     """A single field in a telemetry packet payload."""
 
@@ -44,6 +138,7 @@ class FieldInfo:
     unit: Optional[str] = None
     description: Optional[str] = None
     enumerations: Optional[dict[str, int]] = None  # label -> raw value
+    calibrator: Optional[CalibratorInfo] = None  # raw counts -> engineering units
 
 
 @dataclass
@@ -158,6 +253,11 @@ class SimDefinition:
                         unit=f.get("unit"),
                         description=f.get("description"),
                         enumerations=f.get("enumerations"),
+                        calibrator=(
+                            CalibratorInfo.from_dict(f["calibrator"])
+                            if f.get("calibrator")
+                            else None
+                        ),
                     )
                     for f in t.get("fields", [])
                 ],

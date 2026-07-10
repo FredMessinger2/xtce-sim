@@ -156,11 +156,13 @@ def test_fully_consumed_file_reports_nothing(tmp_path, caplog):
 
 
 def test_inspect_surfaces_real_gap_in_bundled_example():
-    # my_vehicle.xml genuinely contains a SplineCalibrator the parser doesn't
-    # support — the whole point of the feature is that this is now visible.
-    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle.xml")])
+    # imaging_sat.xml genuinely contains DefaultSignificance elements the
+    # parser doesn't support yet — the point of the feature is visibility.
+    # (my_vehicle's SplineCalibrator was the original example here, until
+    # spline support landed and closed that gap.)
+    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "imaging_sat.xml")])
     assert result.exit_code == 0, result.output
-    assert "SplineCalibrator" in result.output and "not read by this parser" in result.output
+    assert "DefaultSignificance" in result.output and "not read by this parser" in result.output
 
 
 # ---- CLI --------------------------------------------------------------------

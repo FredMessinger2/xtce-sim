@@ -21,6 +21,7 @@ import math
 from typing import Optional
 
 from xtce_sim.definition import (
+    CalibratorInfo,
     CommandDef,
     FieldInfo,
     PacketDef,
@@ -425,6 +426,7 @@ def _fields_for_param(param, xtce_def: XTCEDefinition) -> list[FieldInfo]:
                     unit=member_type.unit or None,
                     description=member.description or member_type.description or None,
                     enumerations=_enum_map(member_type),
+                    calibrator=_cal_info(member_type),
                 )
             )
         logger.info(
@@ -446,6 +448,7 @@ def _fields_for_param(param, xtce_def: XTCEDefinition) -> list[FieldInfo]:
             unit=ptype.unit or None,
             description=desc,
             enumerations=_enum_map(ptype),
+            calibrator=_cal_info(ptype),
         )
     ]
 
@@ -455,6 +458,17 @@ def _enum_map(ptype) -> Optional[dict[str, int]]:
     if isinstance(ptype, EnumeratedParameterType) and ptype.enumerations:
         return {e.label: e.value for e in ptype.enumerations}
     return None
+
+
+def _cal_info(ptype) -> Optional[CalibratorInfo]:
+    """The parameter type's calibrator, carried into the resolved field."""
+    cal = getattr(ptype, "calibrator", None)
+    if cal is None or not (cal.coefficients or cal.spline_points):
+        return None
+    return CalibratorInfo(
+        coefficients=list(cal.coefficients),
+        spline_points=sorted(cal.spline_points),
+    )
 
 
 def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
@@ -567,6 +581,11 @@ def _field_detail(f) -> str:
         detail += f"  [{f.unit}]"
     if f.enumerations:
         detail += f"  enum={f.enumerations}"
+    if f.calibrator is not None:
+        if f.calibrator.spline_points:
+            detail += f"  cal=spline({len(f.calibrator.spline_points)} pts)"
+        else:
+            detail += f"  cal=poly({len(f.calibrator.coefficients)} terms)"
     if f.description:
         detail += f"  — {f.description}"
     return detail
@@ -627,6 +646,18 @@ def format_text(simdef: SimDefinition) -> str:
 # =============================================================================
 
 
+def _cal_dict(cal: Optional[CalibratorInfo]) -> Optional[dict]:
+    """JSON form of a field's calibrator (lists of pairs), or None."""
+    if cal is None:
+        return None
+    data: dict = {}
+    if cal.coefficients:
+        data["coefficients"] = [[c, e] for c, e in cal.coefficients]
+    if cal.spline_points:
+        data["spline_points"] = [[r, v] for r, v in cal.spline_points]
+    return data or None
+
+
 def _json_num(value):
     """Drop non-finite numbers so the JSON stays valid (json emits bare NaN/inf)."""
     if isinstance(value, float) and not math.isfinite(value):
@@ -676,6 +707,7 @@ def to_dict(simdef: SimDefinition) -> dict:
                         "unit": f.unit,
                         "description": f.description,
                         "enumerations": f.enumerations,
+                        "calibrator": _cal_dict(f.calibrator),
                     }
                     for f in pkt.fields
                 ],
@@ -790,6 +822,7 @@ def emit_python(simdef: SimDefinition) -> str:
         "    unit: Optional[str] = None",
         "    description: Optional[str] = None",
         "    enumerations: Optional[dict] = None",
+        "    calibrator: Optional[dict] = None  # raw counts -> engineering units",
         "",
         "",
         "class CommandOpcode(IntEnum):",
@@ -879,4 +912,6 @@ def _field_info_repr(f: FieldInfo) -> str:
         args.append(f"description={f.description!r}")
     if f.enumerations is not None:
         args.append(f"enumerations={f.enumerations!r}")
+    if f.calibrator is not None:
+        args.append(f"calibrator={_cal_dict(f.calibrator)!r}")
     return f"FieldInfo({', '.join(args)})"

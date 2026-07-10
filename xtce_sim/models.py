@@ -139,9 +139,14 @@ class ValidRange:
 
 @dataclass
 class Calibrator:
-    """Calibration polynomial for converting raw to engineering values."""
+    """Calibration for converting raw counts to engineering values.
+
+    Either a polynomial (coefficients) or a piecewise-linear spline
+    (points); one of the two lists is populated.
+    """
 
     coefficients: list[tuple[float, int]] = field(default_factory=list)  # (coefficient, exponent)
+    spline_points: list[tuple[float, float]] = field(default_factory=list)  # (raw, calibrated)
 
 
 # =============================================================================
