@@ -580,9 +580,10 @@ def exercise(port, host, instance_id, def_path, apid, command_filter, verify, dr
     """Send a valid instance of every command, then check telemetry health.
 
     Exercises the whole command surface thoroughly: one send per enum value and
-    per numeric min/max boundary. There are no command->telemetry side effects
-    yet, so --verify checks that telemetry stays flowing and decodable, not a
-    per-command effect.
+    per numeric min/max boundary. --verify checks telemetry health — the sim
+    stayed alive and every packet still decoded — not per-command effects
+    (commands change telemetry when a behavior sidecar is loaded, but this
+    exerciser does not yet check each declared effect).
     """
     simdef = _load_definition(instance_id, def_path)
 
