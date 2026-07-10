@@ -1140,14 +1140,8 @@ def _wire_value(field, value) -> Optional[object]:
     bytes for string fields; numeric fields get ints (rounded and clamped to
     the wire width) or floats. Unresolvable values return None.
     """
-    if isinstance(value, str):
-        if field.enumerations and value in field.enumerations:
-            return field.enumerations[value]
-        if field.python_type in ("string", "bytes"):
-            return value.encode()
-        return None
-    if isinstance(value, (bytes, bytearray)):
-        return value if field.python_type in ("string", "bytes") else None
+    if isinstance(value, (str, bytes, bytearray)):
+        return _wire_text(field, value)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     if isinstance(value, float) and not math.isfinite(value):
@@ -1165,6 +1159,17 @@ def _wire_value(field, value) -> Optional[object]:
     if field.python_type.startswith("float"):
         return float(value)
     return _clamp_int(field, int(round(value)))
+
+
+def _wire_text(field, value) -> Optional[object]:
+    """The wire form of a str/bytes behavior value, else None."""
+    if isinstance(value, str):
+        if field.enumerations and value in field.enumerations:
+            return field.enumerations[value]
+        if field.python_type in ("string", "bytes"):
+            return value.encode()
+        return None
+    return value if field.python_type in ("string", "bytes") else None
 
 
 def _clamp_int(field, value: int) -> int:
