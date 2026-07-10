@@ -143,7 +143,7 @@ def _find_run_dump(instance_id: str) -> Path | None:
     esc = glob.escape(instance_id)
     candidates = [p for p in (rel, *Path(".").glob(f"*/runs/{esc}/cmd_tlm.json"),
                               *Path(".").glob(f"*/*/runs/{esc}/cmd_tlm.json")) if p.exists()]
-    unique = sorted(set(c.resolve() for c in candidates))
+    unique = sorted({c.resolve() for c in candidates})
     if len(unique) > 1:
         raise click.ClickException(
             f"--id {instance_id} is ambiguous: " + ", ".join(str(u) for u in unique)

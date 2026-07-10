@@ -257,37 +257,58 @@ def _load_one_file(
         ctx.error(f"not valid TOML: {exc}")
         data = {}
 
-    def merge(table: str, key: str, msg_key: str) -> bool:
-        """Record ownership of (table, key); False if another file has it."""
-        owner = origins.get((table, key))
-        if owner is not None and owner != path.name:
-            ctx.error(f"{msg_key}: already declared in {owner}")
-            return False
-        origins[(table, key)] = path.name
-        return True
-
+    merge = _Merger(path.name, origins, ctx)
     for table, body in data.items():
         if table == "_initial":
-            for fname, value in _load_initial(body, ctx).items():
-                if merge("_initial", fname, f"[_initial] {fname}"):
-                    initial[fname] = value
-            continue
-        if table == "_signals":
-            for eff in _load_signals(body, ctx):
-                if merge("_signals", eff.field, f"[_signals] {eff.field}"):
-                    signals.append(eff)
-            continue
-        command = simdef.command_by_name(table)
-        if command is None:
-            ctx.error(f"[{table}]: unknown command (not in the definition)")
-            continue
-        for eff in _load_command_table(table, body, command, ctx):
-            if merge(table, eff.field, f"[{table}] {eff.field}"):
-                commands.setdefault(table, []).append(eff)
+            _merge_initial(body, ctx, initial, merge)
+        elif table == "_signals":
+            _merge_signals(body, ctx, signals, merge)
+        else:
+            _merge_command_table(table, body, simdef, ctx, commands, merge)
 
     if tag:
         for i in range(first_error, len(ctx.errors)):
             ctx.errors[i] = f"{path.name}: {ctx.errors[i]}"
+
+
+def _merge_initial(body, ctx: _Context, initial: dict, merge: "_Merger") -> None:
+    for fname, value in _load_initial(body, ctx).items():
+        if merge.claim("_initial", fname):
+            initial[fname] = value
+
+
+def _merge_signals(body, ctx: _Context, signals: list, merge: "_Merger") -> None:
+    for eff in _load_signals(body, ctx):
+        if merge.claim("_signals", eff.field):
+            signals.append(eff)
+
+
+class _Merger:
+    """Cross-file ownership of (table, field): first file claims, rest error."""
+
+    def __init__(self, filename: str, origins: dict, ctx: _Context) -> None:
+        self.filename, self.origins, self.ctx = filename, origins, ctx
+
+    def claim(self, table: str, key: str) -> bool:
+        owner = self.origins.get((table, key))
+        if owner is not None and owner != self.filename:
+            self.ctx.error(f"[{table}] {key}: already declared in {owner}")
+            return False
+        self.origins[(table, key)] = self.filename
+        return True
+
+
+def _merge_command_table(
+    table: str, body, simdef: SimDefinition, ctx: _Context,
+    commands: dict, merge: "_Merger",
+) -> None:
+    command = simdef.command_by_name(table)
+    if command is None:
+        ctx.error(f"[{table}]: unknown command (not in the definition)")
+        return
+    for eff in _load_command_table(table, body, command, ctx):
+        if merge.claim(table, eff.field):
+            commands.setdefault(table, []).append(eff)
 
 
 def describe(spec: BehaviorSpec) -> list[str]:
