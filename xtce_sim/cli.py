@@ -384,7 +384,12 @@ def _decode_packet(
         try:
             values = codec.unpack_telemetry(packet_def, packet[6:])
             meta = [
-                (f.name, _display_value(f, values[f.name], raw), f.unit)
+                (
+                    f.name,
+                    _display_value(f, values[f.name], raw),
+                    # counts are unitless: the unit belongs to the calibrated view
+                    None if raw and f.calibrator is not None else f.unit,
+                )
                 for f in packet_def.fields
             ]
             prefix = prefixes.setdefault(

@@ -46,6 +46,11 @@ flowchart TD
     JSON -.->|"loaded via --id"| SEND
     XTCE -.->|"same definition"| GS
 
+    %% Live/build links (solid) are thick and dark; out-of-band definition
+    %% sharing (dashed) is thin and gray — dash length alone is hard to see.
+    linkStyle 0,1,2,3,4,5,6 stroke-width:3px
+    linkStyle 7,8,9 stroke:#999999,stroke-width:1.5px
+
     %% Explicit fills + text colors so the diagram stays readable in both
     %% GitHub themes (the default theme picks unreadable colors in dark mode).
     classDef source fill:#8250df,stroke:#6639ba,color:#ffffff
@@ -61,8 +66,8 @@ flowchart TD
     class MON,SEND,GS client
 ```
 
-*(Solid arrows: build + the live CCSDS link. Dashed arrows: the command/telemetry
-definition, shared out-of-band — no in-band discovery.)*
+*(Thick solid arrows: build + the live CCSDS link. Thin gray dashed arrows: the
+command/telemetry definition, shared out-of-band — no in-band discovery.)*
 
 The wire carries only binary CCSDS — there is **no in-band discovery**. A client
 learns the command/telemetry set *out of band*: the bundled `monitor` and `send`
@@ -144,9 +149,9 @@ Lines marked `~` are **inferences and gaps** — places the parser filled a gap
 rather than reading an explicit declaration (an enum sized from its max value,
 a boolean defaulted to 1 bit, a command assigned a synthetic opcode), and
 **content the parser ignored**: after the parse it reports any element the
-file declared but nothing ever read (`ignored 1 <SplineCalibrator> ... — present in the XTCE but not read by
-this parser`), so unsupported XTCE features are visible instead of
-silently dropped. Warnings appear inline with a `!` marker. `inspect --full`
+file declared but nothing ever read (`ignored 9 <DefaultSignificance> ... —
+present in the XTCE but not read by this parser`), so unsupported XTCE
+features are visible instead of silently dropped. Warnings appear inline with a `!` marker. `inspect --full`
 traces every parsed element, and `inspect --dump` appends the complete
 resolved inventory — every command and telemetry packet, the same report
 `generate` writes to `runs/<id>/cmd_tlm.txt`. The same trace is available
@@ -349,6 +354,13 @@ displaces HEATER_ON's warming), and a direct set cancels it — last command
 wins. `{ArgName}` templates in field names scale one rule across HeaterId 1
 and 2; an `@FIELD` reference may not name its own field (feeding a field its
 own output is drift, not jitter).
+
+**Values are engineering units.** A calibrated field transmits raw counts on
+the wire, but behavior values mean what they say — `ramp_to = 40.0` on a
+temperature is forty degrees, and the engine converts to counts at the wire
+boundary (and back, for live `@FIELD` references). Command a setpoint of
+25.304 and the readback shows 25.30: the round trip through integer counts
+quantizes, exactly like real telemetry.
 
 **Validation is strict and total.** Every field name, argument reference, enum
 label, verb, and attribute is checked against the XTCE at load, and *all*

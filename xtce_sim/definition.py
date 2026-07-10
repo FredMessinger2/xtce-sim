@@ -70,6 +70,23 @@ class CalibratorInfo:
                 return y0 if x1 == x0 else y0 + (y1 - y0) * (raw - x0) / (x1 - x0)
         return pts[-1][1]  # total: the between-clamps loop always matches
 
+    @property
+    def is_invertible(self) -> bool:
+        """Whether engineering values can be converted back to raw counts.
+
+        True for affine polynomials (exponents 0/1 with a nonzero slope) and
+        strictly monotonic splines — the forms real calibrations take.
+        """
+        if self.spline_points:
+            cals = [c for _, c in self.spline_points]
+            return all(a < b for a, b in zip(cals, cals[1:])) or all(
+                a > b for a, b in zip(cals, cals[1:])
+            )
+        by_exp: dict[int, float] = {}
+        for c, e in self.coefficients:
+            by_exp[e] = by_exp.get(e, 0.0) + c
+        return bool(by_exp.get(1, 0.0)) and all(e in (0, 1) for e in by_exp)
+
     def invert(self, engineering: float) -> Optional[float]:
         """The raw count that calibrates to *engineering*, when well-defined.
 
@@ -77,23 +94,19 @@ class CalibratorInfo:
         the table ends); returns None when there is no unique inverse
         (higher-order polynomials, non-monotonic splines).
         """
+        if not self.is_invertible:
+            return None
         if self.spline_points:
             return self._invert_spline(engineering)
         by_exp: dict[int, float] = {}
         for c, e in self.coefficients:
             by_exp[e] = by_exp.get(e, 0.0) + c
-        linear = by_exp.get(1, 0.0)
-        if linear and all(e in (0, 1) for e in by_exp):
-            return (engineering - by_exp.get(0, 0.0)) / linear
-        return None
+        return (engineering - by_exp.get(0, 0.0)) / by_exp[1]
 
     def _invert_spline(self, engineering: float) -> Optional[float]:
         pts = self.spline_points
         cals = [c for _, c in pts]
         ascending = all(a < b for a, b in zip(cals, cals[1:]))
-        descending = all(a > b for a, b in zip(cals, cals[1:]))
-        if not (ascending or descending):
-            return None
         first, last = pts[0], pts[-1]
         past_first = engineering <= first[1] if ascending else engineering >= first[1]
         past_last = engineering >= last[1] if ascending else engineering <= last[1]

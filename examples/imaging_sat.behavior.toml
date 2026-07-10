@@ -20,6 +20,8 @@
 #                                          the affected packet out right now,
 #                                          instead of waiting for the beacon
 #   An "@FIELD" reference must not name the field itself (unbounded drift).
+#   Values are ENGINEERING UNITS (degrees, volts); calibrated fields are
+#   converted to raw wire counts by the engine at the wire boundary.
 #   {ArgName} inside a field name is filled from the command's arguments.
 #   [_initial] seeds one-shot values at boot; [_signals] starts continuous
 #   behaviors (ramp_to/oscillate/hold) at boot with no command needed.

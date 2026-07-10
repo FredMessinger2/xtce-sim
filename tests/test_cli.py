@@ -371,3 +371,17 @@ def test_display_value_enum_label_beats_calibrator():
     assert cli._display_value(f, 1) == "ON"
     assert cli._display_value(f, 3) == 6.0  # no label match -> calibrated
     assert cli._display_value(f, 3, raw=True) == 3
+
+
+def test_raw_view_drops_units_on_calibrated_fields():
+    # Counts are unitless; "60 V" would be a lie. Uncalibrated fields keep
+    # their units in both views.
+    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    packet, hk = _hk_packet_bytes(simdef)
+    _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {}, raw=True)
+    units = {name: unit for name, _, unit in meta}
+    assert units["HK_BATTERY_VOLTAGE"] is None  # calibrated: no unit on counts
+    assert units["HK_TIMESTAMP"] == "s"  # uncalibrated: unit stays
+    _, _, _, meta_eu, _ = cli._decode_packet(packet, simdef, set(), {})
+    units_eu = {name: unit for name, _, unit in meta_eu}
+    assert units_eu["HK_BATTERY_VOLTAGE"] == "V"  # calibrated view keeps it

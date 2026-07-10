@@ -40,6 +40,14 @@ beacon keeps its own schedule — for a copy that is written
 (they pace with the beacon by nature). Booleans are rejected as values:
 write ``0``/``1`` or an enum label.
 
+Behavior values are ENGINEERING UNITS. A field whose XTCE declares a
+calibrator transmits raw counts, but the sidecar speaks the calibrated
+meaning — a setpoint of 25.5 means degrees, not counts — and the engine
+converts at the wire boundary (inverting on write, calibrating on read for
+``@FIELD`` references and increments). A behavior-governed calibrated field
+therefore needs an invertible calibrator (affine polynomial or monotonic
+spline); anything else is a load error.
+
 Validation is strict and total: every command table, field name, argument
 reference, enum label, and verb key is checked against the resolved
 SimDefinition, and *all* problems are reported in one BehaviorError.
@@ -362,6 +370,8 @@ def _scalar_effect(
         if not _has_arg(command, arg):
             ctx.error(f"{where}: @arg:{arg} — command has no argument {arg!r}")
             return None
+        for concrete in _expansions(fname, command) or []:
+            _check_invertible(where, concrete, ctx)
         return CopyArgEffect(field=fname, arg=arg, emit=emit)
     if isinstance(value, str) and value.startswith("@"):
         ctx.error(
@@ -546,6 +556,18 @@ def _check_numeric_field(
     for concrete in _expansions(template, command) or []:
         if concrete in ctx.fields and not ctx.is_numeric(concrete):
             ctx.error(f"{where}: {concrete} is not a numeric field")
+        _check_invertible(where, concrete, ctx)
+
+
+def _check_invertible(where: str, concrete: str, ctx: _Context) -> None:
+    """Behavior values are engineering units; the field's calibrator must
+    run backwards to produce wire counts."""
+    f = ctx.fields.get(concrete)
+    if f is not None and f.calibrator is not None and not f.calibrator.is_invertible:
+        ctx.error(
+            f"{where}: {concrete} has a non-invertible calibrator — "
+            "engineering-unit behavior values cannot be converted to raw counts"
+        )
 
 
 def _check_scalar_for_field(
@@ -565,6 +587,7 @@ def _check_scalar_for_field(
         f = ctx.fields.get(concrete)
         if f is not None:
             _check_scalar_against(where, concrete, f, value, ctx)
+            _check_invertible(where, concrete, ctx)
 
 
 def _check_scalar_against(where: str, concrete: str, f, value, ctx: _Context) -> None:
@@ -859,6 +882,14 @@ class BehaviorEngine:
             # forever (it never retires); refuse it once instead.
             logger.warning("%s: %s is not a numeric field; skipped", where, fname)
             return None
+        cal = self._fields[fname].calibrator
+        if cal is not None and not cal.is_invertible:
+            # Deferred-template case: load validation could not see this
+            # concrete field. Refuse once, with the real reason.
+            logger.warning(
+                "%s: %s has a non-invertible calibrator; skipped", where, fname
+            )
+            return None
         if isinstance(eff, RampEffect):
             ref = eff.target
         elif isinstance(eff, OscillateEffect):
@@ -964,7 +995,11 @@ class BehaviorEngine:
         return value + beh.rng.gauss(0.0, beh.noise) if beh.rng else value
 
     def _live_number(self, beh, ref) -> Optional[float]:
-        """A behavior's number-or-@FIELD reference, resolved right now."""
+        """A behavior's number-or-@FIELD reference, resolved right now.
+
+        The overlay stores wire counts; behavior math runs in engineering
+        units, so calibrated fields convert on the way out.
+        """
         if isinstance(ref, str):  # "@FIELD"
             value = self.state.get(ref[1:])
             if not isinstance(value, (int, float)):
@@ -977,18 +1012,39 @@ class BehaviorEngine:
                     )
                 return None
             beh.warned = False
-            return float(value)
+            return float(self._engineering(ref[1:], value))
         return float(ref)
 
     def _ramp_current(self, fname: str) -> float:
         current = self.state.get(fname, 0)
-        return float(current) if isinstance(current, (int, float)) else 0.0
+        if not isinstance(current, (int, float)):
+            return 0.0
+        return float(self._engineering(fname, current))
+
+    def _engineering(self, fname: str, value):
+        """A stored wire count as its engineering value (identity when
+        the field has no calibrator)."""
+        f = self._fields.get(fname)
+        if (
+            f is not None
+            and f.calibrator is not None
+            and isinstance(value, (int, float))
+        ):
+            return f.calibrator.apply(value)
+        return value
 
 
     def _apply_effect(self, command, eff, args: dict) -> Optional[str]:
         where = f"[{command.name}] {eff.field}"
         fname = self._resolve_template(where, eff.field, command, args)
         if fname is None:
+            return None
+        cal = self._fields[fname].calibrator
+        if cal is not None and not cal.is_invertible:
+            # Deferred-template / copy case load validation could not see.
+            logger.warning(
+                "%s: %s has a non-invertible calibrator; skipped", where, fname
+            )
             return None
         if isinstance(eff, SetEffect):
             value = eff.value
@@ -1000,9 +1056,12 @@ class BehaviorEngine:
             # decode as its label; store its raw value (the destination
             # field's own enum may use different labels entirely).
             value = self._raw_arg(command, args, eff.arg)
-        else:  # IncrementEffect
+        else:  # IncrementEffect — arithmetic in engineering units
             current = self.state.get(fname, 0)
-            value = (current if isinstance(current, (int, float)) else 0) + eff.by
+            current = self._engineering(fname, current) if isinstance(
+                current, (int, float)
+            ) else 0
+            value = current + eff.by
         stored = self._store(where, fname, value)
         if stored is None:
             return None
@@ -1013,6 +1072,9 @@ class BehaviorEngine:
             logger.debug("[behavior] %s cancelled by direct write", fname)
         if eff.emit == "immediate":
             self._pending_immediate.add(self._field_apid[fname])
+        if cal is not None:
+            # The operator commanded engineering units; confirm in kind.
+            return f"{fname}={self._engineering(fname, stored)!r} ({stored} counts)"
         return f"{fname}={stored!r}"
 
     def pop_immediate_apids(self) -> set[int]:
@@ -1092,6 +1154,14 @@ def _wire_value(field, value) -> Optional[object]:
         return None  # nan/inf can arrive via a copied float argument
     if field.python_type in ("string", "bytes"):
         return None
+    if field.calibrator is not None:
+        # Behavior values are ENGINEERING units; the wire carries raw
+        # counts. Convert here, at the one boundary where values become
+        # wire-ready. (Non-invertible calibrators are rejected at load.)
+        raw = field.calibrator.invert(float(value))
+        if raw is None:
+            return None
+        value = raw
     if field.python_type.startswith("float"):
         return float(value)
     return _clamp_int(field, int(round(value)))

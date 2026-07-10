@@ -294,6 +294,32 @@ def engine(simdef):
     return behavior.BehaviorEngine(spec, simdef)
 
 
+@pytest.fixture()
+def simdef_quadratic(tmp_path_factory):
+    """imaging_sat with IMG temperature calibration made quadratic (x^2) —
+    a legal XTCE calibrator with no unique inverse."""
+    xml = (EXAMPLES / "imaging_sat.xml").read_text().replace(
+        '<xtce:Term coefficient="0.01" exponent="1" />',
+        '<xtce:Term coefficient="0.01" exponent="2" />',
+    )
+    path = tmp_path_factory.mktemp("quad") / "quad.xml"
+    path.write_text(xml)
+    return SimDefinition.from_xtce(path)
+
+
+def _errors_for(tmp_path, sd, text: str) -> str:
+    path = tmp_path / "t.behavior.toml"
+    path.write_text(text)
+    with pytest.raises(behavior.BehaviorError) as exc:
+        load_behavior(path, sd)
+    return str(exc.value)
+
+
+def _eu(engine, fname):
+    """A stored value in engineering units (states hold wire counts)."""
+    return engine._engineering(fname, engine.state[fname])
+
+
 def _cmd(simdef, name):
     return simdef.command_by_name(name)
 
@@ -301,8 +327,9 @@ def _cmd(simdef, name):
 def test_engine_seeds_initial_values(engine, simdef):
     thermal = simdef.packet_by_name("THERMAL_STATUS")
     values = engine.values_for(thermal)
-    assert values["THM_HEATER1_TEMP"] == 20.0
-    assert values["THM_HEATER1_SETPOINT"] == 40.0
+    # values_for is the WIRE view: 0.01 degC/count, so 20.0 degC = 2000 counts.
+    assert values["THM_HEATER1_TEMP"] == 2000
+    assert values["THM_HEATER1_SETPOINT"] == 4000
     # values_for filters per packet: imager fields don't leak into thermal.
     assert "IMG_FOCAL_PLANE_TEMP" not in values
 
@@ -392,7 +419,10 @@ async def test_server_end_to_end_command_changes_telemetry(simdef):
         values = await asyncio.to_thread(read_one)
         assert values is not None
         assert values["IMG_STATE"] == 1  # IDLE, set by the command
-        assert values["IMG_FOCAL_PLANE_TEMP"] == 20  # [_initial] seed (int field)
+        # the wire carries counts (0.01 degC/count): seeded at 20 degC and
+        # already warming toward 35 (IMAGER_ON starts the ramp; noise=0.2
+        # EU can dip a few counts below the seed on early ticks).
+        assert 1900 <= values["IMG_FOCAL_PLANE_TEMP"] < 3600
     finally:
         await server.stop()
 
@@ -434,7 +464,7 @@ def test_overlay_wins_over_telemetry_source(engine, simdef):
     )
     thermal = simdef.packet_by_name("THERMAL_STATUS")
     values = server._packet_values(thermal)
-    assert values["THM_HEATER1_TEMP"] == 20  # overlay ([_initial]) wins
+    assert values["THM_HEATER1_TEMP"] == 2000  # overlay wins (20 degC in counts)
     assert values["THM_PANEL_TEMP_PX"] == 7 if "THM_PANEL_TEMP_PX" in values else True
     # a field the overlay doesn't hold comes from the source:
     non_overlay = [f.name for f in thermal.fields if f.name not in engine.state]
@@ -602,11 +632,12 @@ def test_ramp_advances_toward_target_and_completes(engine, simdef):
     # tau=30 toward the 40.0 setpoint from 20.0: one 30s tick covers 1-1/e.
     engine.tick(30.0)
     expected = 20.0 + (40.0 - 20.0) * (1.0 - math.exp(-1.0))
-    assert engine.state["THM_HEATER1_TEMP"] == round(expected)  # int16 field view
+    # counts quantize at 0.01 degC, so the EU view is exact to a centidegree
+    assert abs(_eu(engine, "THM_HEATER1_TEMP") - expected) < 0.01
     # after many time constants the ramp lands exactly and retires
     for _ in range(20):
         engine.tick(30.0)
-    assert engine.state["THM_HEATER1_TEMP"] == 40
+    assert _eu(engine, "THM_HEATER1_TEMP") == 40
     assert "THM_HEATER1_TEMP" not in engine._behaviors
 
 
@@ -633,18 +664,18 @@ def test_ramp_integer_field_does_not_stall_on_small_steps(engine, simdef):
     engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
     for _ in range(4000):  # 0.1s steps against tau=30
         engine.tick(0.1)
-    assert engine.state["THM_HEATER1_TEMP"] == 40  # reached, not stalled at 20
+    assert _eu(engine, "THM_HEATER1_TEMP") == 40  # reached, not stalled at 20
 
 
 def test_ramp_target_reread_live_each_tick(engine, simdef):
     engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
     engine.tick(30.0)
-    part_way = engine.state["THM_HEATER1_TEMP"]
+    part_way = _eu(engine, "THM_HEATER1_TEMP")
     # raise the setpoint mid-ramp: the curve bends toward the new target
     engine.apply_command(_cmd(simdef, "SET_HEATER_SETPOINT"), {"HeaterId": 1, "Setpoint": 55})
     for _ in range(20):
         engine.tick(30.0)
-    assert part_way < 40 < engine.state["THM_HEATER1_TEMP"] == 55
+    assert part_way < 40 < _eu(engine, "THM_HEATER1_TEMP") == 55
 
 
 def test_new_ramp_replaces_old_per_field(engine, simdef):
@@ -654,7 +685,7 @@ def test_new_ramp_replaces_old_per_field(engine, simdef):
     engine.apply_command(_cmd(simdef, "HEATER_OFF"), {"HeaterId": 1})  # cooling replaces
     for _ in range(30):
         engine.tick(30.0)
-    assert engine.state["THM_HEATER1_TEMP"] == 20  # cooled back to ambient
+    assert _eu(engine, "THM_HEATER1_TEMP") == 20  # cooled back to ambient
     # heater 2 was never involved
     assert "THM_HEATER2_TEMP" not in engine._behaviors
 
@@ -679,7 +710,7 @@ def test_tick_ignores_nonpositive_dt(engine, simdef):
     engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
     engine.tick(0.0)
     engine.tick(-5.0)
-    assert engine.state["THM_HEATER1_TEMP"] == 20  # unmoved
+    assert _eu(engine, "THM_HEATER1_TEMP") == 20  # unmoved
 
 
 async def test_server_beacon_ticks_ramps_end_to_end(simdef):
@@ -744,10 +775,10 @@ def test_direct_write_cancels_active_ramp(engine, simdef):
     from xtce_sim.behavior import SetEffect
     spec_over.append(SetEffect(field="THM_HEATER1_TEMP", value=33))
     engine.apply_command(_cmd(simdef, "NOOP"), {})
-    assert engine.state["THM_HEATER1_TEMP"] == 33
+    assert _eu(engine, "THM_HEATER1_TEMP") == 33
     assert "THM_HEATER1_TEMP" not in engine._behaviors  # ramp cancelled
     engine.tick(30.0)
-    assert engine.state["THM_HEATER1_TEMP"] == 33  # value survives ticks
+    assert _eu(engine, "THM_HEATER1_TEMP") == 33  # value survives ticks
 
 
 def test_missing_ramp_target_warns_once_not_per_tick(tmp_path, simdef, caplog):
@@ -768,7 +799,7 @@ def test_missing_ramp_target_warns_once_not_per_tick(tmp_path, simdef, caplog):
     # this minimal spec has no SET_HEATER_SETPOINT table):
     eng.state["THM_HEATER1_SETPOINT"] = 40
     eng.tick(30.0)
-    assert eng.state["THM_HEATER1_TEMP"] > 0  # moving now
+    assert _eu(eng, "THM_HEATER1_TEMP") > 0  # moving now
 
 
 def test_infinite_ramp_target_rejected_at_load(tmp_path, simdef):
@@ -831,11 +862,11 @@ def test_oscillate_wave_math_no_noise(tmp_path, simdef):
     )
     eng = behavior.BehaviorEngine(spec, simdef)
     eng.tick(25.0)  # t = period/4
-    assert eng.state["THM_PANEL_PLUS_X"] == 30  # 10 + 20*sin(pi/2)
+    assert _eu(eng, "THM_PANEL_PLUS_X") == 30  # 10 + 20*sin(pi/2)
     eng.tick(25.0)  # t = period/2
-    assert eng.state["THM_PANEL_PLUS_X"] == 10  # back through center
+    assert _eu(eng, "THM_PANEL_PLUS_X") == 10  # back through center
     eng.tick(25.0)  # t = 3/4 period
-    assert eng.state["THM_PANEL_PLUS_X"] == -10  # trough
+    assert _eu(eng, "THM_PANEL_PLUS_X") == -10  # trough
 
 
 def test_triangle_and_sawtooth_shapes():
@@ -864,8 +895,8 @@ def test_boot_signals_run_without_commands(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
     eng = behavior.BehaviorEngine(spec, simdef)
     eng.tick(1350.0)  # quarter orbit
-    assert eng.state["THM_PANEL_PLUS_X"] > 25  # near peak (35 ± noise)
-    assert eng.state["THM_RADIATOR"] != 0  # holding around -5
+    assert _eu(eng, "THM_PANEL_PLUS_X") > 25  # near peak (35 ± noise)
+    assert _eu(eng, "THM_RADIATOR") != 0  # holding around -5
 
 
 def test_noisy_ramp_degrades_into_noisy_hold(tmp_path, simdef):
@@ -912,7 +943,7 @@ def test_direct_set_cancels_boot_signal(simdef):
     eng.apply_command(_cmd(simdef, "NOOP"), {})
     assert "THM_RADIATOR" not in eng._behaviors  # signal cancelled
     eng.tick(1.0)
-    assert eng.state["THM_RADIATOR"] == 0  # value survives ticks
+    assert _eu(eng, "THM_RADIATOR") == 0  # value survives ticks
 
 
 # ---- 4b defensive branches ---------------------------------------------------
@@ -968,7 +999,7 @@ def test_oscillate_center_can_be_live_reference(tmp_path, simdef):
     )
     eng = behavior.BehaviorEngine(spec, simdef)
     eng.tick(2.0)  # quarter period: 20 + 4
-    assert eng.state["THM_RADIATOR"] == 24
+    assert _eu(eng, "THM_RADIATOR") == 24
 
 
 def test_hold_with_unresolvable_template_ref_skips(simdef, caplog, tmp_path):
@@ -1025,7 +1056,7 @@ def test_noisy_ramp_settles_on_landed_value_not_live_target(tmp_path, simdef):
         eng.tick(2.0)
     eng.state["THM_HEATER1_SETPOINT"] = 100  # operator moves the setpoint
     eng.tick(2.0)
-    assert abs(eng.state["THM_HEATER1_TEMP"] - 40) < 3  # stayed put (± noise)
+    assert abs(_eu(eng, "THM_HEATER1_TEMP") - 40) < 3  # stayed put (± noise)
 
 
 # ---- review fixes: self-reference, finiteness, non-numeric guard, ----------
@@ -1097,9 +1128,9 @@ def test_oscillator_clock_advances_while_center_unresolved(tmp_path, simdef):
     for _ in range(25):
         eng.tick(1.0)  # unresolved: no writes, but the clock runs
     assert "THM_RADIATOR" not in eng.state
-    eng.state["THM_HEATER1_SETPOINT"] = 10
+    eng.state["THM_HEATER1_SETPOINT"] = 1000  # wire counts: 10.0 degC
     eng.tick(25.0)  # now at t=50 = half period: sine crosses center
-    assert eng.state["THM_RADIATOR"] == 10
+    assert _eu(eng, "THM_RADIATOR") == 10
 
 
 def test_restarted_behavior_continues_noise_stream(tmp_path, simdef):
@@ -1255,3 +1286,93 @@ async def test_failing_immediate_send_skips_but_continues(tmp_path, simdef):
         assert handled == ["TAKE_IMAGE"]  # handler still ran
     finally:
         await server.stop()
+
+
+# ---- engineering-unit rule: sidecar speaks EU, the wire speaks counts --------
+
+
+def test_behavior_values_are_engineering_units(tmp_path, simdef):
+    # 25.5 degC seeds as 2550 counts (0.01 degC/count); increment adds degrees.
+    spec = _load(
+        tmp_path, simdef,
+        "[_initial]\nTHM_RADIATOR = -5.0\n"
+        "[IMAGER_ON]\nTHM_RADIATOR = { increment = 1.5 }\n",
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    assert eng.state["THM_RADIATOR"] == -500  # counts on the wire
+    eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    assert eng.state["THM_RADIATOR"] == -350  # -5.0 + 1.5 degC = -350 counts
+
+
+def test_eu_quantization_round_trip(tmp_path, simdef):
+    # A value between count boundaries lands on the nearest count — the
+    # readback shows real quantization, like actual telemetry.
+    spec = _load(tmp_path, simdef, "[_initial]\nTHM_RADIATOR = 25.304\n")
+    eng = behavior.BehaviorEngine(spec, simdef)
+    assert eng.state["THM_RADIATOR"] == 2530  # nearest count
+    assert eng._engineering("THM_RADIATOR", eng.state["THM_RADIATOR"]) == 25.30
+
+
+def test_live_reference_across_different_scales(tmp_path, simdef):
+    # A ramp on a temperature (0.01 degC/count) tracking a setpoint field:
+    # both sides of the reference resolve in engineering units, so the ramp
+    # lands at the setpoint's EU value regardless of count scales.
+    spec = _load(
+        tmp_path, simdef,
+        "[_initial]\nTHM_HEATER1_SETPOINT = 33.0\n"
+        '[HEATER_ON]\n"THM_HEATER{HeaterId}_TEMP" = '
+        '{ ramp_to = "@THM_HEATER1_SETPOINT", tau = 2 }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    for _ in range(40):
+        eng.tick(2.0)
+    assert _eu(eng, "THM_HEATER1_TEMP") == 33.0
+
+
+def test_non_invertible_calibrator_rejected_at_load(tmp_path, simdef_quadratic):
+    msg = _errors_for(
+        tmp_path, simdef_quadratic,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 30, tau = 5 }\n"
+        "[_initial]\nIMG_FOCAL_PLANE_TEMP = 20.0\n",
+    )
+    assert msg.count("non-invertible calibrator") == 2  # both uses flagged
+
+
+def test_copy_to_non_invertible_field_rejected_at_load(tmp_path, simdef_quadratic):
+    msg = _errors_for(
+        tmp_path, simdef_quadratic,
+        '[SET_EXPOSURE]\nIMG_FOCAL_PLANE_TEMP = "@arg:ExposureMs"\n',
+    )
+    assert "non-invertible calibrator" in msg
+
+
+def test_deferred_template_to_non_invertible_field_refused_once(
+    tmp_path, simdef_quadratic, caplog
+):
+    # An unbounded template escapes load validation; the runtime refusal
+    # happens once at start with the real reason, not per tick.
+    spec = _load(
+        tmp_path, simdef_quadratic,
+        '[SET_EXPOSURE]\n"IMG_FOCAL_PLANE_{ExposureMs}" = { hold = 25.0 }\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef_quadratic)
+    cmd = _cmd(simdef_quadratic, "SET_EXPOSURE")
+    with caplog.at_level("WARNING"):
+        eng.apply_command(cmd, {"ExposureMs": "TEMP", "GainLevel": 1})
+        for _ in range(5):
+            eng.tick(1.0)
+    assert "IMG_FOCAL_PLANE_TEMP" not in eng._behaviors
+    assert caplog.text.count("non-invertible calibrator") == 1
+
+
+def test_effects_log_confirms_in_engineering_units(tmp_path, simdef):
+    spec = _load(
+        tmp_path, simdef,
+        '[SET_HEATER_SETPOINT]\n"THM_HEATER{HeaterId}_SETPOINT" = "@arg:Setpoint"\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    applied = eng.apply_command(
+        _cmd(simdef, "SET_HEATER_SETPOINT"), {"HeaterId": 1, "Setpoint": 55}
+    )
+    assert applied == ["THM_HEATER1_SETPOINT=55.0 (5500 counts)"]
