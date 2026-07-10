@@ -13,13 +13,13 @@ from xtce_sim.generate import format_json
 from xtce_sim.server import SimServer
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-CMD = str(EXAMPLES / "my_vehicle_commands.xml")
-TLM = str(EXAMPLES / "my_vehicle_telemetry.xml")
+CMD = str(EXAMPLES / "my_vehicle/my_vehicle_commands.xml")
+TLM = str(EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml")
 
 
 @pytest.fixture(scope="module")
 def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce([EXAMPLES / "my_vehicle_commands.xml", TLM])
+    return SimDefinition.from_xtce([EXAMPLES / "my_vehicle/my_vehicle_commands.xml", TLM])
 
 
 # ---------------------------------------------------------------- generate ----
@@ -61,7 +61,7 @@ def test_load_definition_missing_id(tmp_path):
     with runner.isolated_filesystem():
         result = runner.invoke(main, ["send", "--id", "ghost", "--port", "1", "NOOP"])
         assert result.exit_code != 0
-        assert "not found" in result.output
+        assert "no runs/ghost/cmd_tlm.json found" in result.output
 
 
 def test_load_definition_from_xml_def():
@@ -274,7 +274,7 @@ def test_decode_packet_branches(simdef):
 
 def test_decode_packet_shows_enum_labels():
     # An enumerated field displays its label; unmatched raw values stay raw.
-    d = SimDefinition.from_xtce(EXAMPLES / "imaging_sat.xml")
+    d = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
     hk = d.packet_by_name("HOUSEKEEPING")
     frame = ccsds.build_telemetry_packet(
         hk.apid, codec.pack_telemetry(hk, {"HK_SYSTEM_MODE": 3}), 1
@@ -341,7 +341,7 @@ def _hk_packet_bytes(simdef):
 
 
 def test_decode_shows_engineering_units_by_default():
-    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
     packet, hk = _hk_packet_bytes(simdef)
     _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {})
     rows = dict((name, value) for name, value, _ in meta)
@@ -351,7 +351,7 @@ def test_decode_shows_engineering_units_by_default():
 
 
 def test_decode_raw_shows_wire_counts():
-    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
     packet, hk = _hk_packet_bytes(simdef)
     _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {}, raw=True)
     rows = dict((name, value) for name, value, _ in meta)
@@ -376,7 +376,7 @@ def test_display_value_enum_label_beats_calibrator():
 def test_raw_view_drops_units_on_calibrated_fields():
     # Counts are unitless; "60 V" would be a lie. Uncalibrated fields keep
     # their units in both views.
-    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
     packet, hk = _hk_packet_bytes(simdef)
     _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {}, raw=True)
     units = {name: unit for name, _, unit in meta}
@@ -385,3 +385,44 @@ def test_raw_view_drops_units_on_calibrated_fields():
     _, _, _, meta_eu, _ = cli._decode_packet(packet, simdef, set(), {})
     units_eu = {name: unit for name, _, unit in meta_eu}
     assert units_eu["HK_BATTERY_VOLTAGE"] == "V"  # calibrated view keeps it
+
+
+def test_run_artifacts_live_with_the_satellite(tmp_path):
+    # runs/<id>/ goes in the satellite's directory, not the CWD.
+    sat = tmp_path / "bird"
+    sat.mkdir()
+    xml = EXAMPLES / "my_vehicle/my_vehicle.xml"
+    (sat / "bird.xml").write_text(xml.read_text())
+    runner = CliRunner()
+    result = runner.invoke(main, ["generate", str(sat / "bird.xml")])
+    assert result.exit_code == 0, result.output
+    assert (sat / "runs" / "bird" / "cmd_tlm.json").exists()
+
+
+def test_id_resolves_into_satellite_directories(tmp_path, monkeypatch):
+    # A client run from a parent directory finds the satellite's dump.
+    sat = tmp_path / "bird"
+    sat.mkdir()
+    (EXAMPLES / "my_vehicle/my_vehicle.xml").read_text()  # ensure exists
+    dump = sat / "runs" / "sat-x"
+    dump.mkdir(parents=True)
+    src = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    dump.joinpath("cmd_tlm.json").write_text(format_json(src))
+    monkeypatch.chdir(tmp_path)
+    d = cli._load_definition("sat-x", None)
+    assert d.space_system_name == "MyVehicle"
+
+
+def test_no_behavior_serves_interface_only(tmp_path):
+    # An unrelated .toml beside the XTCE would block startup; --no-behavior
+    # skips discovery entirely.
+    sat = tmp_path / "bird"
+    sat.mkdir()
+    (sat / "bird.xml").write_text((EXAMPLES / "my_vehicle/my_vehicle.xml").read_text())
+    (sat / "notes.toml").write_text("[project]\nname = 'not behavior'\n")
+    runner = CliRunner()
+    fails = runner.invoke(main, ["inspect", str(sat / "bird.xml")])
+    assert fails.exit_code != 0  # auto-discovery trips on notes.toml...
+    assert "--no-behavior" in fails.output  # ...and says how to get out
+    ok = runner.invoke(main, ["inspect", str(sat / "bird.xml"), "--no-behavior"])
+    assert ok.exit_code == 0, ok.output

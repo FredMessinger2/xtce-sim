@@ -1,0 +1,10 @@
+# Power subsystem behavior for the ImagingSat example.
+# Values are ENGINEERING UNITS (degrees, volts); calibrated fields are
+# converted to raw wire counts by the engine. Full schema: README, section
+# 'Behavior: making commands change telemetry'.
+
+# The solar bus rides the orbit; the battery breathes with seeded noise.
+[_signals]
+PWR_SOLAR_VOLTAGE = { oscillate = 16.0, amplitude = 12.0, period = 5400, noise = 0.3 }
+PWR_BATTERY_VOLTAGE = { hold = 24.0, noise = 0.3 }
+PWR_BATTERY_TEMP = { hold = 15.0, noise = 0.4 }

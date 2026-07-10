@@ -17,7 +17,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 @pytest.fixture(scope="module")
 def simdef():
     return SimDefinition.from_xtce(
-        [EXAMPLES / "my_vehicle_commands.xml", EXAMPLES / "my_vehicle_telemetry.xml"]
+        [EXAMPLES / "my_vehicle/my_vehicle_commands.xml", EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml"]
     )
 
 

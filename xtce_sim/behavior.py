@@ -1,9 +1,10 @@
 """Declarative command→telemetry behavior, loaded from a TOML sidecar.
 
-The XTCE defines the command/telemetry *interface*; a behavior file defines
-what each command *does* to telemetry. It lives next to the XTCE as
-``<stem>.behavior.toml`` (or wherever ``--behavior`` points) and contains one
-table per command plus an optional ``[_initial]`` table of start-up values:
+The XTCE defines the command/telemetry *interface*; behavior TOML defines
+what each command *does* to telemetry. A satellite is a directory: every
+``.toml`` beside the XTCE is merged (or ``--behavior`` points at a directory
+or single file). Files contain one table per command plus optional
+``[_initial]`` start-up values and ``[_signals]`` boot behaviors:
 
     [_initial]
     THM_HEATER1_TEMP = 20.0
@@ -167,67 +168,126 @@ _CONTINUOUS_EFFECTS = (RampEffect, OscillateEffect, HoldEffect)
 
 @dataclass
 class BehaviorSpec:
-    """A validated behavior file: initial values, boot signals, command effects."""
+    """Validated behavior: initial values, boot signals, command effects."""
 
-    path: Path
+    path: Path  # the source as given: a satellite directory or one file
     initial: dict[str, Scalar]
     commands: dict[str, list[Effect]]  # command name -> effects
     # Continuous behaviors started at boot.
     signals: list[Effect] = field(default_factory=list)
+    files: list[Path] = field(default_factory=list)  # the merged .toml files
+
+    @property
+    def source_label(self) -> str:
+        """Human label: 'dir/ (3 files)' for a directory, the path for a file."""
+        if len(self.files) > 1 or (self.path and Path(self.path).is_dir()):
+            return f"{self.path} ({len(self.files)} file(s))"
+        return str(self.path)
 
 
 def sidecar_path(xtce_paths: list[Path]) -> Optional[Path]:
-    """The conventional sidecar for a set of XTCE files, if one exists.
+    """The satellite's behavior source: its directory, if it holds TOML.
 
-    Named after the first file: ``my_vehicle.xml`` -> ``my_vehicle.behavior.toml``.
-    (``with_name`` on the stem, so a dotted stem like ``v1.2.xml`` maps to
-    ``v1.2.behavior.toml`` rather than being truncated.)
+    A satellite is a directory — the XTCE and its per-subsystem behavior
+    ``.toml`` files live together. Discovery returns the first XTCE's
+    directory when at least one ``.toml`` is present, else None.
     """
     if not xtce_paths:
         return None
-    first = Path(xtce_paths[0])
-    candidate = first.with_name(first.stem + ".behavior.toml")
-    return candidate if candidate.exists() else None
+    directory = Path(xtce_paths[0]).resolve().parent
+    return directory if any(directory.glob("*.toml")) else None
 
 
-def load_behavior(path: Path, simdef: SimDefinition) -> BehaviorSpec:
-    """Parse and fully validate a behavior file against a definition.
+def load_behavior(source: Path, simdef: SimDefinition) -> BehaviorSpec:
+    """Parse and fully validate behavior TOML against a definition.
 
-    Raises BehaviorError listing every problem found (all-or-nothing, like
-    the sequence-file parser: a file with any error is rejected whole).
+    ``source`` is a satellite directory (every ``*.toml`` inside is merged,
+    sorted by name) or a single ``.toml`` file. Merging is strict: the same
+    field declared for the same table in two files is a conflict naming
+    both. All problems from all files are reported in one BehaviorError.
     """
-    with open(path, "rb") as fh:
-        try:
-            data = tomllib.load(fh)
-        except tomllib.TOMLDecodeError as exc:
-            raise BehaviorError(f"{path}: not valid TOML: {exc}") from exc
+    source = Path(source)
+    files = sorted(source.glob("*.toml")) if source.is_dir() else [source]
+    if not files:
+        raise BehaviorError(f"{source}: no .toml behavior files found")
 
     ctx = _Context(simdef)
     initial: dict[str, Scalar] = {}
     signals: list[Effect] = []
     commands: dict[str, list[Effect]] = {}
+    origins: dict[tuple, str] = {}  # (table, field template) -> file name
+    for path in files:
+        _load_one_file(
+            path, simdef, ctx, initial, signals, commands, origins,
+            tag=len(files) > 1,
+        )
+
+    if ctx.errors:
+        problems = "\n  - ".join(ctx.errors)
+        raise BehaviorError(
+            f"{source}: {len(ctx.errors)} problem(s):\n  - {problems}"
+        )
+    return BehaviorSpec(
+        path=source, initial=initial, commands=commands, signals=signals,
+        files=files,
+    )
+
+
+def _load_one_file(
+    path: Path,
+    simdef: SimDefinition,
+    ctx: _Context,
+    initial: dict,
+    signals: list,
+    commands: dict,
+    origins: dict,
+    *,
+    tag: bool,
+) -> None:
+    """Parse one file into the shared structures, flagging cross-file dups.
+
+    With ``tag`` set (multi-file source), every error is prefixed with the
+    file name so a combined report stays attributable.
+    """
+    first_error = len(ctx.errors)
+    try:
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        ctx.error(f"not valid TOML: {exc}")
+        data = {}
+
+    def merge(table: str, key: str, msg_key: str) -> bool:
+        """Record ownership of (table, key); False if another file has it."""
+        owner = origins.get((table, key))
+        if owner is not None and owner != path.name:
+            ctx.error(f"{msg_key}: already declared in {owner}")
+            return False
+        origins[(table, key)] = path.name
+        return True
 
     for table, body in data.items():
         if table == "_initial":
-            initial = _load_initial(body, ctx)
+            for fname, value in _load_initial(body, ctx).items():
+                if merge("_initial", fname, f"[_initial] {fname}"):
+                    initial[fname] = value
             continue
         if table == "_signals":
-            signals = _load_signals(body, ctx)
+            for eff in _load_signals(body, ctx):
+                if merge("_signals", eff.field, f"[_signals] {eff.field}"):
+                    signals.append(eff)
             continue
         command = simdef.command_by_name(table)
         if command is None:
             ctx.error(f"[{table}]: unknown command (not in the definition)")
             continue
-        commands[table] = _load_command_table(table, body, command, ctx)
+        for eff in _load_command_table(table, body, command, ctx):
+            if merge(table, eff.field, f"[{table}] {eff.field}"):
+                commands.setdefault(table, []).append(eff)
 
-    if ctx.errors:
-        problems = "\n  - ".join(ctx.errors)
-        raise BehaviorError(
-            f"{path}: {len(ctx.errors)} problem(s):\n  - {problems}"
-        )
-    return BehaviorSpec(
-        path=Path(path), initial=initial, commands=commands, signals=signals
-    )
+    if tag:
+        for i in range(first_error, len(ctx.errors)):
+            ctx.errors[i] = f"{path.name}: {ctx.errors[i]}"
 
 
 def describe(spec: BehaviorSpec) -> list[str]:

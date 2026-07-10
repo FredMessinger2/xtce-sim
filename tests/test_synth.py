@@ -12,7 +12,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 def _simdef():
     return SimDefinition.from_xtce(
-        [EXAMPLES / "my_vehicle_commands.xml", EXAMPLES / "my_vehicle_telemetry.xml"]
+        [EXAMPLES / "my_vehicle/my_vehicle_commands.xml", EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml"]
     )
 
 
@@ -126,7 +126,7 @@ def test_live_values_are_raw_counts_for_calibrated_fields():
     from xtce_sim.definition import SimDefinition
     from xtce_sim.synth import LiveTelemetry
 
-    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
     hk = simdef.packet_by_name("HOUSEKEEPING")
     values = LiveTelemetry(clock=lambda: 0.0).values_at(hk, 3.0)
     volts_raw = values["HK_BATTERY_VOLTAGE"]

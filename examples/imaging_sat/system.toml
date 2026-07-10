@@ -1,0 +1,27 @@
+# System-level command behavior for the ImagingSat example.
+# Values are ENGINEERING UNITS (degrees, volts); calibrated fields are
+# converted to raw wire counts by the engine. Full schema: README, section
+# 'Behavior: making commands change telemetry'.
+
+# Mode changes are acknowledged instantly: the ground should not wait a
+# beacon interval to learn the vehicle obeyed.
+[SET_MODE]
+HK_SYSTEM_MODE = { set = "@arg:Mode", emit = "immediate" }
+
+[SET_ATTITUDE]
+HK_ATTITUDE_MODE = "@arg:AttitudeMode"
+
+# ---------------------------------------------------------------------------
+# Dangling in the source XTCE: the original annotations below targeted
+# COMM_* telemetry fields that are not defined in any packet, so they could
+# never have taken effect. Preserved as intent; enable them if a COMM
+# status packet is ever added to imaging_sat.xml.
+#
+# [DOWNLINK_START]
+# COMM_DOWNLINK_ACTIVE = 1
+#
+# [DOWNLINK_STOP]
+# COMM_DOWNLINK_ACTIVE = 0
+#
+# [ENABLE_BEACON]
+# COMM_BEACON_STATE = "@arg:BeaconState"

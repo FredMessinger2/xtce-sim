@@ -1,0 +1,35 @@
+# Imager payload behavior for the ImagingSat example.
+# Values are ENGINEERING UNITS (degrees, volts); calibrated fields are
+# converted to raw wire counts by the engine. Full schema: README, section
+# 'Behavior: making commands change telemetry'.
+
+[_initial]
+IMG_FOCAL_PLANE_TEMP = 20.0
+
+[IMAGER_ON]
+IMG_STATE = { set = "IDLE", emit = "immediate" }
+# The event channel: EVENT_LOG only means anything pushed at the moment
+# something happens; a beacon copy of a stale event is noise.
+EVT_MESSAGE = { set = "IMAGER POWERED ON", emit = "immediate" }
+EVT_EVENT_ID = { set = 10, emit = "immediate" }
+IMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = 20.0, noise = 0.2 }
+
+[IMAGER_OFF]
+IMG_STATE = { set = "OFF", emit = "immediate" }
+IMG_FOCAL_PLANE_TEMP = { ramp_to = 20.0, tau = 30.0, noise = 0.2 }
+
+[SET_EXPOSURE]
+IMG_EXPOSURE_MS = "@arg:ExposureMs"
+IMG_GAIN = "@arg:GainLevel"
+
+[TAKE_IMAGE]
+IMG_STATE = { set = "CAPTURING", emit = "immediate" }
+EVT_MESSAGE = { set = "IMAGE CAPTURE STARTED", emit = "immediate" }
+EVT_EVENT_ID = { set = 11, emit = "immediate" }
+# Faithful to the original annotation: the commanded count is COPIED into
+# the field (not accumulated).
+IMG_CAPTURE_COUNT = "@arg:ImageCount"
+# Capturing works the focal plane harder than idling: heat toward a hotter
+# operating point. Cools back to 35 only via IMAGER_ON (or 20 via IMAGER_OFF)
+# — there is no timed "capture finished" trigger yet.
+IMG_FOCAL_PLANE_TEMP = { ramp_to = 45.0, tau = 15.0, noise = 0.2 }

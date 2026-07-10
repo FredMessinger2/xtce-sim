@@ -23,7 +23,7 @@ from xtce_sim.cli import main
 from xtce_sim.definition import SimDefinition
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-IMAGING = EXAMPLES / "imaging_sat.xml"
+IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +47,7 @@ def _errors(tmp_path, simdef, text: str) -> str:
 
 
 def test_shipped_imaging_sidecar_validates(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     assert len(spec.initial) == 5
     assert set(spec.commands) == {
         "SET_MODE", "HEATER_ON", "HEATER_OFF", "SET_HEATER_SETPOINT",
@@ -60,8 +60,8 @@ def test_shipped_imaging_sidecar_validates(simdef):
 
 
 def test_sidecar_discovery():
-    assert sidecar_path([IMAGING]) == EXAMPLES / "imaging_sat.behavior.toml"
-    assert sidecar_path([EXAMPLES / "my_vehicle.xml"]) is None  # none exists
+    assert sidecar_path([IMAGING]) == EXAMPLES / "imaging_sat"
+    assert sidecar_path([EXAMPLES / "my_vehicle/my_vehicle.xml"]) is None  # none exists
 
 
 # ---- effect parsing ---------------------------------------------------------
@@ -197,13 +197,13 @@ def test_templated_field_values_are_still_validated(tmp_path, simdef):
     assert "not a label of THM_HEATER2_STATE" in msg
 
 
-def test_sidecar_path_keeps_dotted_stems(tmp_path):
-    # v1.2.xml must map to v1.2.behavior.toml, not v1.behavior.toml.
+def test_sidecar_path_is_the_satellite_directory(tmp_path):
+    # A satellite is a directory: any .toml beside the XTCE means behavior.
     xtce = tmp_path / "v1.2.xml"
     xtce.write_text("<x/>")
-    good = tmp_path / "v1.2.behavior.toml"
-    good.write_text("")
-    assert sidecar_path([xtce]) == good
+    assert sidecar_path([xtce]) is None  # no TOML: no behavior
+    (tmp_path / "thermal.toml").write_text("")
+    assert sidecar_path([xtce]) == tmp_path
 
 
 def test_table_form_set_accepts_arg_copy_with_emit(tmp_path, simdef):
@@ -273,13 +273,13 @@ def test_inspect_behavior_validation_failure_is_fatal(tmp_path):
 
 
 def test_inspect_without_sidecar_unchanged():
-    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle.xml")])
+    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle/my_vehicle.xml")])
     assert result.exit_code == 0, result.output
     assert "Behavior (" not in result.output
 
 
 def test_describe_lines(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     lines = behavior.describe(spec)
     assert any(line.startswith("HEATER_ON:") for line in lines)
     assert any("tau=30.0s" in line for line in lines)
@@ -290,7 +290,7 @@ def test_describe_lines(simdef):
 
 @pytest.fixture()
 def engine(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     return behavior.BehaviorEngine(spec, simdef)
 
 
@@ -298,7 +298,7 @@ def engine(simdef):
 def simdef_quadratic(tmp_path_factory):
     """imaging_sat with IMG temperature calibration made quadratic (x^2) —
     a legal XTCE calibrator with no unique inverse."""
-    xml = (EXAMPLES / "imaging_sat.xml").read_text().replace(
+    xml = (EXAMPLES / "imaging_sat/imaging_sat.xml").read_text().replace(
         '<xtce:Term coefficient="0.01" exponent="1" />',
         '<xtce:Term coefficient="0.01" exponent="2" />',
     )
@@ -389,7 +389,7 @@ async def test_server_end_to_end_command_changes_telemetry(simdef):
     from xtce_sim import ccsds, client, codec
     from xtce_sim.server import SimServer
 
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     engine = behavior.BehaviorEngine(spec, simdef)
     server = SimServer(
         simdef, host="127.0.0.1", port=0, beacon_interval=0.05,
@@ -720,7 +720,7 @@ async def test_server_beacon_ticks_ramps_end_to_end(simdef):
     from xtce_sim import ccsds, client, codec
     from xtce_sim.server import SimServer
 
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     engine = behavior.BehaviorEngine(spec, simdef)
     server = SimServer(
         simdef, host="127.0.0.1", port=0, beacon_interval=0.05,
@@ -813,7 +813,7 @@ def test_infinite_ramp_target_rejected_at_load(tmp_path, simdef):
 
 
 def test_shipped_sidecar_signals_load(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     assert len(spec.signals) == 8
     kinds = {type(e) for e in spec.signals}
     from xtce_sim.behavior import HoldEffect, OscillateEffect
@@ -892,7 +892,7 @@ def test_noise_is_deterministic_across_runs(tmp_path, simdef):
 
 
 def test_boot_signals_run_without_commands(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     eng = behavior.BehaviorEngine(spec, simdef)
     eng.tick(1350.0)  # quarter orbit
     assert _eu(eng, "THM_PANEL_PLUS_X") > 25  # near peak (35 ± noise)
@@ -919,7 +919,7 @@ def test_noisy_ramp_degrades_into_noisy_hold(tmp_path, simdef):
 
 
 def test_command_behavior_replaces_boot_signal(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     eng = behavior.BehaviorEngine(spec, simdef)
     from xtce_sim.behavior import HoldEffect, _ActiveOsc
 
@@ -933,7 +933,7 @@ def test_command_behavior_replaces_boot_signal(simdef):
 
 
 def test_direct_set_cancels_boot_signal(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat.behavior.toml", simdef)
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     eng = behavior.BehaviorEngine(spec, simdef)
     from xtce_sim.behavior import SetEffect
 
@@ -1376,3 +1376,43 @@ def test_effects_log_confirms_in_engineering_units(tmp_path, simdef):
         _cmd(simdef, "SET_HEATER_SETPOINT"), {"HeaterId": 1, "Setpoint": 55}
     )
     assert applied == ["THM_HEATER1_SETPOINT=55.0 (5500 counts)"]
+
+
+# ---- satellite-as-directory: multi-file behavior ----------------------------
+
+
+def test_directory_source_merges_files(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    assert len(spec.files) == 4  # thermal, imager, power, system
+    assert len(spec.initial) == 5  # seeds merged across files
+    assert len(spec.signals) == 8
+    assert "HEATER_ON" in spec.commands and "TAKE_IMAGE" in spec.commands
+    assert "(4 file(s))" in spec.source_label
+
+
+def test_cross_file_conflict_is_load_error(tmp_path, simdef):
+    (tmp_path / "a.toml").write_text("[_initial]\nTHM_RADIATOR = 1.0\n")
+    (tmp_path / "b.toml").write_text("[_initial]\nTHM_RADIATOR = 2.0\n")
+    with pytest.raises(behavior.BehaviorError) as exc:
+        load_behavior(tmp_path, simdef)
+    assert "already declared in a.toml" in str(exc.value)
+    assert "b.toml:" in str(exc.value)  # error attributed to its file
+
+
+def test_same_command_merges_across_files(tmp_path, simdef):
+    # Different fields of one command in two files is legitimate ownership.
+    (tmp_path / "imager.toml").write_text('[IMAGER_ON]\nIMG_STATE = "IDLE"\n')
+    (tmp_path / "events.toml").write_text(
+        '[IMAGER_ON]\nEVT_EVENT_ID = { set = 10, emit = "immediate" }\n'
+    )
+    spec = load_behavior(tmp_path, simdef)
+    assert len(spec.commands["IMAGER_ON"]) == 2
+
+
+def test_bad_toml_in_one_file_reported_with_others(tmp_path, simdef):
+    (tmp_path / "a.toml").write_text("not [valid toml\n")
+    (tmp_path / "b.toml").write_text("[_initial]\nNOT_A_FIELD = 1\n")
+    with pytest.raises(behavior.BehaviorError) as exc:
+        load_behavior(tmp_path, simdef)
+    msg = str(exc.value)
+    assert "a.toml: not valid TOML" in msg and "b.toml:" in msg

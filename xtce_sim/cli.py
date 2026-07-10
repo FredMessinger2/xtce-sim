@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import glob
 import logging
 import socket
 import struct
@@ -38,13 +39,14 @@ _XTCE_ARG = click.argument(
     "xtce",
     nargs=-1,
     required=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    type=click.Path(exists=True, path_type=Path),
 )
 _ID_OPT = click.option(
     "--id",
     "instance_id",
     default=None,
-    help="Instance id; output goes to runs/<id>/ (default: first file's stem).",
+    help="Instance id; output goes to <satellite dir>/runs/<id>/ "
+    "(default: first file's stem).",
 )
 _OUT_OPT = click.option(
     "--out",
@@ -71,8 +73,14 @@ _BEHAVIOR_OPT = click.option(
     "--behavior",
     "behavior_path",
     default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Behavior sidecar (default: <first-xtce-stem>.behavior.toml if it exists).",
+    type=click.Path(exists=True, path_type=Path),
+    help="Behavior source: a satellite directory or one .toml file "
+    "(default: the first XTCE's directory, when it holds .toml files).",
+)
+_NO_BEHAVIOR_OPT = click.option(
+    "--no-behavior",
+    is_flag=True,
+    help="Serve the interface only: skip behavior discovery and loading.",
 )
 
 
@@ -90,7 +98,10 @@ def _load_behavior_engine(
     try:
         spec = behavior.load_behavior(path, simdef)
     except behavior.BehaviorError as exc:
-        raise click.ClickException(str(exc)) from exc
+        raise click.ClickException(
+            f"{exc}\n(behavior auto-discovered from {path} — pass "
+            "--behavior <dir-or-file> to override, or --no-behavior to skip)"
+        ) from exc
     return behavior.BehaviorEngine(spec, simdef)
 
 
@@ -103,7 +114,8 @@ def _build_and_dump(
     """Build the SimDefinition and dump cmd_tlm.{txt,json} (+ generated.py)."""
     simdef = SimDefinition.from_xtce(list(xtce))
     instance_id = instance_id or xtce[0].stem
-    out = out_dir or Path("runs") / instance_id
+    # Artifacts live with the satellite: <satellite dir>/runs/<id>/.
+    out = out_dir or xtce[0].resolve().parent / "runs" / instance_id
     out.mkdir(parents=True, exist_ok=True)
 
     (out / "cmd_tlm.txt").write_text(format_text(simdef))
@@ -120,6 +132,25 @@ def _build_and_dump(
     return simdef, instance_id
 
 
+def _find_run_dump(instance_id: str) -> Path | None:
+    """Locate runs/<id>/cmd_tlm.json: here, or in a satellite directory below.
+
+    Dumps live with their satellite (<sat dir>/runs/<id>/), so a client run
+    from the repo root searches a couple of levels down. Ambiguity (the same
+    id under two satellites) is an error rather than a guess.
+    """
+    rel = Path("runs") / instance_id / "cmd_tlm.json"
+    esc = glob.escape(instance_id)
+    candidates = [p for p in (rel, *Path(".").glob(f"*/runs/{esc}/cmd_tlm.json"),
+                              *Path(".").glob(f"*/*/runs/{esc}/cmd_tlm.json")) if p.exists()]
+    unique = sorted(set(c.resolve() for c in candidates))
+    if len(unique) > 1:
+        raise click.ClickException(
+            f"--id {instance_id} is ambiguous: " + ", ".join(str(u) for u in unique)
+        )
+    return unique[0] if unique else None
+
+
 def _load_definition(instance_id: str | None, def_path: Path | None) -> SimDefinition:
     """Resolve a SimDefinition for a client verb from --def or --id.
 
@@ -131,11 +162,12 @@ def _load_definition(instance_id: str | None, def_path: Path | None) -> SimDefin
             return SimDefinition.from_json(def_path)
         return SimDefinition.from_xtce(def_path)
     if instance_id is not None:
-        json_path = Path("runs") / instance_id / "cmd_tlm.json"
-        if not json_path.exists():
+        json_path = _find_run_dump(instance_id)
+        if json_path is None:
             raise click.ClickException(
-                f"{json_path} not found — run the sim with --id {instance_id} first, "
-                "or pass --def <file>."
+                f"no runs/{instance_id}/cmd_tlm.json found here or in any "
+                f"satellite directory below — run the sim with --id "
+                f"{instance_id} first, or pass --def <file>."
             )
         return SimDefinition.from_json(json_path)
     raise click.ClickException("specify --id <id> or --def <file> for the definition")
@@ -182,12 +214,14 @@ def generate(
     "--behavior",
     "behavior_path",
     default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Behavior sidecar to validate and narrate (default: "
-    "<first-xtce-stem>.behavior.toml if it exists).",
+    type=click.Path(exists=True, path_type=Path),
+    help="Behavior source to validate and narrate: a satellite directory or "
+    "one .toml file (default: the first XTCE's directory).",
 )
+@_NO_BEHAVIOR_OPT
 def inspect(
-    xtce: tuple[Path, ...], full: bool, dump: bool, behavior_path: Path | None
+    xtce: tuple[Path, ...], full: bool, dump: bool,
+    behavior_path: Path | None, no_behavior: bool,
 ) -> None:
     """Narrate what the parser sees in an XTCE file and what it infers.
 
@@ -212,7 +246,10 @@ def inspect(
         click.echo()
         click.echo(format_text(simdef))
         click.echo()
-    _inspect_behavior(behavior_path or behavior.sidecar_path(list(xtce)), simdef)
+    source = None if no_behavior else (
+        behavior_path or behavior.sidecar_path(list(xtce))
+    )
+    _inspect_behavior(source, simdef)
     click.echo(
         f"OK: {simdef.space_system_name} — {len(simdef.commands)} command(s), "
         f"{len(simdef.packets)} packet(s)"
@@ -226,7 +263,10 @@ def _inspect_behavior(path: Path | None, simdef: SimDefinition) -> None:
     try:
         spec = behavior.load_behavior(path, simdef)
     except behavior.BehaviorError as exc:
-        raise click.ClickException(str(exc)) from exc
+        raise click.ClickException(
+            f"{exc}\n(behavior auto-discovered from {path} — pass "
+            "--behavior <dir-or-file> to override, or --no-behavior to skip)"
+        ) from exc
     click.echo(f"\nBehavior ({path}):")
     for line in behavior.describe(spec):
         click.echo(f"  {line}")
@@ -266,6 +306,7 @@ def _inspect_behavior(path: Path | None, simdef: SimDefinition) -> None:
 @_EMIT_PY_OPT
 @_VERBOSE_OPT
 @_BEHAVIOR_OPT
+@_NO_BEHAVIOR_OPT
 def run(
     xtce: tuple[Path, ...],
     port: int,
@@ -278,13 +319,17 @@ def run(
     emit_py: bool,
     verbose: int,
     behavior_path: Path | None,
+    no_behavior: bool,
 ) -> None:
     """Build, dump, then serve a CCSDS simulator on an explicit TCP port."""
     _maybe_enable_trace(verbose)
     simdef, resolved_id = _build_and_dump(xtce, instance_id, out_dir, emit_py)
 
     logger = setup_logging(resolved_id, color=color)
-    engine = _load_behavior_engine(behavior_path or behavior.sidecar_path(list(xtce)), simdef)
+    source = None if no_behavior else (
+        behavior_path or behavior.sidecar_path(list(xtce))
+    )
+    engine = _load_behavior_engine(source, simdef)
 
     server = SimServer(
         simdef,
@@ -298,7 +343,7 @@ def run(
 
     if engine is not None:
         click.echo(
-            f"Behavior: {engine.spec.path} — {len(engine.spec.commands)} "
+            f"Behavior: {engine.spec.source_label} — {len(engine.spec.commands)} "
             f"command(s) with effects, {len(engine.spec.initial)} initial value(s)"
         )
     click.echo(f"Serving {resolved_id} on {host}:{port} (Ctrl-C to stop)")
@@ -321,7 +366,7 @@ def run(
     "--def",
     "def_path",
     default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    type=click.Path(exists=True, path_type=Path),
     help="Definition source: an XTCE .xml or a cmd_tlm.json.",
 )
 @click.option("--apid", default=1, show_default=True, type=int, help="APID for the command packet.")
@@ -429,7 +474,7 @@ def _display_value(field, value, raw: bool = False):
     "--def",
     "def_path",
     default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    type=click.Path(exists=True, path_type=Path),
     help="Definition source: an XTCE .xml or a cmd_tlm.json.",
 )
 @click.option(
@@ -583,7 +628,7 @@ def _run_dashboard(host, port, instance, decode, count) -> None:
     "--def",
     "def_path",
     default=None,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    type=click.Path(exists=True, path_type=Path),
     help="Definition source: an XTCE .xml or a cmd_tlm.json.",
 )
 @click.option("--apid", default=1, show_default=True, type=int, help="APID for command packets.")

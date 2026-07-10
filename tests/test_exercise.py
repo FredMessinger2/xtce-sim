@@ -25,7 +25,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 @pytest.fixture(scope="module")
 def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(EXAMPLES / "my_vehicle.xml")
+    return SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
 
 
 def _p(python_type="uint8", **kw) -> ParamInfo:

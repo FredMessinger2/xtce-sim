@@ -114,7 +114,7 @@ def test_send_oversized_filename_is_clean_error():
     # the CLI turns it into a one-line error instead of a traceback.
     result = CliRunner().invoke(
         main,
-        ["send", "--def", str(EXAMPLES / "my_vehicle.xml"), "--port", "1",
+        ["send", "--def", str(EXAMPLES / "my_vehicle/my_vehicle.xml"), "--port", "1",
          "FILE_DOWNLOAD", f"Filename={'x' * 70}"],  # 70 bytes into 64
     )
     assert result.exit_code != 0

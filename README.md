@@ -3,7 +3,7 @@
 **Run a CCSDS satellite simulator straight from an XTCE file.**
 
 ```bash
-xtce-sim run my_vehicle.xml --id sat-a --port 5000
+xtce-sim run my_vehicle/my_vehicle.xml --id sat-a --port 5000
 ```
 
 `xtce-sim` parses an [XTCE](https://www.omg.org/spec/XTCE/) command/telemetry
@@ -20,14 +20,14 @@ dependency footprint (only `click` and `crcmod`).
 ## How it fits together
 
 XTCE is the contract. `xtce-sim run` parses it into an in-memory definition,
-writes a machine-readable copy to `runs/<id>/cmd_tlm.json`, and serves CCSDS on a
+writes a machine-readable copy to `<satellite dir>/runs/<id>/cmd_tlm.json`, and serves CCSDS on a
 single bidirectional TCP port — telemetry frames stream out, command frames come
 in, each a length-prefixed CCSDS packet with a CRC.
 
 ```mermaid
 flowchart TD
-    XTCE["XTCE file(s) — my_vehicle.xml<br/>source of truth: opcodes, APIDs, fields, enums"]
-    BEH["behavior sidecar (optional)<br/>my_vehicle.behavior.toml<br/>command effects · ramps · signals"]
+    XTCE["satellite directory — my_vehicle/<br/>XTCE file(s): opcodes, APIDs, fields<br/>behavior .toml files beside them"]
+    BEH["behavior TOML (optional)<br/>thermal.toml · imager.toml · …<br/>command effects · ramps · signals"]
     SIM["SimServer<br/>SimDefinition (in memory)<br/>55 commands · 14 telemetry packets"]
     JSON["runs/&lt;id&gt;/cmd_tlm.json<br/>shared command / telemetry dictionary"]
     PORT{{"CCSDS over TCP — one bidirectional port :5000<br/>2-byte length + CCSDS packet + CRC-16"}}
@@ -90,7 +90,7 @@ xtce-sim exercise --id ID --port N                 # send every command, check t
 
 ```bash
 # Terminal 1 — serve the bundled example satellite
-xtce-sim run examples/my_vehicle.xml --id sat-a --port 5000 --live
+xtce-sim run examples/my_vehicle/my_vehicle.xml --id sat-a --port 5000 --live
 
 # Terminal 2 — watch telemetry stream in, decoded by field name
 xtce-sim monitor --id sat-a --port 5000
@@ -104,15 +104,15 @@ Command and telemetry can live in **one** XTCE file (as above) or in **several**
 into separate files, which load exactly the same way:
 
 ```bash
-xtce-sim run examples/my_vehicle_commands.xml examples/my_vehicle_telemetry.xml \
+xtce-sim run examples/my_vehicle/my_vehicle_commands.xml examples/my_vehicle/my_vehicle_telemetry.xml \
   --id sat-a --port 5000
 ```
 
 A second, richer example ships as
-[`examples/imaging_sat.xml`](examples/imaging_sat.xml) — an Earth-observation
-satellite with imaging, thermal, file-transfer, and ATS/RTS sequencing. It
-comes with a behavior sidecar
-([`examples/imaging_sat.behavior.toml`](examples/imaging_sat.behavior.toml)),
+[`examples/imaging_sat/imaging_sat.xml`](examples/imaging_sat/imaging_sat.xml) — an Earth-observation
+satellite with imaging, thermal, file-transfer, and ATS/RTS sequencing. Its
+directory also holds per-subsystem behavior files
+([`examples/imaging_sat/`](examples/imaging_sat)),
 so its commands actually change its telemetry — see
 [Behavior](#behavior-making-commands-change-telemetry) below.
 
@@ -122,17 +122,17 @@ Before serving a new XTCE, ask the parser to narrate what it sees — and, more
 importantly, what it *infers*:
 
 ```bash
-xtce-sim inspect examples/imaging_sat.xml
+xtce-sim inspect examples/imaging_sat/imaging_sat.xml
 ```
 
 ```text
-parsing examples/imaging_sat.xml (SpaceSystem 'ImagingSat')
+parsing examples/imaging_sat/imaging_sat.xml (SpaceSystem 'ImagingSat')
 resolved inheritance: 31 command(s) with a base command (31 fixing inherited args via assignments), ...
 ~ ignored 9 <DefaultSignificance> element(s) (e.g. under MetaCommand 'NOOP') — present in the XTCE but not read by this parser
 ...
 built ImagingSat: 30 dispatchable command(s), 8 telemetry packet(s)
 
-Behavior (examples/imaging_sat.behavior.toml):
+Behavior (examples/imaging_sat):
   initial values: 5 field(s)
     ...
   boot signals: 8
@@ -154,7 +154,7 @@ present in the XTCE but not read by this parser`), so unsupported XTCE
 features are visible instead of silently dropped. Warnings appear inline with a `!` marker. `inspect --full`
 traces every parsed element, and `inspect --dump` appends the complete
 resolved inventory — every command and telemetry packet, the same report
-`generate` writes to `runs/<id>/cmd_tlm.txt`. The same trace is available
+`generate` writes to `<satellite dir>/runs/<id>/cmd_tlm.txt`. The same trace is available
 live during a build or serve with `generate -v` / `run -v` (`-vv` for the
 full firehose). `inspect` writes nothing to disk.
 
@@ -235,7 +235,7 @@ counters climb, temperatures and voltages drift, wheel speeds wobble — so
 `monitor` shows moving data:
 
 ```bash
-xtce-sim run my_vehicle.xml --id sat-a --port 5000 --live
+xtce-sim run my_vehicle/my_vehicle.xml --id sat-a --port 5000 --live
 ```
 
 ```
@@ -255,7 +255,8 @@ When the XTCE declares calibrators (polynomial or spline), the wire always
 carries raw counts and `monitor` converts them, showing engineering units by
 default; pass `--raw` to see the counts as transmitted.
 
-Every `run` and `generate` writes the resolved command/telemetry to `runs/<id>/`
+Every `run` and `generate` writes the resolved command/telemetry to the
+satellite's own directory, `<satellite dir>/runs/<id>/`
 (`cmd_tlm.txt` for humans, `cmd_tlm.json` for machines; add `--emit-py` for an
 importable Python snapshot). The `monitor` and `send` clients load that
 `cmd_tlm.json` via `--id`, so they need no XTCE of their own (use `--def <file>`
@@ -267,8 +268,8 @@ Run several instances at once — replicas of one satellite or entirely differen
 ones — each its own process with its own `--id` and `--port`:
 
 ```bash
-xtce-sim run my_vehicle.xml --id sat-a --port 5001 &
-xtce-sim run my_vehicle.xml --id sat-b --port 5002 &
+xtce-sim run my_vehicle/my_vehicle.xml --id sat-a --port 5001 &
+xtce-sim run my_vehicle/my_vehicle.xml --id sat-b --port 5002 &
 xtce-sim run other_sat.xml  --id probe --port 5003 &
 ```
 
@@ -279,7 +280,7 @@ color). Control it with `--color auto|always|never`.
 Try it with the bundled example satellite — three replicas in one terminal:
 
 ```bash
-V=examples/my_vehicle.xml
+V=examples/my_vehicle/my_vehicle.xml
 xtce-sim run $V --id sat-a --port 5001 --color always &
 xtce-sim run $V --id sat-b --port 5002 --color always &
 xtce-sim run $V --id sat-c --port 5003 --color always &
@@ -310,12 +311,15 @@ kill $(jobs -p)          # or: pkill -f "xtce-sim run"
 
 ## Behavior: making commands change telemetry
 
-The XTCE defines the *interface* — packets, fields, commands, encodings. A
-**behavior sidecar** defines what the vehicle *does*: what each command changes,
-and how values evolve on their own. It is a small TOML file next to the XTCE
-(`<name>.behavior.toml`, auto-discovered; or pass `--behavior <file>`), kept
-out of the XTCE on purpose — no standard XTCE construct expresses behavior, and
-the same interface file still works unmodified in OpenC3/Yamcs.
+The XTCE defines the *interface* — packets, fields, commands, encodings.
+**Behavior TOML files** define what the vehicle *does*: what each command
+changes, and how values evolve on their own. A satellite is a directory: the
+XTCE and its per-subsystem behavior files (`thermal.toml`, `imager.toml`, ...)
+live together, every `.toml` beside the XTCE is auto-discovered and merged —
+strictly, so the same field in the same table in two files is a load error
+naming both files (`--behavior <dir-or-file>` overrides discovery). Behavior
+is kept out of the XTCE on purpose — no standard XTCE construct expresses
+behavior, and the same interface files work unmodified in OpenC3/Yamcs.
 
 ```toml
 [_initial]                       # seeded once at boot
@@ -391,9 +395,9 @@ See it: serve with a slow beacon so the instant packets stand out, watch, and
 command —
 
 ```bash
-xtce-sim run examples/imaging_sat.xml --port 5000 --interval 10
-xtce-sim monitor --def examples/imaging_sat.xml --port 5000
-xtce-sim send --def examples/imaging_sat.xml --port 5000 TAKE_IMAGE ImageCount=3
+xtce-sim run examples/imaging_sat/imaging_sat.xml --port 5000 --interval 10
+xtce-sim monitor --def examples/imaging_sat/imaging_sat.xml --port 5000
+xtce-sim send --def examples/imaging_sat/imaging_sat.xml --port 5000 TAKE_IMAGE ImageCount=3
 ```
 
 IMAGER_STATUS (`STATE=CAPTURING`) and EVENT_LOG (`EVENT_ID=11`) appear alone,
