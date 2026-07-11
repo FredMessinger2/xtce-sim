@@ -97,6 +97,8 @@ def definition_message(simdef: SimDefinition) -> dict:
                 "name": c.name,
                 "opcode": c.opcode,
                 "description": c.description,
+                "significance": c.significance,
+                "significance_reason": c.significance_reason,
                 "params": [
                     {
                         "name": a.name,

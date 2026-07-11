@@ -2303,7 +2303,7 @@
           </xtce:EntryList>
           <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
         </xtce:CommandContainer>
-        <xtce:DefaultSignificance consequenceLevel="caution" reasonForWarning="Attitude knowledge invalid until the estimator reconverges" />
+        <xtce:DefaultSignificance consequenceLevel="vital" reasonForWarning="Attitude knowledge invalid until the estimator reconverges" />
       </xtce:MetaCommand>
     </xtce:MetaCommandSet>
   </xtce:CommandMetaData>

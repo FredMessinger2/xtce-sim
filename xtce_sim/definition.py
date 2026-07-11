@@ -163,6 +163,16 @@ class CommandDef:
     description: Optional[str] = None
     synthetic: bool = False  # opcode assigned by us, not present in the XTCE
     params: list[ParamInfo] = field(default_factory=list)
+    # XTCE DefaultSignificance: criticality level (normal/vital/critical/
+    # forbidden/user1, ISO 14950) and the declared reason for the warning.
+    # None = the XTCE declared nothing (treated like "normal" for display).
+    significance: Optional[str] = None
+    significance_reason: Optional[str] = None
+
+    @property
+    def hazardous(self) -> bool:
+        """True when the declared significance warrants operator attention."""
+        return self.significance is not None and self.significance != "normal"
 
 
 @dataclass
@@ -237,6 +247,8 @@ class SimDefinition:
                 opcode=c["opcode"],
                 description=c.get("description"),
                 synthetic=c.get("synthetic_opcode", False),
+                significance=c.get("significance"),
+                significance_reason=c.get("significance_reason"),
                 params=[
                     ParamInfo(
                         name=p["name"],

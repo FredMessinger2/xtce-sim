@@ -59,6 +59,12 @@
   .cmd .s { flex: none; color: var(--ok); }
   .cmd.bad .s { color: var(--bad); }
   .cmd.sep { color: var(--dim); justify-content: center; background: none; }
+  .cmd .sig {
+    flex: none; font-size: 10px; font-weight: 600;
+    padding: 0 6px; border-radius: 4px; align-self: center;
+    border: 1px solid var(--bad); color: var(--bad);
+  }
+  .cmd .sig.vital { border-color: var(--breathe); color: var(--breathe); }
 
   #grid {
     display: grid; gap: 12px; padding: 2px;
@@ -104,6 +110,7 @@ let showRaw = false;
 let definition = null;
 const latest = new Map();   // apid -> last telemetry message
 const panels = new Map();   // apid -> {panel, seq, time, cells: Map(field -> {v, u})}
+const sigByName = new Map(); // command name -> {level, reason} for hazardous ones
 const CMDLOG_MAX = 500;     // oldest lines drop off past this
 
 const grid = document.getElementById("grid");
@@ -195,6 +202,18 @@ function logCommand(msg) {
   t.textContent = msg.time.slice(11);
   const n = document.createElement("span"); n.className = "n";
   n.textContent = msg.name;
+  const parts = [t, n];
+  const sig = sigByName.get(msg.name);
+  if (sig) {
+    // The XTCE-declared criticality, worn as a badge: red for critical/
+    // forbidden, amber for vital/user1; the declared reason is the tooltip.
+    const badge = document.createElement("span");
+    badge.className = (sig.level === "critical" || sig.level === "forbidden")
+      ? "sig" : "sig vital";
+    badge.textContent = sig.level.toUpperCase();
+    if (sig.reason) badge.title = sig.reason;
+    parts.push(badge);
+  }
   const a = document.createElement("span"); a.className = "a";
   let argText = "";
   if (msg.args) {
@@ -205,7 +224,8 @@ function logCommand(msg) {
   a.textContent = argText;
   const s = document.createElement("span"); s.className = "s";
   s.textContent = msg.status === "executed" ? "✓" : "✗ " + msg.status;
-  line.append(t, n, a, s);
+  parts.push(a, s);
+  line.append(...parts);
   cmdlog.appendChild(line);
 
   // Trim in PAIRS: nth-child(odd) striping means removing one row flips
@@ -275,6 +295,12 @@ function buildPanels(def) {
   // panels for vanished APIDs would leak.
   panels.clear();
   latest.clear();
+  sigByName.clear();
+  for (const c of def.commands || []) {
+    if (c.significance && c.significance !== "normal") {
+      sigByName.set(c.name, { level: c.significance, reason: c.significance_reason });
+    }
+  }
   grid.textContent = "";
   document.getElementById("system").textContent = def.system + " · xtce-sim console";
   document.title = def.system + " · xtce-sim console";

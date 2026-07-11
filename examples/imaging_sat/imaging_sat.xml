@@ -1511,7 +1511,7 @@
           </xtce:EntryList>
           <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
         </xtce:CommandContainer>
-        <xtce:DefaultSignificance consequenceLevel="caution" reasonForWarning="Bypasses the controller; test mode only" />
+        <xtce:DefaultSignificance consequenceLevel="vital" reasonForWarning="Bypasses the controller; test mode only" />
       </xtce:MetaCommand>
 
       <xtce:MetaCommand name="ADCS_DESATURATE" shortDescription="Dump stored wheel momentum via the magnetorquers">
@@ -1561,7 +1561,7 @@
           </xtce:EntryList>
           <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
         </xtce:CommandContainer>
-        <xtce:DefaultSignificance consequenceLevel="caution" reasonForWarning="Attitude knowledge invalid until the estimator reconverges" />
+        <xtce:DefaultSignificance consequenceLevel="vital" reasonForWarning="Attitude knowledge invalid until the estimator reconverges" />
       </xtce:MetaCommand>
 
       <xtce:MetaCommand name="ADCS_SET_GYRO_BIAS" shortDescription="Override the estimated gyro bias">

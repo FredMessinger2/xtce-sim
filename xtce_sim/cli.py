@@ -394,6 +394,18 @@ def send(
         key, _, value = pair.partition("=")
         args[key] = value
 
+    if command.hazardous:
+        # Surface the XTCE-declared criticality (display only — a real
+        # arm/fire confirmation gate is future work, and would break scripts
+        # if sprung on them silently). To stderr: scripts parsing send's
+        # stdout keep seeing exactly the lines they always did.
+        color = "red" if command.significance in ("critical", "forbidden") else "yellow"
+        why = f": {command.significance_reason}" if command.significance_reason else ""
+        click.echo(
+            click.style(f"{command.name} is {command.significance.upper()}{why}", fg=color),
+            err=True,
+        )
+
     try:
         client.send_command(host, port, command, args, apid=apid)
     except (ValueError, struct.error) as exc:
@@ -766,9 +778,13 @@ def _exercise_dry_run(targets) -> None:
     """Print the commands/args that ``exercise`` would send, without connecting."""
     total = 0
     for cmd in targets:
+        sig = ""
+        if cmd.hazardous:
+            color = "red" if cmd.significance in ("critical", "forbidden") else "yellow"
+            sig = " " + click.style(f"[{cmd.significance.upper()}]", fg=color)
         for label, args in command_arg_sets(cmd):
             total += 1
-            click.echo(f"  {cmd.name:<22} {label:<26} {args}")
+            click.echo(f"  {cmd.name:<22} {label:<26} {args}{sig}")
     click.echo(f"{total} sends across {len(targets)} command(s) — dry run, nothing sent")
 
 

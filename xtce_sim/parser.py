@@ -1300,6 +1300,8 @@ class XTCEParser:
         if container_elem is not None:
             container = self._parse_command_container(container_elem)
 
+        significance, significance_reason = self._parse_significance(elem, name)
+
         return MetaCommand(
             name=name,
             description=description,
@@ -1309,7 +1311,35 @@ class XTCEParser:
             container=container,
             argument_assignments=argument_assignments,
             ancillary_data=cmd_anc_data,
+            significance=significance,
+            significance_reason=significance_reason,
         )
+
+    # Legal XTCE 1.2 ConsequenceLevelType values (ISO 14950 criticality:
+    # normal=D, vital=C, critical=B, forbidden=A; user1 is mission-defined).
+    _CONSEQUENCE_LEVELS = ("normal", "vital", "critical", "forbidden", "user1")
+
+    def _parse_significance(
+        self, elem: ET.Element, cmd_name: str
+    ) -> tuple[Optional[str], Optional[str]]:
+        """DefaultSignificance: (consequenceLevel, reasonForWarning) or Nones."""
+        sig = self._find(elem, "DefaultSignificance")
+        if sig is None:
+            return None, None
+        # Validate the RAW value: the XSD enum is case-sensitive, so
+        # "Critical" is as illegal as "caution" and both deserve a warning.
+        raw = self._get_attr(sig, "consequenceLevel", "normal")
+        if raw not in self._CONSEQUENCE_LEVELS:
+            logger.warning(
+                "%s: consequenceLevel %r is not a legal XTCE value %s — "
+                "normalized to %r and kept",
+                cmd_name,
+                raw,
+                self._CONSEQUENCE_LEVELS,
+                raw.lower(),
+            )
+        reason = self._get_attr(sig, "reasonForWarning") or None
+        return raw.lower(), reason
 
     def _parse_command_container(self, elem: ET.Element) -> CommandContainer:
         """Parse CommandContainer element."""

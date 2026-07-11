@@ -330,3 +330,24 @@ def test_emit_python_empty_definition():
     exec(compile(code, "generated.py", "exec"), ns)
     assert list(ns["CommandOpcode"]) == []
     assert list(ns["TelemetryAPID"]) == []
+
+
+def test_significance_inherits_up_the_base_chain():
+    from xtce_sim import models as m
+
+    base = m.MetaCommand(
+        name="BASE", abstract=True, significance="critical", significance_reason="why"
+    )
+    inherits = m.MetaCommand(name="CHILD", base_meta_command_ref="BASE", base_command=base)
+    overrides = m.MetaCommand(
+        name="TAME", base_meta_command_ref="BASE", base_command=base, significance="normal"
+    )
+    xdef = models.XTCEDefinition(space_system_name="S", namespace="")
+    xdef.meta_commands = {"BASE": base, "CHILD": inherits, "TAME": overrides}
+    cmds = {c.name: c for c in build_commands(xdef)}
+    assert "BASE" not in cmds  # abstract: not dispatchable
+    assert cmds["CHILD"].significance == "critical"
+    assert cmds["CHILD"].significance_reason == "why"
+    assert cmds["CHILD"].hazardous
+    # An explicit declaration on the derived command wins over the base's.
+    assert cmds["TAME"].significance == "normal" and not cmds["TAME"].hazardous

@@ -366,6 +366,7 @@ def _assign_synthetic_opcodes(
             )
 
         params = [_param_info_for_arg(arg) for arg in cmd.get_user_arguments()]
+        level, reason = _resolve_significance(cmd)
         commands.append(
             CommandDef(
                 name=cmd.name,
@@ -373,9 +374,26 @@ def _assign_synthetic_opcodes(
                 description=cmd.description or None,
                 synthetic=synthetic,
                 params=params,
+                significance=level,
+                significance_reason=reason,
             )
         )
     return commands
+
+
+def _resolve_significance(cmd: MetaCommand) -> tuple[Optional[str], Optional[str]]:
+    """A command's significance, inherited up the BaseMetaCommand chain.
+
+    XTCE's DefaultSignificance is "the significance for this command unless
+    overridden" — a derived command without its own declaration takes its
+    ancestor's, nearest first.
+    """
+    node = cmd
+    while node is not None:
+        if node.significance is not None:
+            return node.significance, node.significance_reason
+        node = node.base_command
+    return None, None
 
 
 def build_commands(xtce_def: XTCEDefinition) -> list[CommandDef]:
@@ -397,6 +415,22 @@ def build_commands(xtce_def: XTCEDefinition) -> list[CommandDef]:
     real_opcodes, taken = _reserve_real_opcodes(concrete)
     commands = _assign_synthetic_opcodes(concrete, real_opcodes, taken)
     commands.sort(key=lambda c: c.opcode)
+    hazardous = [c for c in commands if c.hazardous]
+    if hazardous:
+        by_level: dict[str, int] = {}
+        for c in hazardous:
+            by_level[c.significance] = by_level.get(c.significance, 0) + 1
+        # Ascending ISO 14950 severity, not alphabetical.
+        severity = {"vital": 0, "critical": 1, "forbidden": 2, "user1": 3}
+        summary = ", ".join(
+            f"{n} {level}"
+            for level, n in sorted(by_level.items(), key=lambda kv: severity.get(kv[0], 9))
+        )
+        logger.info(
+            "significance: %d command(s) declare non-normal criticality (%s)",
+            len(hazardous),
+            summary,
+        )
     return commands
 
 
@@ -604,10 +638,17 @@ def _field_detail(f) -> str:
 def _format_command_block(cmd) -> list[str]:
     """Header + parameter lines for one command."""
     tag = " (synthetic opcode)" if cmd.synthetic else ""
+    if cmd.hazardous:
+        tag += f" [{cmd.significance.upper()}]"
     header = f"0x{cmd.opcode:02X}  {cmd.name}{tag}"
     if cmd.description:
         header += f"  — {cmd.description}"
     lines = [header]
+    # The reason prints whenever one was declared — even at "normal"
+    # significance, a stated reasonForWarning is information the operator
+    # was meant to see.
+    if cmd.significance_reason:
+        lines.append(f"      ! {cmd.significance_reason}")
     lines.extend(_param_detail(p) for p in cmd.params)
     if not cmd.params:
         lines.append("      (no parameters)")
@@ -686,6 +727,8 @@ def to_dict(simdef: SimDefinition) -> dict:
                 "opcode_hex": f"0x{c.opcode:02X}",
                 "synthetic_opcode": c.synthetic,
                 "description": c.description,
+                "significance": c.significance,
+                "significance_reason": c.significance_reason,
                 "params": [
                     {
                         "name": p.name,

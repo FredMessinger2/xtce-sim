@@ -324,3 +324,43 @@ def test_my_vehicle_adcs_is_a_three_wheel_variant():
     assert wheel.params[0].valid_max == 3
     att = d.packet_by_name("ADCS_ATTITUDE")
     assert sum(1 for f in att.fields if f.name.startswith("ADCS_ATT_QUAT_Q")) == 4
+
+
+# ---- DefaultSignificance (command criticality) ------------------------------
+
+
+def test_significance_parsed_and_carried():
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    desat = simdef.command_by_name("ADCS_DESATURATE")
+    assert desat.significance == "critical"
+    assert "momentum" in desat.significance_reason.lower()
+    assert desat.hazardous
+    wheel_speed = simdef.command_by_name("ADCS_WHEEL_SET_SPEED")
+    assert wheel_speed.significance == "vital"  # was 'caution': not legal XTCE
+    noop = simdef.command_by_name("NOOP")
+    assert noop.significance == "normal" and not noop.hazardous
+    take = simdef.command_by_name("TAKE_IMAGE")
+    assert take.significance is None and not take.hazardous
+
+
+def test_significance_round_trips_through_json(tmp_path):
+    from xtce_sim.generate import format_json
+
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    p = tmp_path / "cmd_tlm.json"
+    p.write_text(format_json(simdef))
+    again = SimDefinition.from_json(p)
+    a = again.command_by_name("ADCS_DESATURATE")
+    assert a.significance == "critical"
+    assert a.significance_reason == simdef.command_by_name("ADCS_DESATURATE").significance_reason
+
+
+def test_significance_marks_text_report():
+    from xtce_sim.generate import format_text
+
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    text = format_text(simdef)
+    assert "ADCS_DESATURATE (synthetic opcode)" not in text  # sanity: real opcode
+    assert "[CRITICAL]" in text and "[VITAL]" in text
+    # The declared reason rides along under the header.
+    assert "! Attitude transients while momentum unloads" in text

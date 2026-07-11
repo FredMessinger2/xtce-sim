@@ -191,3 +191,22 @@ def test_parse_multiple_warns_per_empty_file(tmp_path, caplog):
         "no commands or telemetry" in r.message and "empty.xml" in r.message
         for r in caplog.records
     )
+
+
+def test_warns_on_illegal_consequence_level(tmp_path, caplog):
+    # 'caution' looks plausible but is not in XTCE 1.2's ConsequenceLevelType
+    # (normal/vital/critical/forbidden/user1, ISO 14950) — we once shipped it
+    # ourselves. Parse keeps the value but must say something.
+    f = _write(
+        tmp_path,
+        "sig.xml",
+        f'<xtce:SpaceSystem {NS} name="X"><xtce:CommandMetaData><xtce:MetaCommandSet>'
+        '<xtce:MetaCommand name="C">'
+        '<xtce:DefaultSignificance consequenceLevel="caution" reasonForWarning="w"/>'
+        "</xtce:MetaCommand>"
+        "</xtce:MetaCommandSet></xtce:CommandMetaData></xtce:SpaceSystem>",
+    )
+    with caplog.at_level(logging.WARNING):
+        defn = XTCEParser().parse(f)
+    assert defn.meta_commands["C"].significance == "caution"  # kept as-is
+    assert any("not a legal XTCE value" in r.message for r in caplog.records)

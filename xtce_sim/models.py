@@ -431,6 +431,11 @@ class MetaCommand:
     ancillary_data: dict[str, str] = field(
         default_factory=dict
     )  # Command-level AncillaryData
+    # DefaultSignificance: command criticality per XTCE ConsequenceLevelType
+    # (ISO 14950 levels — normal/vital/critical/forbidden/user1), plus the
+    # human reason for the warning.
+    significance: Optional[str] = None
+    significance_reason: Optional[str] = None
 
     # Resolved references (populated after parsing)
     base_command: Optional["MetaCommand"] = None

@@ -155,14 +155,44 @@ def test_fully_consumed_file_reports_nothing(tmp_path, caplog):
     assert not any("~ ignored" in r.getMessage() for r in caplog.records)
 
 
-def test_inspect_surfaces_real_gap_in_bundled_example():
-    # imaging_sat/imaging_sat.xml genuinely contains DefaultSignificance elements the
-    # parser doesn't support yet — the point of the feature is visibility.
-    # (my_vehicle's SplineCalibrator was the original example here, until
-    # spline support landed and closed that gap.)
+def test_inspect_surfaces_unread_elements(tmp_path):
+    # The parser must confess to elements it doesn't read. The bundled
+    # examples no longer contain any (SplineCalibrator closed the first
+    # referent, DefaultSignificance the second — each graduated to
+    # supported), so a synthetic file carries the gap now: command
+    # verification (VerifierSet) is genuinely unsupported.
+    ns = 'xmlns:xtce="http://www.omg.org/spec/XTCE/20250214"'
+    f = tmp_path / "unread.xml"
+    f.write_text(
+        f'<xtce:SpaceSystem {ns} name="X"><xtce:CommandMetaData>'
+        "<xtce:MetaCommandSet>"
+        '<xtce:MetaCommand name="GO">'
+        "<xtce:VerifierSet>"
+        '<xtce:CompleteVerifier name="done"/>'
+        "</xtce:VerifierSet>"
+        "</xtce:MetaCommand>"
+        "</xtce:MetaCommandSet></xtce:CommandMetaData></xtce:SpaceSystem>"
+    )
+    result = CliRunner().invoke(main, ["inspect", str(f)])
+    assert result.exit_code == 0, result.output
+    assert "VerifierSet" in result.output and "not read by this parser" in result.output
+
+
+def test_inspect_bundled_examples_have_no_unread_elements():
+    # Milestone worth pinning: every element in the shipped examples is now
+    # actually read. If an example gains an unsupported element, this fails
+    # and the gap gets a decision instead of silence.
+    for sat in ("imaging_sat/imaging_sat.xml", "my_vehicle/my_vehicle.xml"):
+        result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / sat)])
+        assert result.exit_code == 0, result.output
+        assert "not read by this parser" not in result.output, result.output
+
+
+def test_inspect_narrates_significance():
     result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "imaging_sat/imaging_sat.xml")])
     assert result.exit_code == 0, result.output
-    assert "DefaultSignificance" in result.output and "not read by this parser" in result.output
+    assert "significance: 11 command(s) declare non-normal criticality" in result.output
+    assert "2 vital, 9 critical" in result.output
 
 
 # ---- CLI --------------------------------------------------------------------

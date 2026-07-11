@@ -426,3 +426,46 @@ def test_no_behavior_serves_interface_only(tmp_path):
     assert "--no-behavior" in fails.output  # ...and says how to get out
     ok = runner.invoke(main, ["inspect", str(sat / "bird.xml"), "--no-behavior"])
     assert ok.exit_code == 0, ok.output
+
+
+def test_send_warns_on_hazardous_command(tmp_path):
+    """A critical command prints its declared significance before sending."""
+    from xtce_sim.generate import format_json
+
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    # Port 1 refuses: the warning must appear even though the send fails.
+    result = CliRunner().invoke(
+        main, ["send", "--def", str(def_json), "--port", "1", "ADCS_DESATURATE"]
+    )
+    assert "ADCS_DESATURATE is CRITICAL" in result.output
+    assert "momentum unloads" in result.output
+
+
+def test_send_is_quiet_about_normal_commands(tmp_path):
+    from xtce_sim.generate import format_json
+
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    result = CliRunner().invoke(
+        main, ["send", "--def", str(def_json), "--port", "1", "NOOP"]
+    )
+    assert "is NORMAL" not in result.output and "is CRITICAL" not in result.output
+
+
+def test_exercise_dry_run_badges_hazardous_commands(tmp_path):
+    from xtce_sim.generate import format_json
+
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    result = CliRunner().invoke(
+        main,
+        ["exercise", "--def", str(def_json), "--port", "1", "--dry-run",
+         "--command", "ADCS_DESATURATE", "--command", "ADCS_RESET_ESTIMATOR",
+         "--command", "NOOP"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "[CRITICAL]" in result.output and "[VITAL]" in result.output

@@ -321,3 +321,11 @@ async def test_bridge_pushes_command_to_browser(simdef):
         await asyncio.gather(downlink, return_exceptions=True)
         await runner.cleanup()
         await server.stop()
+
+
+def test_definition_message_carries_significance(simdef):
+    msg = definition_message(simdef)
+    cmds = {c["name"]: c for c in msg["commands"]}
+    assert cmds["ADCS_DESATURATE"]["significance"] == "critical"
+    assert "momentum" in cmds["ADCS_DESATURATE"]["significance_reason"].lower()
+    assert cmds["TAKE_IMAGE"]["significance"] is None

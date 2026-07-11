@@ -136,7 +136,8 @@ xtce-sim inspect examples/imaging_sat/imaging_sat.xml
 ```text
 parsing examples/imaging_sat/imaging_sat.xml (SpaceSystem 'ImagingSat')
 resolved inheritance: 41 command(s) with a base command (41 fixing inherited args via assignments), ...
-~ ignored 13 <DefaultSignificance> element(s) (e.g. under MetaCommand 'NOOP') — present in the XTCE but not read by this parser
+significance: 11 command(s) declare non-normal criticality (2 vital, 9 critical)
+~ aggregate 'ADCS_ATT_QUAT' flattened to 4 field(s) (ADCS_ATT_QUAT_Q1...)
 ...
 built ImagingSat: 40 dispatchable command(s), 12 telemetry packet(s)
 
@@ -157,14 +158,39 @@ Lines marked `~` are **inferences and gaps** — places the parser filled a gap
 rather than reading an explicit declaration (an enum sized from its max value,
 a boolean defaulted to 1 bit, a command assigned a synthetic opcode), and
 **content the parser ignored**: after the parse it reports any element the
-file declared but nothing ever read (`ignored 13 <DefaultSignificance> ... —
-present in the XTCE but not read by this parser`), so unsupported XTCE
-features are visible instead of silently dropped. Warnings appear inline with a `!` marker. `inspect --full`
+file declared but nothing ever read (`ignored N <VerifierSet> ... — present
+in the XTCE but not read by this parser`), so unsupported XTCE features are
+visible instead of silently dropped. (The shipped examples currently contain
+no unread elements — a test pins that.) Warnings appear inline with a `!` marker. `inspect --full`
 traces every parsed element, and `inspect --dump` appends the complete
 resolved inventory — every command and telemetry packet, the same report
 `generate` writes to `<satellite dir>/runs/<id>/cmd_tlm.txt`. The same trace is available
 live during a build or serve with `generate -v` / `run -v` (`-vv` for the
 full firehose). `inspect` writes nothing to disk.
+
+### Command significance
+
+XTCE lets a definition declare how dangerous each command is —
+`<DefaultSignificance consequenceLevel="critical" reasonForWarning="..."/>`,
+with the levels (`normal`, `vital`, `critical`, `forbidden`, `user1`)
+following ISO 14950 telecommand criticality. The imaging satellite declares
+eleven hazardous commands (wheel shutdowns, desaturation, sequence starts,
+file deletion), and the significance follows the command everywhere an
+operator meets it:
+
+```
+$ xtce-sim send --def examples/imaging_sat/imaging_sat.xml --port 5000 ADCS_DESATURATE
+ADCS_DESATURATE is CRITICAL: Attitude transients while momentum unloads; imaging unavailable
+sent ADCS_DESATURATE (0x48) args={}
+```
+
+`exercise --dry-run` badges hazardous commands, the dumped `cmd_tlm.txt`
+marks them (`[CRITICAL]` with the declared reason), derived commands inherit
+their base command's significance up the XTCE inheritance chain, and the web
+console's command log wears a red or amber badge on each hazardous entry
+(hover for the reason). This is display only, deliberately: a real arm/fire
+confirmation gate is future work, and would be designed for scripts, not
+sprung on them.
 
 ### Exercising the command surface
 
@@ -289,8 +315,11 @@ and position are remembered). Every command the sim processes while the
 console is open appears in the log as it executes: timestamp, name, every
 argument (enums as their labels), and a status mark — green ✓ for executed,
 red ✗ tagged with the failure status (`unknown_opcode`, `failed`) for one
-that wasn't. The log holds the last 500 entries and sticks to the bottom
-unless you've scrolled up to read history.
+that wasn't. Hazardous commands (see [Command
+significance](#command-significance)) wear a red (`critical`/`forbidden`) or
+amber (`vital`) badge; hovering it shows the declared reason. The log holds
+the last 500 entries and sticks to the bottom unless you've scrolled up to
+read history.
 
 The command log works the way real ground systems learn about commanding:
 the vehicle reports it. On every command it processes — from any client,
