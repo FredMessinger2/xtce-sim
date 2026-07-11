@@ -8,7 +8,7 @@
   :root {
     --bg: #0d1117; --panel: #161b22; --border: #30363d;
     --text: #c9d1d9; --dim: #8b949e; --accent: #58a6ff;
-    --ok: #3fb950; --bad: #f85149; --flash: #1f6feb33;
+    --ok: #3fb950; --bad: #f85149; --breathe: #e3b341;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -53,7 +53,6 @@
   .panel tr:nth-child(odd) { background: #ffffff06; }
   td.f { color: var(--dim); width: 55%; }
   td.v { text-align: right; white-space: nowrap; }
-  td.v.changed { background: var(--flash); }
   td.u { color: var(--dim); width: 3.5em; font-size: 11px; }
   #empty { color: var(--dim); padding: 24px 4px; }
 </style>
@@ -81,6 +80,24 @@ document.getElementById("toggle").addEventListener("click", () => {
   document.getElementById("toggle").textContent = showRaw ? "RAW" : "EU";
   for (const msg of latest.values()) render(msg, false);
 });
+
+function breathe(el) {
+  // A changed value breathes: the text swells to the --breathe color
+  // (set in :root, next to the rest of the palette) with a soft glow and
+  // eases back — no background blocks. A fresh change while one is
+  // mid-breath cancels it and starts over.
+  for (const a of el.getAnimations()) a.cancel();
+  const glow = getComputedStyle(document.documentElement)
+    .getPropertyValue("--breathe").trim();
+  el.animate(
+    [
+      { color: "", textShadow: "none" },
+      { color: glow, textShadow: "0 0 10px " + glow, offset: 0.3 },
+      { color: "", textShadow: "none" },
+    ],
+    { duration: 1400, easing: "ease-in-out" }
+  );
+}
 
 function fmt(num) {
   if (typeof num !== "number") return String(num);
@@ -152,8 +169,7 @@ function render(msg, isArrival) {
     if (!cell) continue;
     const { text, unit } = displayValue(cell.def, fv);
     if (isArrival && cell.v.textContent !== text && cell.v.textContent !== "—") {
-      cell.v.classList.add("changed");
-      setTimeout(() => cell.v.classList.remove("changed"), 900);
+      breathe(cell.v);
     }
     cell.v.textContent = text;
     cell.u.textContent = unit || "";
