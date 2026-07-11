@@ -27,8 +27,8 @@ def simdef() -> SimDefinition:
 
 def test_builds_commands_and_packets(simdef: SimDefinition):
     assert simdef.space_system_name == "MyVehicle"
-    assert len(simdef.commands) == 55
-    assert len(simdef.packets) == 14
+    assert len(simdef.commands) == 61
+    assert len(simdef.packets) == 18
 
 
 def test_imaging_sat_example_builds_and_is_generic():
@@ -36,8 +36,8 @@ def test_imaging_sat_example_builds_and_is_generic():
     # source vendor branding was scrubbed when it was brought into the repo.
     d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
     assert d.space_system_name == "ImagingSat"
-    assert len(d.commands) == 30
-    assert len(d.packets) == 8
+    assert len(d.commands) == 40
+    assert len(d.packets) == 12
     assert "VendorA" not in IMAGING_SAT_XTCE.read_text()
 
 
@@ -168,8 +168,8 @@ def test_text_and_json_render(simdef: SimDefinition):
 
     data = json.loads(format_json(simdef))
     assert data["space_system"] == "MyVehicle"
-    assert len(data["commands"]) == 55
-    assert len(data["telemetry"]) == 14
+    assert len(data["commands"]) == 61
+    assert len(data["telemetry"]) == 18
 
 
 def test_cli_generate_writes_files(tmp_path):
@@ -190,9 +190,9 @@ def test_cli_generate_writes_files(tmp_path):
     spec = importlib.util.spec_from_file_location("generated_snapshot", py_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    assert len(list(mod.CommandOpcode)) == 55
-    assert len(list(mod.TelemetryAPID)) == 14
-    assert len(mod.COMMAND_PARAMS) == 55
+    assert len(list(mod.CommandOpcode)) == 61
+    assert len(list(mod.TelemetryAPID)) == 18
+    assert len(mod.COMMAND_PARAMS) == 61
     for apid, fmt in mod.PACKET_FORMATS.items():
         struct.calcsize(fmt)  # must not raise
 
@@ -282,3 +282,45 @@ def test_calibrator_defensive_edges():
     assert CalibratorInfo.from_dict({"coefficients": []}) is None
     # Negative exponents are dropped at the JSON ingress too.
     assert CalibratorInfo.from_dict({"coefficients": [[2.0, -1]]}) is None
+
+
+# ---- ADCS: the attitude control interface on both satellites -----------------
+
+
+def test_imaging_sat_adcs_interface():
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    # Four packets, split by function like real ADCS ICDs.
+    for name, apid in (("ADCS_STATUS", 0x18), ("ADCS_ATTITUDE", 0x19),
+                       ("ADCS_WHEELS", 0x1A), ("ADCS_SENSORS", 0x1B)):
+        assert d.packet_by_name(name).apid == apid
+    # Quaternion: aggregate flattened to 4 calibrated int16 members.
+    att = d.packet_by_name("ADCS_ATTITUDE")
+    quat = [f for f in att.fields if f.name.startswith("ADCS_ATT_QUAT_Q")]
+    assert len(quat) == 4
+    for f in quat:
+        assert f.python_type == "int16"  # raw counts on the wire
+        assert abs(f.calibrator.apply(32767) - 1.0) < 1e-9  # full scale = 1.0
+    # 4-wheel pyramid, each wheel speed calibrated at 0.2 RPM/count.
+    wheels = d.packet_by_name("ADCS_WHEELS")
+    speeds = [f for f in wheels.fields if f.name.endswith("_SPEED")]
+    assert len(speeds) == 4
+    assert speeds[0].calibrator.apply(5000) == 1000.0  # 5000 counts = 1000 RPM
+    # Commands: mode enum carries real labels; wheel id is range-limited.
+    slew = d.command_by_name("ADCS_SLEW_TO_QUATERNION")
+    assert [p.name for p in slew.params] == ["Q1", "Q2", "Q3", "Q4"]
+    assert all(p.valid_min == -1.0 and p.valid_max == 1.0 for p in slew.params)
+    wheel = d.command_by_name("ADCS_WHEEL_DISABLE")
+    assert wheel.params[0].valid_min == 1 and wheel.params[0].valid_max == 4
+    mode = d.command_by_name("ADCS_SET_MODE")
+    assert "TARGET_TRACK" in mode.params[0].enumerations
+
+
+def test_my_vehicle_adcs_is_a_three_wheel_variant():
+    d = SimDefinition.from_xtce(COMBINED_XTCE)
+    wheels = d.packet_by_name("ADCS_WHEELS")
+    speeds = [f for f in wheels.fields if f.name.endswith("_SPEED")]
+    assert len(speeds) == 3  # deliberately different configuration
+    wheel = d.command_by_name("ADCS_WHEEL_DISABLE")
+    assert wheel.params[0].valid_max == 3
+    att = d.packet_by_name("ADCS_ATTITUDE")
+    assert sum(1 for f in att.fields if f.name.startswith("ADCS_ATT_QUAT_Q")) == 4

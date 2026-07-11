@@ -302,7 +302,7 @@ async def test_dashboard_frames_are_complete_snapshots(simdef, tmp_path):
         assert result.exit_code == 0, result.output
         # Exactly two frames painted (not one-per-packet), each a full snapshot.
         assert result.output.count("xtce-sim monitor") == 2
-        # A full cycle includes many of the 14 packets (not a partial frame).
+        # A full cycle includes many of the 18 packets (not a partial frame).
         assert result.output.count("HOUSEKEEPING") == 2
     finally:
         await server.stop()

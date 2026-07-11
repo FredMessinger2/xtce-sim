@@ -188,17 +188,6 @@
         </xtce:EnumerationList>
       </xtce:EnumeratedParameterType>
 
-      <!-- Enumerated: Attitude Mode -->
-      <xtce:EnumeratedParameterType name="AttitudeModeParamType">
-        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
-        <xtce:EnumerationList>
-          <xtce:Enumeration label="SUN_POINT" value="0" />
-          <xtce:Enumeration label="NADIR" value="1" />
-          <xtce:Enumeration label="TARGET" value="2" />
-          <xtce:Enumeration label="INERTIAL" value="3" />
-        </xtce:EnumerationList>
-      </xtce:EnumeratedParameterType>
-
       <!-- String type for event messages -->
       <xtce:StringParameterType name="EventMessageType">
         <xtce:StringDataEncoding>
@@ -261,6 +250,154 @@
         </xtce:StringDataEncoding>
       </xtce:StringParameterType>
 
+
+      <!-- ===== ADCS parameter types (raw counts on the wire) ===== -->
+      <xtce:FloatParameterType name="QuaternionCompType">
+        <xtce:UnitSet />
+        <!-- unit quaternion component: int16 counts, 1/32767 per count -->
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="3.0518509476e-05" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:AggregateParameterType name="QuaternionType">
+        <xtce:MemberList>
+          <xtce:Member name="Q1" typeRef="QuaternionCompType" shortDescription="Vector x" />
+          <xtce:Member name="Q2" typeRef="QuaternionCompType" shortDescription="Vector y" />
+          <xtce:Member name="Q3" typeRef="QuaternionCompType" shortDescription="Vector z" />
+          <xtce:Member name="Q4" typeRef="QuaternionCompType" shortDescription="Scalar" />
+        </xtce:MemberList>
+      </xtce:AggregateParameterType>
+      <xtce:FloatParameterType name="BodyRateType">
+        <xtce:UnitSet><xtce:Unit>deg/s</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="EulerAngleType">
+        <xtce:UnitSet><xtce:Unit>deg</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="PointingErrorType">
+        <xtce:UnitSet><xtce:Unit>deg</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="WheelSpeedType">
+        <xtce:UnitSet><xtce:Unit>RPM</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.2" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="WheelCurrentType">
+        <xtce:UnitSet><xtce:Unit>A</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.001" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="MomentumType">
+        <xtce:UnitSet><xtce:Unit>Nms</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.001" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="MagFieldType">
+        <xtce:UnitSet><xtce:Unit>uT</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="SunVectorType">
+        <xtce:UnitSet />
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="3.0518509476e-05" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:EnumeratedParameterType name="AdcsModeType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="DETUMBLE" />
+          <xtce:Enumeration value="1" label="SUNSAFE" />
+          <xtce:Enumeration value="2" label="NADIR" />
+          <xtce:Enumeration value="3" label="TARGET_TRACK" />
+          <xtce:Enumeration value="4" label="INERTIAL_POINT" />
+          <xtce:Enumeration value="5" label="STANDBY" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+      <xtce:EnumeratedParameterType name="EstimatorStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="CONVERGING" />
+          <xtce:Enumeration value="1" label="VALID" />
+          <xtce:Enumeration value="2" label="INVALID" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+      <xtce:EnumeratedParameterType name="HealthFlagType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="OK" />
+          <xtce:Enumeration value="1" label="FAULT" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+      <xtce:EnumeratedParameterType name="PresenceFlagType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="ABSENT" />
+          <xtce:Enumeration value="1" label="PRESENT" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+      <xtce:EnumeratedParameterType name="OnOffStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="OFF" />
+          <xtce:Enumeration value="1" label="ON" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+      <xtce:EnumeratedParameterType name="SaturationFlagType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="OK" />
+          <xtce:Enumeration value="1" label="NEAR_SATURATION" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
     </xtce:ParameterTypeSet>
 
     <xtce:ParameterSet>
@@ -285,7 +422,6 @@
       <xtce:Parameter name="HK_BUS_CURRENT" parameterTypeRef="CurrentType" shortDescription="Main bus current" />
       <xtce:Parameter name="HK_BATTERY_SOC" parameterTypeRef="ByteType" shortDescription="Battery state of charge %" />
       <xtce:Parameter name="HK_BOARD_TEMP" parameterTypeRef="TemperatureType" shortDescription="CDH board temperature" />
-      <xtce:Parameter name="HK_ATTITUDE_MODE" parameterTypeRef="AttitudeModeParamType" shortDescription="Current pointing mode" />
 
       <!-- Link-validation timing fields (populated on LINK_VALIDATE command)  (CMD_ACTIONS_300) -->
       <xtce:Parameter name="HK_ISSUED_TIMESTAMP" parameterTypeRef="Float64TimestampType" shortDescription="Ground time from LINK_VALIDATE arg" />
@@ -373,6 +509,47 @@
       <xtce:Parameter name="RTS_LAST_CMD_NAME" parameterTypeRef="SeqNameType" shortDescription="Last RTS command executed" />
       <xtce:Parameter name="RTS_LAST_CMD_RESULT" parameterTypeRef="CmdResultType" shortDescription="Result of last RTS command" />
 
+
+      <!-- ===== ADCS parameters ===== -->
+      <xtce:Parameter name="ADCS_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="ADCS status timestamp" />
+      <xtce:Parameter name="ADCS_MODE" parameterTypeRef="AdcsModeType" shortDescription="Control mode" />
+      <xtce:Parameter name="ADCS_EST_STATE" parameterTypeRef="EstimatorStateType" shortDescription="Attitude estimator state" />
+      <xtce:Parameter name="ADCS_POINTING_ERR" parameterTypeRef="PointingErrorType" shortDescription="Angle to commanded attitude" />
+      <xtce:Parameter name="ADCS_MOMENTUM_TOTAL" parameterTypeRef="MomentumType" shortDescription="Stored wheel momentum" />
+      <xtce:Parameter name="ADCS_MOMENTUM_FLAG" parameterTypeRef="SaturationFlagType" shortDescription="Momentum saturation warning" />
+      <xtce:Parameter name="ADCS_ST_HEALTH" parameterTypeRef="HealthFlagType" shortDescription="Star tracker health" />
+      <xtce:Parameter name="ADCS_MTQ_STATE" parameterTypeRef="OnOffStateType" shortDescription="Magnetorquer chain enable state" />
+      <xtce:Parameter name="ADCS_ATT_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Attitude solution timestamp" />
+      <xtce:Parameter name="ADCS_ATT_QUAT" parameterTypeRef="QuaternionType" shortDescription="Estimated attitude quaternion (body to ECI)" />
+      <xtce:Parameter name="ADCS_ATT_ROLL" parameterTypeRef="EulerAngleType" shortDescription="Derived roll" />
+      <xtce:Parameter name="ADCS_ATT_PITCH" parameterTypeRef="EulerAngleType" shortDescription="Derived pitch" />
+      <xtce:Parameter name="ADCS_ATT_YAW" parameterTypeRef="EulerAngleType" shortDescription="Derived yaw" />
+      <xtce:Parameter name="ADCS_RATE_X" parameterTypeRef="BodyRateType" shortDescription="Body rate X" />
+      <xtce:Parameter name="ADCS_RATE_Y" parameterTypeRef="BodyRateType" shortDescription="Body rate Y" />
+      <xtce:Parameter name="ADCS_RATE_Z" parameterTypeRef="BodyRateType" shortDescription="Body rate Z" />
+      <xtce:Parameter name="ADCS_WHL_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Wheel telemetry timestamp" />
+      <xtce:Parameter name="ADCS_WHEEL1_SPEED" parameterTypeRef="WheelSpeedType" />
+      <xtce:Parameter name="ADCS_WHEEL2_SPEED" parameterTypeRef="WheelSpeedType" />
+      <xtce:Parameter name="ADCS_WHEEL3_SPEED" parameterTypeRef="WheelSpeedType" />
+      <xtce:Parameter name="ADCS_WHEEL4_SPEED" parameterTypeRef="WheelSpeedType" />
+      <xtce:Parameter name="ADCS_WHEEL1_CURRENT" parameterTypeRef="WheelCurrentType" />
+      <xtce:Parameter name="ADCS_WHEEL2_CURRENT" parameterTypeRef="WheelCurrentType" />
+      <xtce:Parameter name="ADCS_WHEEL3_CURRENT" parameterTypeRef="WheelCurrentType" />
+      <xtce:Parameter name="ADCS_WHEEL4_CURRENT" parameterTypeRef="WheelCurrentType" />
+      <xtce:Parameter name="ADCS_WHEEL1_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="ADCS_WHEEL2_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="ADCS_WHEEL3_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="ADCS_WHEEL4_TEMP" parameterTypeRef="TemperatureType" />
+      <xtce:Parameter name="ADCS_SNS_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Sensor telemetry timestamp" />
+      <xtce:Parameter name="ADCS_ST_QUAT" parameterTypeRef="QuaternionType" shortDescription="Star tracker measured quaternion" />
+      <xtce:Parameter name="ADCS_ST_VALID" parameterTypeRef="HealthFlagType" shortDescription="Star tracker solution validity" />
+      <xtce:Parameter name="ADCS_SUN_X" parameterTypeRef="SunVectorType" shortDescription="Sun vector X (body)" />
+      <xtce:Parameter name="ADCS_SUN_Y" parameterTypeRef="SunVectorType" shortDescription="Sun vector Y (body)" />
+      <xtce:Parameter name="ADCS_SUN_Z" parameterTypeRef="SunVectorType" shortDescription="Sun vector Z (body)" />
+      <xtce:Parameter name="ADCS_SUN_PRESENT" parameterTypeRef="PresenceFlagType" shortDescription="Sun in sensor field of view" />
+      <xtce:Parameter name="ADCS_MAG_X" parameterTypeRef="MagFieldType" shortDescription="Magnetic field X (body)" />
+      <xtce:Parameter name="ADCS_MAG_Y" parameterTypeRef="MagFieldType" shortDescription="Magnetic field Y (body)" />
+      <xtce:Parameter name="ADCS_MAG_Z" parameterTypeRef="MagFieldType" shortDescription="Magnetic field Z (body)" />
     </xtce:ParameterSet>
 
     <xtce:ContainerSet>
@@ -404,7 +581,6 @@
           <xtce:ParameterRefEntry parameterRef="HK_BUS_CURRENT" />
           <xtce:ParameterRefEntry parameterRef="HK_BATTERY_SOC" />
           <xtce:ParameterRefEntry parameterRef="HK_BOARD_TEMP" />
-          <xtce:ParameterRefEntry parameterRef="HK_ATTITUDE_MODE" />
           <!-- Link-validation timing fields  (CMD_ACTIONS_300) -->
           <xtce:ParameterRefEntry parameterRef="HK_ISSUED_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="HK_RECEIVED_TIMESTAMP" />
@@ -577,6 +753,93 @@
         </xtce:BaseContainer>
       </xtce:SequenceContainer>
 
+
+      <xtce:SequenceContainer name="ADCS_STATUS" shortDescription="ADCS mode, health, and pointing summary">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ADCS_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MODE" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_EST_STATE" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_POINTING_ERR" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MOMENTUM_TOTAL" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MOMENTUM_FLAG" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ST_HEALTH" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MTQ_STATE" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="24" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <xtce:SequenceContainer name="ADCS_ATTITUDE" shortDescription="Attitude solution and body rates">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ADCS_ATT_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ATT_QUAT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ATT_ROLL" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ATT_PITCH" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ATT_YAW" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_RATE_X" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_RATE_Y" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_RATE_Z" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="25" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <xtce:SequenceContainer name="ADCS_WHEELS" shortDescription="Reaction wheel telemetry (4-wheel pyramid)">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHL_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL1_SPEED" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL2_SPEED" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL3_SPEED" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL4_SPEED" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL1_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL2_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL3_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL4_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL1_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL2_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL3_TEMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL4_TEMP" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="26" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <xtce:SequenceContainer name="ADCS_SENSORS" shortDescription="Star tracker, sun sensor, magnetometer">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ADCS_SNS_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ST_QUAT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ST_VALID" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_SUN_X" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_SUN_Y" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_SUN_Z" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_SUN_PRESENT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MAG_X" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MAG_Y" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MAG_Z" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="27" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
     </xtce:ContainerSet>
 
   </xtce:TelemetryMetaData>
@@ -648,17 +911,6 @@
           <xtce:Enumeration label="NOMINAL" value="2" />
           <xtce:Enumeration label="IMAGING" value="3" />
           <xtce:Enumeration label="DOWNLINK" value="4" />
-        </xtce:EnumerationList>
-      </xtce:EnumeratedArgumentType>
-
-      <!-- Attitude Mode Enum -->
-      <xtce:EnumeratedArgumentType name="AttitudeModeArgType">
-        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
-        <xtce:EnumerationList>
-          <xtce:Enumeration label="SUN_POINT" value="0" />
-          <xtce:Enumeration label="NADIR" value="1" />
-          <xtce:Enumeration label="TARGET" value="2" />
-          <xtce:Enumeration label="INERTIAL" value="3" />
         </xtce:EnumerationList>
       </xtce:EnumeratedArgumentType>
 
@@ -749,6 +1001,60 @@
         <xtce:FloatDataEncoding sizeInBits="64" />
       </xtce:FloatArgumentType>
 
+
+      <!-- ===== ADCS argument types ===== -->
+      <xtce:EnumeratedArgumentType name="AdcsModeArgType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="DETUMBLE" />
+          <xtce:Enumeration value="1" label="SUNSAFE" />
+          <xtce:Enumeration value="2" label="NADIR" />
+          <xtce:Enumeration value="3" label="TARGET_TRACK" />
+          <xtce:Enumeration value="4" label="INERTIAL_POINT" />
+          <xtce:Enumeration value="5" label="STANDBY" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <xtce:FloatArgumentType name="QuaternionArgType">
+        <xtce:UnitSet />
+        <xtce:FloatDataEncoding sizeInBits="32" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-1.0" maxInclusive="1.0" /></xtce:ValidRangeSet>
+      </xtce:FloatArgumentType>
+      <xtce:FloatArgumentType name="EulerAngleArgType">
+        <xtce:UnitSet><xtce:Unit>deg</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-180.0" maxInclusive="180.0" /></xtce:ValidRangeSet>
+      </xtce:FloatArgumentType>
+      <xtce:FloatArgumentType name="LatitudeArgType">
+        <xtce:UnitSet><xtce:Unit>deg</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-90.0" maxInclusive="90.0" /></xtce:ValidRangeSet>
+      </xtce:FloatArgumentType>
+      <xtce:FloatArgumentType name="LongitudeArgType">
+        <xtce:UnitSet><xtce:Unit>deg</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-180.0" maxInclusive="180.0" /></xtce:ValidRangeSet>
+      </xtce:FloatArgumentType>
+      <xtce:IntegerArgumentType name="WheelIdArgType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="4" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
+      <xtce:FloatArgumentType name="WheelSpeedArgType">
+        <xtce:UnitSet><xtce:Unit>RPM</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-6000.0" maxInclusive="6000.0" /></xtce:ValidRangeSet>
+      </xtce:FloatArgumentType>
+      <xtce:FloatArgumentType name="GyroBiasArgType">
+        <xtce:UnitSet><xtce:Unit>deg/s</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-1.0" maxInclusive="1.0" /></xtce:ValidRangeSet>
+      </xtce:FloatArgumentType>
+      <xtce:EnumeratedArgumentType name="OnOffArgType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="OFF" />
+          <xtce:Enumeration value="1" label="ON" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
     </xtce:ArgumentTypeSet>
 
     <xtce:MetaCommandSet>
@@ -1064,21 +1370,217 @@
 
       <!-- ===== ADCS Commands (opcodes 0x40-0x4F) ===== -->
 
-      <!-- SET_ATTITUDE: Change pointing mode -->
-      <xtce:MetaCommand name="SET_ATTITUDE" shortDescription="Set attitude control mode">
+
+
+      <xtce:MetaCommand name="ADCS_SET_MODE" shortDescription="Set the attitude control mode">
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
-            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x40" />
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x41" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="AttitudeMode" argumentTypeRef="AttitudeModeArgType">
-          </xtce:Argument>
+          <xtce:Argument name="Mode" argumentTypeRef="AdcsModeArgType" />
         </xtce:ArgumentList>
-        <xtce:CommandContainer name="SET_ATTITUDE_Container">
+        <xtce:CommandContainer name="ADCS_SET_MODE_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
-            <xtce:ArgumentRefEntry argumentRef="AttitudeMode" />
+            <xtce:ArgumentRefEntry argumentRef="Mode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_SLEW_TO_QUATERNION" shortDescription="Slew to a target attitude quaternion">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x42" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="Q1" argumentTypeRef="QuaternionArgType" />
+          <xtce:Argument name="Q2" argumentTypeRef="QuaternionArgType" />
+          <xtce:Argument name="Q3" argumentTypeRef="QuaternionArgType" />
+          <xtce:Argument name="Q4" argumentTypeRef="QuaternionArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_SLEW_TO_QUATERNION_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="Q1" />
+            <xtce:ArgumentRefEntry argumentRef="Q2" />
+            <xtce:ArgumentRefEntry argumentRef="Q3" />
+            <xtce:ArgumentRefEntry argumentRef="Q4" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_SLEW_TO_ANGLES" shortDescription="Slew to roll/pitch/yaw in the given frame">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x43" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="Roll" argumentTypeRef="EulerAngleArgType" />
+          <xtce:Argument name="Pitch" argumentTypeRef="EulerAngleArgType" />
+          <xtce:Argument name="Yaw" argumentTypeRef="EulerAngleArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_SLEW_TO_ANGLES_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="Roll" />
+            <xtce:ArgumentRefEntry argumentRef="Pitch" />
+            <xtce:ArgumentRefEntry argumentRef="Yaw" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_TRACK_TARGET" shortDescription="Track a ground target">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x44" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="Latitude" argumentTypeRef="LatitudeArgType" />
+          <xtce:Argument name="Longitude" argumentTypeRef="LongitudeArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_TRACK_TARGET_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="Latitude" />
+            <xtce:ArgumentRefEntry argumentRef="Longitude" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_WHEEL_ENABLE" shortDescription="Enable a reaction wheel">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x45" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="WheelId" argumentTypeRef="WheelIdArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_WHEEL_ENABLE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="WheelId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_WHEEL_DISABLE" shortDescription="Disable a reaction wheel">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x46" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="WheelId" argumentTypeRef="WheelIdArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_WHEEL_DISABLE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="WheelId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Removes attitude control authority; pointing degrades on three wheels" />
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_WHEEL_SET_SPEED" shortDescription="Command a wheel speed directly (test mode)">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x47" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="WheelId" argumentTypeRef="WheelIdArgType" />
+          <xtce:Argument name="Speed" argumentTypeRef="WheelSpeedArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_WHEEL_SET_SPEED_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="WheelId" />
+            <xtce:ArgumentRefEntry argumentRef="Speed" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="caution" reasonForWarning="Bypasses the controller; test mode only" />
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_DESATURATE" shortDescription="Dump stored wheel momentum via the magnetorquers">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x48" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:CommandContainer name="ADCS_DESATURATE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Attitude transients while momentum unloads; imaging unavailable" />
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_MTQ_ENABLE" shortDescription="Enable or disable the magnetorquer chain">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x49" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="State" argumentTypeRef="OnOffArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_MTQ_ENABLE_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="State" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_RESET_ESTIMATOR" shortDescription="Restart the attitude estimator">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x4A" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:CommandContainer name="ADCS_RESET_ESTIMATOR_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="caution" reasonForWarning="Attitude knowledge invalid until the estimator reconverges" />
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_SET_GYRO_BIAS" shortDescription="Override the estimated gyro bias">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x4B" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="BiasX" argumentTypeRef="GyroBiasArgType" />
+          <xtce:Argument name="BiasY" argumentTypeRef="GyroBiasArgType" />
+          <xtce:Argument name="BiasZ" argumentTypeRef="GyroBiasArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_SET_GYRO_BIAS_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="BiasX" />
+            <xtce:ArgumentRefEntry argumentRef="BiasY" />
+            <xtce:ArgumentRefEntry argumentRef="BiasZ" />
           </xtce:EntryList>
           <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
         </xtce:CommandContainer>

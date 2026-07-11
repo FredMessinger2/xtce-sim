@@ -173,7 +173,7 @@ def test_inspect_narrates_and_exits_zero():
     assert result.exit_code == 0, result.output
     assert "parsing" in result.output
     assert "~ RAW_CMD: no opcode in the XTCE — synthetic" in result.output
-    assert "OK: MyVehicle — 55 command(s), 14 packet(s)" in result.output
+    assert "OK: MyVehicle — 61 command(s), 18 packet(s)" in result.output
 
 
 def test_inspect_dump_prints_full_inventory():

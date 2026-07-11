@@ -660,6 +660,72 @@
         <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
       </xtce:IntegerParameterType>
 
+      <!-- ===== ADCS parameter types (raw counts on the wire) ===== -->
+      <xtce:FloatParameterType name="QuaternionCompType">
+        <xtce:UnitSet />
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="3.0518509476e-05" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:AggregateParameterType name="QuaternionType">
+        <xtce:MemberList>
+          <xtce:Member name="Q1" typeRef="QuaternionCompType" />
+          <xtce:Member name="Q2" typeRef="QuaternionCompType" />
+          <xtce:Member name="Q3" typeRef="QuaternionCompType" />
+          <xtce:Member name="Q4" typeRef="QuaternionCompType" />
+        </xtce:MemberList>
+      </xtce:AggregateParameterType>
+      <xtce:FloatParameterType name="AdcsWheelSpeedType">
+        <xtce:UnitSet><xtce:Unit>RPM</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.2" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="AdcsCurrentType">
+        <xtce:UnitSet><xtce:Unit>A</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.001" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="MagFieldType">
+        <xtce:UnitSet><xtce:Unit>uT</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.01" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+      <xtce:EnumeratedParameterType name="AdcsModeParamType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="DETUMBLE" />
+          <xtce:Enumeration value="1" label="SUNSAFE" />
+          <xtce:Enumeration value="2" label="NADIR" />
+          <xtce:Enumeration value="3" label="INERTIAL_POINT" />
+          <xtce:Enumeration value="4" label="STANDBY" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+      <xtce:EnumeratedParameterType name="AdcsFlagType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="OK" />
+          <xtce:Enumeration value="1" label="FAULT" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
     </xtce:ParameterTypeSet>
 
     
@@ -889,6 +955,26 @@
       <xtce:Parameter name="ORB_CONTACT_COUNT" parameterTypeRef="EventCountType" />
       <xtce:Parameter name="ORB_NEXT_CONTACT" parameterTypeRef="TimestampType" />
 
+      <!-- ===== ADCS parameters ===== -->
+      <xtce:Parameter name="ADCS_TIMESTAMP" parameterTypeRef="TimestampType" />
+      <xtce:Parameter name="ADCS_MODE" parameterTypeRef="AdcsModeParamType" />
+      <xtce:Parameter name="ADCS_POINTING_ERROR" parameterTypeRef="PointingErrorType" />
+      <xtce:Parameter name="ADCS_ST_HEALTH" parameterTypeRef="AdcsFlagType" />
+      <xtce:Parameter name="ADCS_ATT_QUAT" parameterTypeRef="QuaternionType" />
+      <xtce:Parameter name="ADCS_RATE_X" parameterTypeRef="AngularRateType" />
+      <xtce:Parameter name="ADCS_RATE_Y" parameterTypeRef="AngularRateType" />
+      <xtce:Parameter name="ADCS_RATE_Z" parameterTypeRef="AngularRateType" />
+      <xtce:Parameter name="ADCS_WHEEL1_SPEED" parameterTypeRef="AdcsWheelSpeedType" />
+      <xtce:Parameter name="ADCS_WHEEL2_SPEED" parameterTypeRef="AdcsWheelSpeedType" />
+      <xtce:Parameter name="ADCS_WHEEL3_SPEED" parameterTypeRef="AdcsWheelSpeedType" />
+      <xtce:Parameter name="ADCS_WHEEL1_CURRENT" parameterTypeRef="AdcsCurrentType" />
+      <xtce:Parameter name="ADCS_WHEEL2_CURRENT" parameterTypeRef="AdcsCurrentType" />
+      <xtce:Parameter name="ADCS_WHEEL3_CURRENT" parameterTypeRef="AdcsCurrentType" />
+      <xtce:Parameter name="ADCS_ST_QUAT" parameterTypeRef="QuaternionType" />
+      <xtce:Parameter name="ADCS_ST_VALID" parameterTypeRef="AdcsFlagType" />
+      <xtce:Parameter name="ADCS_MAG_X" parameterTypeRef="MagFieldType" />
+      <xtce:Parameter name="ADCS_MAG_Y" parameterTypeRef="MagFieldType" />
+      <xtce:Parameter name="ADCS_MAG_Z" parameterTypeRef="MagFieldType" />
     </xtce:ParameterSet>
 
     
@@ -1245,6 +1331,67 @@
         </xtce:BaseContainer>
       </xtce:SequenceContainer>
 
+      <xtce:SequenceContainer name="ADCS_STATUS">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ADCS_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MODE" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_POINTING_ERROR" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ST_HEALTH" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="15" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <xtce:SequenceContainer name="ADCS_ATTITUDE">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ADCS_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ATT_QUAT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_RATE_X" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_RATE_Y" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_RATE_Z" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="16" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <xtce:SequenceContainer name="ADCS_WHEELS">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ADCS_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL1_SPEED" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL2_SPEED" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL3_SPEED" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL1_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL2_CURRENT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL3_CURRENT" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="17" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <xtce:SequenceContainer name="ADCS_SENSORS">
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="ADCS_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ST_QUAT" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_ST_VALID" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MAG_X" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MAG_Y" />
+          <xtce:ParameterRefEntry parameterRef="ADCS_MAG_Z" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSPacket">
+          <xtce:RestrictionCriteria>
+            <xtce:Comparison parameterRef="CCSDS_APID" value="18" />
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
     </xtce:ContainerSet>
 
   </xtce:TelemetryMetaData>

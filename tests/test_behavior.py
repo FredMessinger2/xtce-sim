@@ -48,10 +48,12 @@ def _errors(tmp_path, simdef, text: str) -> str:
 
 def test_shipped_imaging_sidecar_validates(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    assert len(spec.initial) == 5
+    assert len(spec.initial) == 26
     assert set(spec.commands) == {
         "SET_MODE", "HEATER_ON", "HEATER_OFF", "SET_HEATER_SETPOINT",
-        "IMAGER_ON", "IMAGER_OFF", "SET_EXPOSURE", "TAKE_IMAGE", "SET_ATTITUDE",
+        "IMAGER_ON", "IMAGER_OFF", "SET_EXPOSURE", "TAKE_IMAGE",
+        "ADCS_SET_MODE", "ADCS_SLEW_TO_QUATERNION", "ADCS_SLEW_TO_ANGLES",
+        "ADCS_WHEEL_SET_SPEED", "ADCS_MTQ_ENABLE", "ADCS_TRACK_TARGET",
     }
     ramp = next(
         e for e in spec.commands["HEATER_ON"] if isinstance(e, RampEffect)
@@ -1383,11 +1385,11 @@ def test_effects_log_confirms_in_engineering_units(tmp_path, simdef):
 
 def test_directory_source_merges_files(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    assert len(spec.files) == 4  # thermal, imager, power, system
-    assert len(spec.initial) == 5  # seeds merged across files
+    assert len(spec.files) == 5  # adcs, imager, power, system, thermal
+    assert len(spec.initial) == 26  # seeds merged across files (incl. ADCS)
     assert len(spec.signals) == 8
     assert "HEATER_ON" in spec.commands and "TAKE_IMAGE" in spec.commands
-    assert "(4 file(s))" in spec.source_label
+    assert "(5 file(s))" in spec.source_label
 
 
 def test_cross_file_conflict_is_load_error(tmp_path, simdef):
@@ -1416,3 +1418,66 @@ def test_bad_toml_in_one_file_reported_with_others(tmp_path, simdef):
         load_behavior(tmp_path, simdef)
     msg = str(exc.value)
     assert "a.toml: not valid TOML" in msg and "b.toml:" in msg
+
+
+# ---- ADCS setpoint reflections (shipped adcs.toml) --------------------------
+
+
+@pytest.fixture()
+def adcs_engine(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    return behavior.BehaviorEngine(spec, simdef)
+
+
+def test_slew_to_quaternion_reflects_all_components(adcs_engine, simdef):
+    adcs_engine.apply_command(
+        _cmd(simdef, "ADCS_SLEW_TO_QUATERNION"),
+        {"Q1": 0.0, "Q2": 0.0, "Q3": 0.7071, "Q4": 0.7071},
+    )
+    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q3") == pytest.approx(0.7071, abs=1e-4)
+    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q4") == pytest.approx(0.7071, abs=1e-4)
+    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q1") == pytest.approx(0.0)
+    # The whole attitude packet goes out immediately, once.
+    attitude = simdef.packet_by_name("ADCS_ATTITUDE")
+    assert adcs_engine.pop_immediate_apids() == {attitude.apid}
+
+
+def test_slew_to_angles_reflects_euler(adcs_engine, simdef):
+    adcs_engine.apply_command(
+        _cmd(simdef, "ADCS_SLEW_TO_ANGLES"),
+        {"Roll": 10.5, "Pitch": -15.25, "Yaw": 45.0},
+    )
+    assert _eu(adcs_engine, "ADCS_ATT_ROLL") == pytest.approx(10.5, abs=0.01)
+    assert _eu(adcs_engine, "ADCS_ATT_PITCH") == pytest.approx(-15.25, abs=0.01)
+    assert _eu(adcs_engine, "ADCS_ATT_YAW") == pytest.approx(45.0, abs=0.01)
+    attitude = simdef.packet_by_name("ADCS_ATTITUDE")
+    assert adcs_engine.pop_immediate_apids() == {attitude.apid}
+
+
+def test_wheel_set_speed_reflects_only_the_commanded_wheel(adcs_engine, simdef):
+    adcs_engine.apply_command(
+        _cmd(simdef, "ADCS_WHEEL_SET_SPEED"), {"WheelId": 2, "Speed": -2200.0}
+    )
+    assert _eu(adcs_engine, "ADCS_WHEEL2_SPEED") == pytest.approx(-2200.0, abs=0.2)
+    assert "ADCS_WHEEL1_SPEED" not in adcs_engine.state
+    assert "ADCS_WHEEL3_SPEED" not in adcs_engine.state
+    wheels = simdef.packet_by_name("ADCS_WHEELS")
+    assert adcs_engine.pop_immediate_apids() == {wheels.apid}
+
+
+def test_mtq_enable_reflects_state_enum(adcs_engine, simdef):
+    adcs_engine.apply_command(_cmd(simdef, "ADCS_MTQ_ENABLE"), {"State": "OFF"})
+    status = simdef.packet_by_name("ADCS_STATUS")
+    field = next(f for f in status.fields if f.name == "ADCS_MTQ_STATE")
+    assert adcs_engine.state["ADCS_MTQ_STATE"] == field.enumerations["OFF"]
+    assert adcs_engine.pop_immediate_apids() == {status.apid}
+
+
+def test_track_target_flips_mode_to_target_track(adcs_engine, simdef):
+    adcs_engine.apply_command(
+        _cmd(simdef, "ADCS_TRACK_TARGET"), {"Latitude": 34.05, "Longitude": -118.24}
+    )
+    status = simdef.packet_by_name("ADCS_STATUS")
+    field = next(f for f in status.fields if f.name == "ADCS_MODE")
+    assert adcs_engine.state["ADCS_MODE"] == field.enumerations["TARGET_TRACK"]
+    assert adcs_engine.pop_immediate_apids() == {status.apid}

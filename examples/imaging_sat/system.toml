@@ -8,9 +8,6 @@
 [SET_MODE]
 HK_SYSTEM_MODE = { set = "@arg:Mode", emit = "immediate" }
 
-[SET_ATTITUDE]
-HK_ATTITUDE_MODE = "@arg:AttitudeMode"
-
 # ---------------------------------------------------------------------------
 # Dangling in the source XTCE: the original annotations below targeted
 # COMM_* telemetry fields that are not defined in any packet, so they could

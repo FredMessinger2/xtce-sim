@@ -7,9 +7,10 @@ own; no vendor or proprietary data.
 
 ## `my_vehicle/` — the primary example
 
-A small synthetic vehicle, `MyVehicle` — 55 commands, 14 telemetry packets,
+A small synthetic vehicle, `MyVehicle` — 61 commands, 18 telemetry packets,
 with polynomial and spline calibrators on its sensor fields (raw counts on
-the wire, engineering units on the monitor). No behavior files yet.
+the wire, engineering units on the monitor), and a three-wheel ADCS.
+No behavior files yet.
 
 - **`my_vehicle.xml`** — one XTCE file with both commands and telemetry:
 
@@ -31,10 +32,10 @@ Both forms build an identical simulator — a test
 
 ## `imaging_sat/` — the full-featured example
 
-An Earth-observation satellite, `ImagingSat` — 30 commands, 8 telemetry
+An Earth-observation satellite, `ImagingSat` — 40 commands, 12 telemetry
 packets, and per-subsystem behavior files that make it act:
 
-- **`imaging_sat.xml`** — the interface: imaging, thermal, power,
+- **`imaging_sat.xml`** — the interface: imaging, thermal, power, ADCS,
   file-transfer, and ATS/RTS sequencing surfaces.
 - **`thermal.toml`** — heater commands and ramps, the orbit thermal cycle
   on the structural panels.
@@ -42,6 +43,16 @@ packets, and per-subsystem behavior files that make it act:
   event-log entries with immediate emission.
 - **`power.toml`** — solar/battery ambient signals.
 - **`system.toml`** — mode-change acknowledgments.
+- **`adcs.toml`** — attitude-control boot state (identity quaternion,
+  STANDBY mode, sensor validity), instant mode acknowledgment, and
+  setpoint reflections: slew, wheel-speed, and magnetorquer commands
+  mirror their commanded values into telemetry immediately. These are
+  placeholders, not dynamics — a slew *jumps* the quaternion — until the
+  dynamics arc replaces them.
+- **`set_all_fields.sh`** — a scripted sweep that sets every
+  command-settable field to a distinctive value, one send per second
+  (`PORT=`/`PAUSE=` to override), for watching on the monitor or web
+  console.
 
 ```bash
 xtce-sim run examples/imaging_sat/imaging_sat.xml --port 5000 --interval 1

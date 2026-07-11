@@ -441,6 +441,26 @@
         <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0.0" maxInclusive="90.0" />
       </xtce:ValidRangeSet></xtce:FloatArgumentType>
 
+      <!-- ===== ADCS argument types ===== -->
+      <xtce:EnumeratedArgumentType name="AdcsModeArgType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration value="0" label="DETUMBLE" />
+          <xtce:Enumeration value="1" label="SUNSAFE" />
+          <xtce:Enumeration value="2" label="NADIR" />
+          <xtce:Enumeration value="3" label="INERTIAL_POINT" />
+          <xtce:Enumeration value="4" label="STANDBY" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+      <xtce:FloatArgumentType name="QuaternionArgType">
+        <xtce:UnitSet />
+        <xtce:FloatDataEncoding sizeInBits="32" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="-1.0" maxInclusive="1.0" /></xtce:ValidRangeSet>
+      </xtce:FloatArgumentType>
+      <xtce:IntegerArgumentType name="AdcsWheelIdType" signed="false">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="3" /></xtce:ValidRangeSet>
+      </xtce:IntegerArgumentType>
     </xtce:ArgumentTypeSet>
 
     
@@ -1295,6 +1315,92 @@
         </xtce:CommandContainer>
       </xtce:MetaCommand>
 
+      <xtce:MetaCommand name="ADCS_SET_MODE" shortDescription="Set the attitude control mode">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Mode" argumentTypeRef="AdcsModeArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_SET_MODE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="E0" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Mode" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_SLEW_TO_QUATERNION" shortDescription="Slew to a target attitude quaternion">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="Q1" argumentTypeRef="QuaternionArgType" />
+          <xtce:Argument name="Q2" argumentTypeRef="QuaternionArgType" />
+          <xtce:Argument name="Q3" argumentTypeRef="QuaternionArgType" />
+          <xtce:Argument name="Q4" argumentTypeRef="QuaternionArgType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_SLEW_TO_QUATERNION_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="E1" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="Q1" />
+            <xtce:ArgumentRefEntry argumentRef="Q2" />
+            <xtce:ArgumentRefEntry argumentRef="Q3" />
+            <xtce:ArgumentRefEntry argumentRef="Q4" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_WHEEL_ENABLE" shortDescription="Enable a reaction wheel">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="WheelId" argumentTypeRef="AdcsWheelIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_WHEEL_ENABLE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="E2" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="WheelId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_WHEEL_DISABLE" shortDescription="Disable a reaction wheel">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:ArgumentList>
+          <xtce:Argument name="WheelId" argumentTypeRef="AdcsWheelIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="ADCS_WHEEL_DISABLE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="E3" sizeInBits="8" />
+            <xtce:ArgumentRefEntry argumentRef="WheelId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Three-wheel vehicle: losing one wheel loses full 3-axis control" />
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_DESATURATE" shortDescription="Dump stored wheel momentum">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="ADCS_DESATURATE_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="E4" sizeInBits="8" />
+
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Attitude transients while momentum unloads" />
+      </xtce:MetaCommand>
+
+      <xtce:MetaCommand name="ADCS_RESET_ESTIMATOR" shortDescription="Restart the attitude estimator">
+        <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
+        <xtce:CommandContainer name="ADCS_RESET_ESTIMATOR_Container">
+          <xtce:EntryList>
+            <xtce:FixedValueEntry name="CmdOpcode" binaryValue="E5" sizeInBits="8" />
+
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandPacket" />
+        </xtce:CommandContainer>
+        <xtce:DefaultSignificance consequenceLevel="caution" reasonForWarning="Attitude knowledge invalid until the estimator reconverges" />
+      </xtce:MetaCommand>
     </xtce:MetaCommandSet>
 
   </xtce:CommandMetaData>
