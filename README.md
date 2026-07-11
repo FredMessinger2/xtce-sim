@@ -75,6 +75,9 @@ learns the command/telemetry set *out of band*: the bundled `monitor` and `send`
 load the `cmd_tlm.json` the server dumped (via `--id`), and a third-party ground
 system (OpenC3, Yamcs, your own) is configured with the same XTCE. Either way,
 both ends derive identical opcodes, APIDs, and field layouts from one definition.
+(One packet rides outside the XTCE: the command echo on reserved APID 0x7FD —
+link protocol, not payload telemetry; a third-party ground system can simply
+ignore that APID. See the web console section.)
 
 ## Commands
 
@@ -272,12 +275,35 @@ and builds its panels from it — the page hardcodes nothing.
 
 In the console: one panel per packet with every field, values in engineering
 units with an **EU/RAW** toggle (same rules as `monitor --raw`), a changed
-value flashes briefly, panels dim when their packets stop arriving, and a
+value breathes briefly, panels dim when their packets stop arriving, and a
 link dot tracks the sim connection — kill the sim and it goes red, restart
 and the bridge reconnects on its own. Because telemetry is *pushed*,
 immediate emissions (see below) appear the moment they happen, between
 beacon beats. `--http-port` moves the console off 8080; commanding from the
 browser is planned, not yet built.
+
+**The command log.** The console is split in two — a command history and
+the telemetry grid — separated by a draggable splitter bar (the header's
+*split* button flips it between horizontal and vertical; your arrangement
+and position are remembered). Every command the sim processes while the
+console is open appears in the log as it executes: timestamp, name, every
+argument (enums as their labels), and a status mark — green ✓ for executed,
+red ✗ tagged with the failure status (`unknown_opcode`, `failed`) for one
+that wasn't. The log holds the last 500 entries and sticks to the bottom
+unless you've scrolled up to read history.
+
+The command log works the way real ground systems learn about commanding:
+the vehicle reports it. On every command it processes — from any client,
+`send`, the exerciser, anyone — the sim broadcasts a **command echo**: a
+telemetry packet on a reserved APID (0x7FD, documented in `ccsds.py`)
+carrying the original command bytes verbatim plus an execution status. The
+bridge decodes the embedded command against the definition to recover the
+name and arguments. Real systems verify commanding with the same family of
+mechanisms (command counters, ECSS PUS Service 1 acknowledgment, literal
+command echo); this is the echo flavor. The echo APID is part of this
+simulator's link protocol — like the length-prefix framing — not part of
+any satellite's XTCE, and the terminal `monitor` skips it (the web console
+is its renderer).
 
 ### Live telemetry
 

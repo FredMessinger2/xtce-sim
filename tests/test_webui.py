@@ -227,3 +227,97 @@ async def test_broadcast_drops_stalled_client_instead_of_blocking(simdef):
     assert task.cancelled() or task.done() or task.cancelling()
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
+
+
+# ---------------------------------------------------------------------------
+# command echo -> command-log message
+# ---------------------------------------------------------------------------
+
+
+def _echo_of(command, args=None, status=ccsds.ECHO_EXECUTED) -> bytes:
+    payload = codec.encode_command(command, args)
+    cmd_packet = (
+        ccsds.CCSDSHeader(packet_type=int(ccsds.PacketType.COMMAND), apid=1).pack()
+        + bytes([command.opcode])
+        + payload
+    )
+    return ccsds.build_command_echo(cmd_packet, status)
+
+
+def test_command_message_decodes_name_args_and_enum_labels(simdef):
+    from xtce_sim.webui import command_message
+
+    cmd = simdef.command_by_name("ADCS_SET_MODE")
+    msg = command_message(simdef, _echo_of(cmd, {"Mode": "NADIR"}))
+    assert msg["type"] == "command"
+    assert msg["name"] == "ADCS_SET_MODE"
+    assert msg["args"] == {"Mode": "NADIR"}  # label, as commanded
+    assert msg["status"] == "executed"
+
+
+def test_command_message_numeric_args(simdef):
+    from xtce_sim.webui import command_message
+
+    cmd = simdef.command_by_name("ADCS_WHEEL_SET_SPEED")
+    msg = command_message(simdef, _echo_of(cmd, {"WheelId": 2, "Speed": -2200.0}))
+    assert msg["args"]["WheelId"] == 2
+    assert msg["args"]["Speed"] == -2200.0
+
+
+def test_command_message_unknown_opcode(simdef):
+    from xtce_sim.webui import command_message
+
+    cmd_packet = (
+        ccsds.CCSDSHeader(packet_type=int(ccsds.PacketType.COMMAND), apid=1).pack()
+        + bytes([0xEE])
+        + b"\x01\x02"
+    )
+    echo = ccsds.build_command_echo(cmd_packet, ccsds.ECHO_UNKNOWN_OPCODE)
+    msg = command_message(simdef, echo)
+    assert msg["name"] == "OPCODE_0xEE"
+    assert msg["status"] == "unknown_opcode"
+    assert msg["raw"] == "0102"
+
+
+def test_command_message_undecodable(simdef):
+    from xtce_sim.webui import command_message
+
+    echo = ccsds.build_command_echo(b"\x00\x01", ccsds.ECHO_FAILED)
+    msg = command_message(simdef, echo)
+    assert msg["name"] == "<undecodable>"
+    assert msg["status"] == "failed"
+
+
+async def test_bridge_pushes_command_to_browser(simdef):
+    """End to end: a command uplinked to the sim appears in the browser
+    stream as a command message, decoded with its arguments."""
+    from xtce_sim import client
+
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=0.05)
+    await server.start()
+    bridge = Bridge(simdef, "127.0.0.1", server.bound_port)
+    runner, http_port = await _start_bridge(bridge)
+    downlink = asyncio.create_task(bridge.downlink_loop())
+    try:
+        async with ClientSession() as session:
+            async with session.ws_connect(f"http://127.0.0.1:{http_port}/ws") as ws:
+                for _ in range(2):  # definition + link
+                    await ws.receive(timeout=5)
+                cmd = simdef.command_by_name("ADCS_SET_MODE")
+                await asyncio.to_thread(
+                    client.send_command,
+                    "127.0.0.1", server.bound_port, cmd, {"Mode": "SUNSAFE"},
+                )
+                for _ in range(120):
+                    msg = json.loads((await ws.receive(timeout=5)).data)
+                    if msg["type"] == "command":
+                        assert msg["name"] == "ADCS_SET_MODE"
+                        assert msg["args"] == {"Mode": "SUNSAFE"}
+                        assert msg["status"] == "executed"
+                        return
+                raise AssertionError("command message never arrived")
+    finally:
+        downlink.cancel()
+        await asyncio.gather(downlink, return_exceptions=True)
+        await runner.cleanup()
+        await server.stop()

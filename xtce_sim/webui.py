@@ -20,6 +20,10 @@ Message protocol (bridge -> browser):
                                 sequence count, bridge arrival time, and
                                 per-field raw counts + engineering value
                                 + enum label.
+  {"type": "command", ...}      one per command echo (see ccsds.py):
+                                name, opcode, decoded arguments (enum
+                                labels as commanded), and execution
+                                status.
   {"type": "link", "up": ...}   whenever the bridge's connection to the
                                 sim comes up or drops (it retries forever).
 
@@ -126,6 +130,48 @@ def _field_values(field: FieldInfo, raw) -> dict:
             (k for k, v in field.enumerations.items() if v == raw), None
         )
     return out
+
+
+def command_message(simdef: SimDefinition, packet: bytes) -> dict:
+    """Decode a command-echo packet into the browser's command-log entry.
+
+    The echo carries the original command packet verbatim (see ccsds.py);
+    decoding it against the command definitions recovers the name and every
+    argument. Enum arguments are shown as their labels, matching how they
+    were commanded.
+    """
+    status, cmd_packet = ccsds.parse_command_echo(packet)
+    status_name = "invalid_echo" if status is None else (
+        ccsds.ECHO_STATUS_NAMES.get(status, f"status_{status}")
+    )
+    message: dict = {
+        "type": "command",
+        "time": datetime.now().isoformat(timespec="milliseconds"),
+        "status": status_name,
+    }
+    opcode, payload = ccsds.parse_command_packet(cmd_packet)
+    if opcode is None:
+        message["name"] = "<undecodable>"
+        message["raw"] = cmd_packet.hex()
+        return message
+    message["opcode"] = opcode
+    command = simdef.command_by_opcode(opcode)
+    if command is None:
+        message["name"] = f"OPCODE_0x{opcode:02X}"
+        message["raw"] = payload.hex()
+        return message
+    message["name"] = command.name
+    try:
+        args = codec.decode_command(command, payload)
+    except Exception:
+        message["raw"] = payload.hex()
+        return message
+    # decode_command owns enum labeling: matched enum values arrive here
+    # already as their label strings, so only JSON safety is left to do.
+    message["args"] = {
+        p.name: _json_safe(args.get(p.name)) for p in command.params
+    }
+    return message
 
 
 def telemetry_message(simdef: SimDefinition, packet: bytes) -> dict | None:
@@ -253,9 +299,18 @@ class Bridge:
                 return
             packets, buffer = ccsds.deframe(buffer + data)
             for packet in packets:
-                message = telemetry_message(self.simdef, packet)
+                message = self._decode(packet)
                 if message is not None:
                     self._broadcast(message)
+
+    def _decode(self, packet: bytes) -> dict | None:
+        """Route one downlink packet: command echoes to the command log,
+        everything else to the telemetry panels."""
+        if len(packet) >= 6:
+            header = ccsds.CCSDSHeader.unpack(packet[:6])
+            if header.apid == ccsds.CMD_ECHO_APID:
+                return command_message(self.simdef, packet)
+        return telemetry_message(self.simdef, packet)
 
     # -- HTTP / WebSocket handlers -------------------------------------------
 

@@ -11,14 +11,16 @@
     --ok: #3fb950; --bad: #f85149; --breathe: #e3b341;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
   body {
     background: var(--bg); color: var(--text);
     font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
     font-size: 13px; padding: 12px;
+    display: flex; flex-direction: column; overflow: hidden;
   }
   header {
     display: flex; align-items: baseline; gap: 16px;
-    padding: 4px 4px 12px; flex-wrap: wrap;
+    padding: 4px 4px 12px; flex-wrap: wrap; flex: none;
   }
   header h1 { font-size: 16px; color: var(--accent); font-weight: 600; }
   #link { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); }
@@ -27,14 +29,39 @@
     background: var(--bad); display: inline-block;
   }
   #link.up .dot { background: var(--ok); }
-  #toggle {
-    margin-left: auto; background: var(--panel); color: var(--text);
+  header button {
+    background: var(--panel); color: var(--text);
     border: 1px solid var(--border); border-radius: 6px;
     padding: 4px 12px; font: inherit; cursor: pointer;
   }
-  #toggle:hover { border-color: var(--accent); }
+  header button:hover { border-color: var(--accent); }
+  #toggle { margin-left: auto; }
+
+  /* Split layout: command log | splitter bar | telemetry grid.
+     .h stacks them (commands on top); .v puts them side by side. */
+  #split { flex: 1; display: flex; min-height: 0; }
+  #split.h { flex-direction: column; }
+  #split.v { flex-direction: row; }
+  #cmdpane { overflow: auto; min-height: 0; min-width: 0; flex: none; }
+  #tlmpane { overflow: auto; min-height: 0; min-width: 0; flex: 1; }
+  #bar { flex: none; background: var(--border); border-radius: 3px; touch-action: none; }
+  #bar:hover, #bar.dragging { background: var(--accent); }
+  #split.h > #bar { height: 6px; margin: 4px 0; cursor: row-resize; }
+  #split.v > #bar { width: 6px; margin: 0 4px; cursor: col-resize; }
+
+  /* Command log */
+  #cmdlog { padding: 2px 4px; }
+  .cmd { display: flex; gap: 12px; padding: 2px 8px; white-space: nowrap; }
+  .cmd:nth-child(odd) { background: #ffffff06; }
+  .cmd .t { color: var(--dim); flex: none; }
+  .cmd .n { color: var(--accent); flex: none; min-width: 20ch; }
+  .cmd .a { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .cmd .s { flex: none; color: var(--ok); }
+  .cmd.bad .s { color: var(--bad); }
+  .cmd.sep { color: var(--dim); justify-content: center; background: none; }
+
   #grid {
-    display: grid; gap: 12px;
+    display: grid; gap: 12px; padding: 2px;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   }
   .panel {
@@ -54,7 +81,7 @@
   td.f { color: var(--dim); width: 55%; }
   td.v { text-align: right; white-space: nowrap; }
   td.u { color: var(--dim); width: 3.5em; font-size: 11px; }
-  #empty { color: var(--dim); padding: 24px 4px; }
+  .empty { color: var(--dim); padding: 16px 8px; }
 </style>
 </head>
 <body>
@@ -62,8 +89,13 @@
   <h1 id="system">xtce-sim</h1>
   <span id="link"><span class="dot"></span><span id="linktext">connecting…</span></span>
   <button id="toggle" title="Toggle engineering units / raw wire counts">EU</button>
+  <button id="orient" title="Flip the split between horizontal and vertical">split ⇵</button>
 </header>
-<div id="grid"><div id="empty">Waiting for the definition…</div></div>
+<div id="split" class="h">
+  <div id="cmdpane"><div id="cmdlog"><div class="empty" id="cmdempty">No commands yet — sends appear here as the vehicle echoes them.</div></div></div>
+  <div id="bar"></div>
+  <div id="tlmpane"><div id="grid"><div class="empty">Waiting for the definition…</div></div></div>
+</div>
 
 <script>
 "use strict";
@@ -72,14 +104,134 @@ let showRaw = false;
 let definition = null;
 const latest = new Map();   // apid -> last telemetry message
 const panels = new Map();   // apid -> {panel, seq, time, cells: Map(field -> {v, u})}
+const CMDLOG_MAX = 500;     // oldest lines drop off past this
 
 const grid = document.getElementById("grid");
+const cmdlog = document.getElementById("cmdlog");
+const cmdpane = document.getElementById("cmdpane");
 
 document.getElementById("toggle").addEventListener("click", () => {
   showRaw = !showRaw;
   document.getElementById("toggle").textContent = showRaw ? "RAW" : "EU";
   for (const msg of latest.values()) render(msg, false);
 });
+
+// ---- split layout ----------------------------------------------------------
+
+// localStorage can THROW on mere access (blocked cookies, sandboxed iframe,
+// private-mode quota). Layout preferences must never kill the console, so
+// all storage goes through this shrug-and-continue wrapper.
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* preference lost, page lives */ } },
+};
+
+const split = document.getElementById("split");
+const bar = document.getElementById("bar");
+let orient = store.get("splitOrient") || "h";
+
+function splitPos() {
+  // Never trust storage: clamp to the same 10..90 the drag enforces.
+  const pos = Number.parseFloat(store.get("splitPos-" + orient)) || 30;
+  return Math.min(90, Math.max(10, pos));
+}
+
+function applySplit() {
+  split.className = orient;
+  document.getElementById("orient").textContent = orient === "h" ? "split ⇵" : "split ⇄";
+  cmdpane.style.flexBasis = splitPos() + "%";
+}
+
+document.getElementById("orient").addEventListener("click", () => {
+  orient = orient === "h" ? "v" : "h";
+  applySplit();
+  store.set("splitOrient", orient);
+});
+
+bar.addEventListener("pointerdown", (down) => {
+  down.preventDefault();
+  bar.setPointerCapture(down.pointerId);
+  bar.classList.add("dragging");
+  const rect = () => split.getBoundingClientRect();
+  const onMove = (ev) => {
+    const r = rect();
+    const frac = orient === "h"
+      ? (ev.clientY - r.top) / r.height
+      : (ev.clientX - r.left) / r.width;
+    const pos = Math.min(90, Math.max(10, frac * 100));
+    cmdpane.style.flexBasis = pos + "%";
+    store.set("splitPos-" + orient, String(pos));
+  };
+  // pointercancel too: a drag the browser interrupts (touch gesture,
+  // focus loss) fires cancel, not up — without this the listeners leak
+  // and the bar keeps resizing on hover with no button down.
+  const onUp = () => {
+    bar.classList.remove("dragging");
+    bar.removeEventListener("pointermove", onMove);
+    bar.removeEventListener("pointerup", onUp);
+    bar.removeEventListener("pointercancel", onUp);
+  };
+  bar.addEventListener("pointermove", onMove);
+  bar.addEventListener("pointerup", onUp);
+  bar.addEventListener("pointercancel", onUp);
+});
+
+applySplit();
+
+// ---- command log -----------------------------------------------------------
+
+function logCommand(msg) {
+  const empty = document.getElementById("cmdempty");
+  if (empty) empty.remove();
+
+  // Stick to the bottom only if the user is already there; someone reading
+  // history up the scrollback must not be yanked down by new traffic.
+  const pinned =
+    cmdpane.scrollTop + cmdpane.clientHeight >= cmdpane.scrollHeight - 8;
+
+  const line = document.createElement("div");
+  line.className = msg.status === "executed" ? "cmd" : "cmd bad";
+  const t = document.createElement("span"); t.className = "t";
+  t.textContent = msg.time.slice(11);
+  const n = document.createElement("span"); n.className = "n";
+  n.textContent = msg.name;
+  const a = document.createElement("span"); a.className = "a";
+  let argText = "";
+  if (msg.args) {
+    argText = Object.entries(msg.args).map(([k, v]) => k + "=" + v).join("  ");
+  } else if (msg.raw) {
+    argText = "raw=" + msg.raw;
+  }
+  a.textContent = argText;
+  const s = document.createElement("span"); s.className = "s";
+  s.textContent = msg.status === "executed" ? "✓" : "✗ " + msg.status;
+  line.append(t, n, a, s);
+  cmdlog.appendChild(line);
+
+  // Trim in PAIRS: nth-child(odd) striping means removing one row flips
+  // every survivor's parity and the whole log's zebra strobes under
+  // continuous traffic once the cap is reached.
+  while (cmdlog.childElementCount > CMDLOG_MAX) {
+    cmdlog.firstElementChild.remove();
+    if (cmdlog.firstElementChild) cmdlog.firstElementChild.remove();
+  }
+  if (pinned) cmdpane.scrollTop = cmdpane.scrollHeight;
+}
+
+function logSeparator(text) {
+  // A boundary marker in the command history — a reconnect may be a new
+  // sim (even a different satellite), and silently continuing the old
+  // vehicle's history under a new title would mislead.
+  const empty = document.getElementById("cmdempty");
+  if (empty) return;  // nothing logged yet; no boundary to mark
+  const line = document.createElement("div");
+  line.className = "cmd sep";
+  line.textContent = text;
+  cmdlog.appendChild(line);
+  cmdpane.scrollTop = cmdpane.scrollHeight;
+}
+
+// ---- telemetry panels ------------------------------------------------------
 
 function breathe(el) {
   // A changed value breathes: the text swells to the --breathe color
@@ -186,6 +338,8 @@ setInterval(() => {
   }
 }, 1000);
 
+// ---- connection ------------------------------------------------------------
+
 function setLink(up, text) {
   const el = document.getElementById("link");
   el.classList.toggle("up", up);
@@ -199,11 +353,14 @@ function connect() {
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "definition") {
+      if (definition) logSeparator("— reconnected: " + msg.system + " —");
       definition = msg;
       buildPanels(msg);
     } else if (msg.type === "telemetry") {
       latest.set(msg.apid, msg);
       render(msg, true);
+    } else if (msg.type === "command") {
+      logCommand(msg);
     } else if (msg.type === "link") {
       setLink(msg.up, msg.up ? "sim link up" : "sim link down");
     }

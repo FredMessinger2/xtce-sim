@@ -91,3 +91,32 @@ def test_codec_decode_command_pads_short_payload():
     )
     # Empty payload should still decode (padded to zero) rather than raise.
     assert codec.decode_command(cmd, b"") == {"Timestamp": 0}
+
+
+def test_command_echo_round_trip():
+    cmd_packet = ccsds.CCSDSHeader(packet_type=1, apid=1).pack() + bytes([0x41, 0x02])
+    echo = ccsds.build_command_echo(cmd_packet, ccsds.ECHO_EXECUTED, seq_count=7)
+    header = ccsds.CCSDSHeader.unpack(echo[:6])
+    assert header.apid == ccsds.CMD_ECHO_APID
+    assert header.seq_count == 7
+    status, embedded = ccsds.parse_command_echo(echo)
+    assert status == ccsds.ECHO_EXECUTED
+    assert embedded == cmd_packet
+    ccsds.frame(echo)  # fits the wire frame
+
+
+def test_command_echo_truncates_oversized_embed():
+    # A command packet too big for the 16-bit wire frame must not make the
+    # echo (and the ground's visibility of the anomaly) vanish: the embed is
+    # truncated to fit and the frame still builds.
+    huge = b"\xab" * 70_000
+    echo = ccsds.build_command_echo(huge, ccsds.ECHO_FAILED)
+    status, embedded = ccsds.parse_command_echo(echo)
+    assert status == ccsds.ECHO_FAILED
+    assert len(embedded) == 65524  # _ECHO_EMBED_MAX
+    ccsds.frame(echo)  # must not raise struct.error
+
+
+def test_parse_command_echo_empty():
+    bare = ccsds.build_telemetry_packet(ccsds.CMD_ECHO_APID, b"")
+    assert ccsds.parse_command_echo(bare) == (None, b"")

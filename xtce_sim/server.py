@@ -85,6 +85,16 @@ class SimServer:
 
     async def start(self) -> None:
         """Bind the port and begin accepting connections and beaconing."""
+        # The generator refuses definitions that claim the echo APID, but a
+        # hand-edited cmd_tlm.json can sneak one past it — warn loudly, since
+        # that packet's beacons would masquerade as command echoes.
+        if self.simdef.packet_by_apid(ccsds.CMD_ECHO_APID) is not None:
+            self.logger.warning(
+                "packet %r uses APID 0x%X, reserved for the command echo — "
+                "ground tools will misread it",
+                self.simdef.packet_by_apid(ccsds.CMD_ECHO_APID).name,
+                ccsds.CMD_ECHO_APID,
+            )
         self._server = await asyncio.start_server(
             self._handle_client, self.host, self.port
         )
@@ -306,15 +316,34 @@ class SimServer:
             writer.close()
             self.logger.info("client disconnected: %s (%d total)", peer, len(self._clients))
 
+    def _echo_command(self, packet: bytes, status: int) -> None:
+        """Broadcast a command echo (see ccsds.py) — the ground's view of
+        what arrived and what became of it. Guarded: echo failure must not
+        affect command handling."""
+        try:
+            pkt = ccsds.build_command_echo(
+                packet, status, self._seq.next(ccsds.CMD_ECHO_APID)
+            )
+            wire = ccsds.frame(pkt)
+            # Snapshot first: _enqueue drops clients that can't keep up,
+            # which would mutate the dict mid-iteration.
+            conns = list(self._clients.values())
+            for conn in conns:
+                self._enqueue(conn, wire)
+        except Exception:
+            self.logger.exception("command echo failed")
+
     async def _dispatch(self, packet: bytes) -> None:
         opcode, payload = ccsds.parse_command_packet(packet)
         if opcode is None:
             self.logger.warning("received undecodable command packet (%d bytes)", len(packet))
+            self._echo_command(packet, ccsds.ECHO_FAILED)
             return
 
         command = self.simdef.command_by_opcode(opcode)
         if command is None:
             self.logger.warning("received unknown opcode 0x%02X", opcode)
+            self._echo_command(packet, ccsds.ECHO_UNKNOWN_OPCODE)
             return
 
         # Decoding, behavior effects, and the (arbitrary) command handler all
@@ -343,6 +372,9 @@ class SimServer:
                 await self.command_handler(self, command, args)
         except Exception:
             self.logger.exception("error handling command 0x%02X %s", opcode, command.name)
+            self._echo_command(packet, ccsds.ECHO_FAILED)
+            return
+        self._echo_command(packet, ccsds.ECHO_EXECUTED)
 
 
 async def run(

@@ -88,6 +88,75 @@ def build_telemetry_packet(apid: int, payload: bytes, seq_count: int = 0) -> byt
     return header.pack() + payload
 
 
+# =============================================================================
+# COMMAND ECHO (protocol infrastructure)
+# =============================================================================
+#
+# On every command it processes — executed or not — the sim broadcasts a
+# command-echo telemetry packet so the ground can see exactly what arrived
+# and what became of it. Real systems verify commanding the same way
+# (command counters, PUS Service 1 acknowledgment, literal command echo);
+# this is the echo flavor, collapsed to one packet with a status byte.
+#
+# The echo rides a RESERVED APID, documented here rather than declared in
+# any satellite's XTCE: like the length-prefix framing above, it is part of
+# this simulator's link protocol, not part of a vehicle's payload telemetry.
+# (0x7FF is the CCSDS idle-packet APID; 0x7FE is left free for future
+# protocol packets.) A definition that tries to claim this APID for its own
+# telemetry is rejected at build time.
+#
+#     payload = [1-byte status][the received command packet]
+#
+# The embedded command is verbatim except at the extreme: an echo larger
+# than the 16-bit wire frame allows has its embed truncated to fit — the
+# status byte still tells the story.
+
+CMD_ECHO_APID = 0x7FD
+
+# Status semantics, honestly stated: EXECUTED means the command decoded and
+# the whole dispatch completed (individual behavior effects may still have
+# been skipped-with-a-warning). FAILED means the packet was undecodable, or
+# effect application / the command handler raised — in the handler case,
+# behavior effects and their immediate emissions may ALREADY have applied
+# before the failure. A one-byte status cannot express "partially landed";
+# the sim's own log carries the detail.
+ECHO_EXECUTED = 0
+ECHO_UNKNOWN_OPCODE = 1  # no command in the definition has this opcode
+ECHO_FAILED = 2
+
+ECHO_STATUS_NAMES = {
+    ECHO_EXECUTED: "executed",
+    ECHO_UNKNOWN_OPCODE: "unknown_opcode",
+    ECHO_FAILED: "failed",
+}
+
+# Largest embeddable command: 65535 (16-bit frame length) - 2 (length field)
+# - 2 (CRC) - 6 (echo header) - 1 (status byte).
+_ECHO_EMBED_MAX = 65524
+
+
+def build_command_echo(command_packet: bytes, status: int, seq_count: int = 0) -> bytes:
+    """A command-echo telemetry packet wrapping the received command.
+
+    An embed too large for the wire frame is truncated rather than letting
+    the echo (and the ground's visibility of an anomalous command) vanish.
+    """
+    return build_telemetry_packet(
+        CMD_ECHO_APID, bytes([status]) + command_packet[:_ECHO_EMBED_MAX], seq_count
+    )
+
+
+def parse_command_echo(packet: bytes) -> tuple[int | None, bytes]:
+    """Split an echo packet into (status, embedded_command_packet).
+
+    Returns ``(None, b"")`` if the packet has no status byte.
+    """
+    payload = packet[6:]
+    if not payload:
+        return None, b""
+    return payload[0], payload[1:]
+
+
 def parse_command_packet(packet: bytes) -> tuple[int | None, bytes]:
     """Split a CCSDS command packet into (opcode, argument_payload).
 

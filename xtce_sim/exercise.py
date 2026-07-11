@@ -174,6 +174,10 @@ def _tally(pkt: bytes, simdef: SimDefinition, health: TelemetryHealth) -> None:
     if len(pkt) < 6:
         return
     header = ccsds.CCSDSHeader.unpack(pkt[:6])
+    if header.apid == ccsds.CMD_ECHO_APID:
+        # Command echoes (see ccsds.py) are link infrastructure, not the
+        # satellite's telemetry — counting them would pad the APID tally.
+        return
     health.packets += 1
     health.apids.add(header.apid)
     packet_def = simdef.packet_by_apid(header.apid)

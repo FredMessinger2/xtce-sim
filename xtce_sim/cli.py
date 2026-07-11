@@ -420,6 +420,10 @@ def _decode_packet(
     if len(packet) < 6:  # runt frame from a misbehaving/other-protocol server
         return None
     header = ccsds.CCSDSHeader.unpack(packet[:6])
+    if header.apid == ccsds.CMD_ECHO_APID:
+        # Command echoes are link infrastructure (see ccsds.py), rendered by
+        # the web console's command log — not payload telemetry.
+        return None
     packet_def = simdef.packet_by_apid(header.apid)
     name = packet_def.name if packet_def else f"APID_0x{header.apid:X}"
     if wanted and name not in wanted:

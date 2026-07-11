@@ -20,6 +20,7 @@ import logging
 import math
 from typing import Optional
 
+from xtce_sim import ccsds
 from xtce_sim.definition import (
     CalibratorInfo,
     CommandDef,
@@ -499,6 +500,15 @@ def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
             raise GeneratorError(
                 f"duplicate APID 0x{apid:X}: packets {seen_apids[apid]!r} and "
                 f"{container.name!r} collide"
+            )
+        if apid == ccsds.CMD_ECHO_APID:
+            # Reserved for the command echo (see ccsds.py) — a payload packet
+            # here would be routed to the console's command log as garbage
+            # and hidden by the monitor. Refuse loudly at build time.
+            raise GeneratorError(
+                f"packet {container.name!r} uses APID 0x{apid:X}, which is "
+                f"reserved for the simulator's command echo (see ccsds.py) — "
+                f"pick another APID"
             )
         seen_apids[apid] = container.name
 

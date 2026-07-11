@@ -372,3 +372,75 @@ async def test_unknown_opcode_is_ignored(simdef: SimDefinition):
         writer.close()
     finally:
         await server.stop()
+
+
+# ---- command echo (protocol infrastructure, see ccsds.py) -------------------
+
+
+async def _read_echo(reader: asyncio.StreamReader) -> bytes:
+    """Read frames until the command-echo packet arrives (beacons skipped)."""
+    buffer = b""
+    for _ in range(200):
+        buffer += await asyncio.wait_for(reader.read(4096), timeout=2.0)
+        packets, buffer = ccsds.deframe(buffer)
+        for pkt in packets:
+            if ccsds.CCSDSHeader.unpack(pkt[:6]).apid == ccsds.CMD_ECHO_APID:
+                return pkt
+    raise AssertionError("no echo packet arrived")
+
+
+async def test_executed_command_is_echoed_with_the_original_bytes(simdef):
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=10.0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        cmd = simdef.command_by_name("NOOP") or simdef.commands[0]
+        packet = ccsds.CCSDSHeader(packet_type=1, apid=1).pack() + bytes([cmd.opcode])
+        writer.write(ccsds.frame(packet))
+        await writer.drain()
+        echo = await _read_echo(reader)
+        status, embedded = ccsds.parse_command_echo(echo)
+        assert status == ccsds.ECHO_EXECUTED
+        assert embedded == packet  # the command bytes come back verbatim
+        writer.close()
+    finally:
+        await server.stop()
+
+
+async def test_unknown_opcode_is_echoed_as_unknown(simdef):
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=10.0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        packet = ccsds.CCSDSHeader(packet_type=1, apid=1).pack() + bytes([0xFE])
+        writer.write(ccsds.frame(packet))
+        await writer.drain()
+        status, embedded = ccsds.parse_command_echo(await _read_echo(reader))
+        assert status == ccsds.ECHO_UNKNOWN_OPCODE
+        assert embedded == packet
+        writer.close()
+    finally:
+        await server.stop()
+
+
+async def test_execution_error_is_echoed_as_failed(simdef):
+    # Short payloads decode as zeros by design (decode_command pads), so the
+    # honest FAILED trigger is an execution error — here, a raising handler.
+    async def bad_handler(server, command, args):
+        raise RuntimeError("boom")
+
+    server = SimServer(
+        simdef, host="127.0.0.1", port=0, beacon_interval=10.0, command_handler=bad_handler
+    )
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        cmd = simdef.command_by_name("NOOP") or simdef.commands[0]
+        packet = ccsds.CCSDSHeader(packet_type=1, apid=1).pack() + bytes([cmd.opcode])
+        writer.write(ccsds.frame(packet))
+        await writer.drain()
+        status, _ = ccsds.parse_command_echo(await _read_echo(reader))
+        assert status == ccsds.ECHO_FAILED
+        writer.close()
+    finally:
+        await server.stop()
