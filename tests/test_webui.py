@@ -200,7 +200,7 @@ async def test_writer_failure_drops_client(simdef):
     queue: asyncio.Queue = asyncio.Queue(maxsize=4)
     task = asyncio.create_task(bridge._client_writer(dead, queue))
     bridge.clients[dead] = (queue, task)
-    await bridge._broadcast({"type": "link", "up": True})
+    bridge._broadcast({"type": "link", "up": True})
     await asyncio.wait_for(task, timeout=2)  # writer ends on the send failure
     assert dead not in bridge.clients
 
@@ -222,7 +222,7 @@ async def test_broadcast_drops_stalled_client_instead_of_blocking(simdef):
     # 2 fills the queue (the writer holds one more in-flight); the next put
     # overflows and drops the client.
     for _ in range(4):
-        await bridge._broadcast({"type": "link", "up": True})
+        bridge._broadcast({"type": "link", "up": True})
     assert stalled not in bridge.clients
     assert task.cancelled() or task.done() or task.cancelling()
     task.cancel()

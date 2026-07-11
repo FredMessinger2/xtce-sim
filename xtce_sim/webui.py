@@ -186,7 +186,7 @@ class Bridge:
 
     # -- broadcast ----------------------------------------------------------
 
-    async def _broadcast(self, message: dict) -> None:
+    def _broadcast(self, message: dict) -> None:
         if not self.clients:
             return
         text = json.dumps(message)
@@ -226,12 +226,12 @@ class Bridge:
             except OSError:
                 if self.link_up:
                     self.link_up = False
-                    await self._broadcast({"type": "link", "up": False})
+                    self._broadcast({"type": "link", "up": False})
                 await asyncio.sleep(_RECONNECT_DELAY_S)
                 continue
             log.info("downlink up: %s:%d", self.sim_host, self.sim_port)
             self.link_up = True
-            await self._broadcast({"type": "link", "up": True})
+            self._broadcast({"type": "link", "up": True})
             try:
                 await self._read_stream(reader)
             except ccsds.FrameError as exc:
@@ -241,7 +241,7 @@ class Bridge:
                 # would run to completion on cancellation and hang Ctrl-C.
                 writer.close()
             self.link_up = False
-            await self._broadcast({"type": "link", "up": False})
+            self._broadcast({"type": "link", "up": False})
             log.info("downlink down; retrying")
             await asyncio.sleep(_RECONNECT_DELAY_S)
 
@@ -255,7 +255,7 @@ class Bridge:
             for packet in packets:
                 message = telemetry_message(self.simdef, packet)
                 if message is not None:
-                    await self._broadcast(message)
+                    self._broadcast(message)
 
     # -- HTTP / WebSocket handlers -------------------------------------------
 
