@@ -8,6 +8,7 @@ license = { text = "MIT" }
 authors = [{ name = "Fred Messinger" }]
 keywords = ["xtce", "ccsds", "satellite", "telemetry", "simulator", "spacecraft"]
 dependencies = [
+    "aiohttp",
     "click",
     "crcmod",
 ]

@@ -21,6 +21,7 @@ import logging
 import socket
 import struct
 import sys
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -649,7 +650,21 @@ def _run_dashboard(host, port, instance, decode, count) -> None:
     is_flag=True,
     help="Print the commands/args that would be sent; connect to nothing.",
 )
-def exercise(port, host, instance_id, def_path, apid, command_filter, verify, dry_run) -> None:
+@click.option(
+    "--pause",
+    default=0.0,
+    show_default=True,
+    type=click.FloatRange(min=0),
+    help="Seconds to wait after each send (narrates each send; makes effects watchable).",
+)
+@click.option(
+    "--loop",
+    is_flag=True,
+    help="Repeat the sweep until Ctrl-C (pair with --pause for per-send narration).",
+)
+def exercise(
+    port, host, instance_id, def_path, apid, command_filter, verify, dry_run, pause, loop
+) -> None:
     """Send a valid instance of every command, then check telemetry health.
 
     Exercises the whole command surface thoroughly: one send per enum value and
@@ -657,6 +672,10 @@ def exercise(port, host, instance_id, def_path, apid, command_filter, verify, dr
     stayed alive and every packet still decoded — not per-command effects
     (commands change telemetry when a behavior sidecar is loaded, but this
     exerciser does not yet check each declared effect).
+
+    For watching effects live (monitor or web console), --pause 1 slows the
+    sweep to one send per second and echoes each send as it goes; --loop
+    repeats the whole sweep until interrupted.
     """
     simdef = _load_definition(instance_id, def_path)
 
@@ -677,13 +696,66 @@ def exercise(port, host, instance_id, def_path, apid, command_filter, verify, dr
     except OSError as exc:
         raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
 
-    click.echo(f"Exercising {len(targets)} command(s) on {host}:{port} ...")
-    report = run_exercise(
-        simdef, host, port, apid=apid, commands={c.name for c in targets}, verify=verify
+    any_failed, interrupted = _run_sweeps(
+        simdef, targets, host, port, apid=apid, verify=verify, pause=pause, loop=loop
     )
-    _print_exercise_report(report, verify=verify)
-    if not report.ok:
+    # Exit code: any failed sweep fails the run (soak included); a Ctrl-C on
+    # a one-shot run means it never finished, which is not success either.
+    if any_failed:
         raise SystemExit(1)
+    if interrupted and not loop:
+        raise SystemExit(130)
+
+
+def _run_sweeps(simdef, targets, host, port, *, apid, verify, pause, loop):
+    """Run exercise sweeps (once, or looping until Ctrl-C).
+
+    Returns (any_failed, interrupted). A looping run stops on its own when
+    every send in a sweep fails — the sim is gone, and spinning at full
+    speed against a dead port helps no one.
+    """
+    on_send = _echo_send if pause > 0 else None
+    sweeps_done = 0
+    any_failed = False
+    interrupted = False
+    try:
+        while True:
+            if loop:
+                click.echo(f"— sweep {sweeps_done + 1} —")
+            click.echo(f"Exercising {len(targets)} command(s) on {host}:{port} ...")
+            report = run_exercise(
+                simdef,
+                host,
+                port,
+                apid=apid,
+                commands={c.name for c in targets},
+                verify=verify,
+                pause=pause,
+                on_send=on_send,
+            )
+            sweeps_done += 1
+            any_failed = any_failed or not report.ok
+            _print_exercise_report(report, verify=verify)
+            if not loop:
+                break
+            if report.sends and not any(s.ok for s in report.sends):
+                click.echo(click.style("every send failed — stopping the loop.", fg="red"))
+                break
+            if pause > 0:
+                time.sleep(pause)  # breathe between sweeps, same rhythm as sends
+    except KeyboardInterrupt:
+        interrupted = True
+        click.echo(
+            f"\ninterrupted during sweep {sweeps_done + 1}; "
+            f"{sweeps_done} sweep(s) completed."
+        )
+    return any_failed, interrupted
+
+
+def _echo_send(result) -> None:
+    """One line per send, as it happens (interactive/paused runs)."""
+    status = "ok" if result.ok else click.style("FAIL", fg="red")
+    click.echo(f"  {result.command:<22} {result.label:<26} {status}")
 
 
 def _exercise_dry_run(targets) -> None:
@@ -694,6 +766,60 @@ def _exercise_dry_run(targets) -> None:
             total += 1
             click.echo(f"  {cmd.name:<22} {label:<26} {args}")
     click.echo(f"{total} sends across {len(targets)} command(s) — dry run, nothing sent")
+
+
+@main.command()
+@click.option("--port", required=True, type=int, help="TCP port of the running sim.")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Sim host to connect to.")
+@click.option("--id", "instance_id", default=None, help="Load def from runs/<id>/cmd_tlm.json.")
+@click.option(
+    "--def",
+    "def_path",
+    default=None,
+    type=click.Path(exists=True, path_type=Path),
+    help="Definition source: an XTCE .xml or a cmd_tlm.json.",
+)
+@click.option(
+    "--http-port",
+    default=8080,
+    show_default=True,
+    type=click.IntRange(1, 65535),
+    help="Port to serve the browser console on.",
+)
+@click.option(
+    "--http-host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Host/interface to serve the console on.",
+)
+def ui(
+    port: int,
+    host: str,
+    instance_id: str | None,
+    def_path: Path | None,
+    http_port: int,
+    http_host: str,
+) -> None:
+    """Serve a live browser console fed by the running sim.
+
+    Plays the ground station: connects to the sim's TCP port like `monitor`
+    does, decodes each packet against the definition, and pushes every field
+    (engineering units and raw counts) to the browser over WebSocket. The sim
+    keeps speaking pure CCSDS; all decoding happens here. Reconnects if the
+    sim restarts.
+    """
+    from xtce_sim import webui
+
+    simdef = _load_definition(instance_id, def_path)
+    click.echo(f"Console: http://{http_host}:{http_port}/  (sim {host}:{port}, Ctrl-C to stop)")
+    try:
+        asyncio.run(webui.run_ui(simdef, host, port, http_host, http_port))
+    except KeyboardInterrupt:
+        click.echo("\nStopped.")
+    except OSError as exc:
+        raise click.ClickException(
+            f"could not serve the console on {http_host}:{http_port} — {exc}"
+        ) from exc
 
 
 def _print_exercise_report(report, *, verify: bool) -> None:

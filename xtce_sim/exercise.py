@@ -198,6 +198,8 @@ def run_exercise(
     commands: Optional[set] = None,
     verify: bool = True,
     verify_timeout: float = 3.0,
+    pause: float = 0.0,
+    on_send=None,
 ) -> ExerciseReport:
     """Send every command's arg-sets, then (optionally) check telemetry health.
 
@@ -205,17 +207,35 @@ def run_exercise(
     Each send is recorded as a SendResult; a per-send failure (bad encode or a
     dropped connection) is captured, not raised, so one bad command doesn't
     abort the sweep.
+
+    ``pause`` waits that many seconds after each send, so a human watching
+    telemetry can see each command's effect land. ``on_send`` is called with
+    each SendResult as it happens (per-send narration for interactive use).
     """
     report = ExerciseReport()
     for command in simdef.commands:
         if commands is not None and command.name not in commands:
             continue
-        for label, args in command_arg_sets(command):
-            try:
-                client.send_command(host, port, command, args, apid=apid)
-                report.sends.append(SendResult(command.name, label, True))
-            except (OSError, ValueError, struct.error, OverflowError) as exc:
-                report.sends.append(SendResult(command.name, label, False, str(exc)))
+        _send_arg_sets(command, host, port, apid, report, pause, on_send)
     if verify:
         report.telemetry = check_telemetry(host, port, simdef, timeout=verify_timeout)
     return report
+
+
+def _send_arg_sets(command, host, port, apid, report, pause, on_send) -> None:
+    """Fire every arg-set of one command, recording (and narrating) each send.
+
+    Pacing happens *between* sends (never before the first or after the last
+    of a sweep), so a paused run doesn't sit idle after its final command.
+    """
+    for label, args in command_arg_sets(command):
+        if pause > 0 and report.sends:
+            time.sleep(pause)
+        try:
+            client.send_command(host, port, command, args, apid=apid)
+            result = SendResult(command.name, label, True)
+        except (OSError, ValueError, struct.error, OverflowError) as exc:
+            result = SendResult(command.name, label, False, str(exc))
+        report.sends.append(result)
+        if on_send is not None:
+            on_send(result)

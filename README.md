@@ -14,8 +14,9 @@ client, or the bundled `xtce-sim monitor`. An optional
 simulated vehicle *act*: commands change telemetry, heaters warm toward their
 setpoints, panels ride the orbit thermal cycle.
 
-No OpenC3 required. No web UI. Just a small Python package with a tiny
-dependency footprint (only `click` and `crcmod`).
+No OpenC3 required, no heavyweight ground system — just a small Python
+package with a light dependency footprint (`click`, `crcmod`, and `aiohttp`
+for the bundled single-page [web console](#web-console)).
 
 ## How it fits together
 
@@ -28,7 +29,7 @@ in, each a length-prefixed CCSDS packet with a CRC.
 flowchart TD
     XTCE["satellite directory — my_vehicle/<br/>XTCE file(s): opcodes, APIDs, fields<br/>behavior .toml files beside them"]
     BEH["behavior TOML (optional)<br/>thermal.toml · imager.toml · …<br/>command effects · ramps · signals"]
-    SIM["SimServer<br/>SimDefinition (in memory)<br/>55 commands · 14 telemetry packets"]
+    SIM["SimServer<br/>SimDefinition (in memory)<br/>61 commands · 18 telemetry packets"]
     JSON["runs/&lt;id&gt;/cmd_tlm.json<br/>shared command / telemetry dictionary"]
     PORT{{"CCSDS over TCP — one bidirectional port :5000<br/>2-byte length + CCSDS packet + CRC-16"}}
     MON["xtce-sim monitor<br/>decode telemetry"]
@@ -82,6 +83,7 @@ xtce-sim inspect  <file.xml...>                    # narrate what the parser see
 xtce-sim generate <file.xml...>                    # build defs, write cmd/tlm to disk, stop
 xtce-sim run      <file.xml...> --id ID --port N   # build, dump, and serve
 xtce-sim monitor  --id ID --port N                 # watch decoded live telemetry
+xtce-sim ui       --id ID --port N                 # live browser console (WebSocket push)
 xtce-sim send     --id ID --port N CMD K=V ...     # send a command
 xtce-sim exercise --id ID --port N                 # send every command, check telemetry health
 ```
@@ -110,7 +112,10 @@ xtce-sim run examples/my_vehicle/my_vehicle_commands.xml examples/my_vehicle/my_
 
 A second, richer example ships as
 [`examples/imaging_sat/imaging_sat.xml`](examples/imaging_sat/imaging_sat.xml) — an Earth-observation
-satellite with imaging, thermal, file-transfer, and ATS/RTS sequencing. Its
+satellite with imaging, thermal, a full ADCS (attitude determination and
+control: quaternion attitude, four-wheel pyramid, star tracker/sun/mag
+sensors — raw counts with calibrators throughout), file-transfer, and
+ATS/RTS sequencing. Its
 directory also holds per-subsystem behavior files
 ([`examples/imaging_sat/`](examples/imaging_sat)),
 so its commands actually change its telemetry — see
@@ -127,13 +132,13 @@ xtce-sim inspect examples/imaging_sat/imaging_sat.xml
 
 ```text
 parsing examples/imaging_sat/imaging_sat.xml (SpaceSystem 'ImagingSat')
-resolved inheritance: 31 command(s) with a base command (31 fixing inherited args via assignments), ...
-~ ignored 9 <DefaultSignificance> element(s) (e.g. under MetaCommand 'NOOP') — present in the XTCE but not read by this parser
+resolved inheritance: 41 command(s) with a base command (41 fixing inherited args via assignments), ...
+~ ignored 13 <DefaultSignificance> element(s) (e.g. under MetaCommand 'NOOP') — present in the XTCE but not read by this parser
 ...
-built ImagingSat: 30 dispatchable command(s), 8 telemetry packet(s)
+built ImagingSat: 40 dispatchable command(s), 12 telemetry packet(s)
 
 Behavior (examples/imaging_sat):
-  initial values: 5 field(s)
+  initial values: 26 field(s)
     ...
   boot signals: 8
     THM_PANEL_PLUS_X oscillates (sine) around 10.0 amplitude 25.0, period 5400.0s ±noise(0.5)
@@ -142,14 +147,14 @@ Behavior (examples/imaging_sat):
     THM_HEATER{HeaterId}_STATE = 'ON'  [emit: immediate]
     THM_HEATER{HeaterId}_TEMP ramps to @THM_HEATER{HeaterId}_SETPOINT (tau=30.0s)
   ...
-OK: ImagingSat — 30 command(s), 8 packet(s)
+OK: ImagingSat — 40 command(s), 12 packet(s)
 ```
 
 Lines marked `~` are **inferences and gaps** — places the parser filled a gap
 rather than reading an explicit declaration (an enum sized from its max value,
 a boolean defaulted to 1 bit, a command assigned a synthetic opcode), and
 **content the parser ignored**: after the parse it reports any element the
-file declared but nothing ever read (`ignored 9 <DefaultSignificance> ... —
+file declared but nothing ever read (`ignored 13 <DefaultSignificance> ... —
 present in the XTCE but not read by this parser`), so unsupported XTCE
 features are visible instead of silently dropped. Warnings appear inline with a `!` marker. `inspect --full`
 traces every parsed element, and `inspect --dump` appends the complete
@@ -169,15 +174,35 @@ xtce-sim exercise --id sat-a --port 5000
 ```
 
 ```text
-Exercising 55 command(s) on 127.0.0.1:5000 ...
-Commands: sent 142/142 OK
-Telemetry: 14 packet(s), 14 APID(s), 0 decode failure(s)
+Exercising 61 command(s) on 127.0.0.1:5000 ...
+Commands: sent 158/158 OK
+Telemetry: 18 packet(s), 18 APID(s), 0 decode failure(s)
   sample: HOUSEKEEPING: HK_TIMESTAMP=1735689602, HK_SYSTEM_STATUS=0, HK_COLLECTION_MODE=0
 ```
 
 `--command NAME` limits the sweep (repeatable), `--dry-run` prints what would
 be sent without connecting, and the exit code is non-zero on any failure — 
 usable in CI.
+
+At full speed the sweep finishes in well under a second — fine for CI,
+useless to watch. For a human at a monitor or the web console, slow it down
+and let it run:
+
+```bash
+xtce-sim exercise --id sat-a --port 5000 --pause 1 --loop
+```
+
+`--pause 1` waits a second after each send and narrates every send as it
+happens (`ADCS_SET_MODE  Mode=NADIR  ok`), so you can match commands to the
+telemetry reacting; `--loop` repeats the whole sweep until Ctrl-C, reporting
+the sweep count on exit.
+
+The imaging satellite also ships a scripted sweep,
+[`examples/imaging_sat/set_all_fields.sh`](examples/imaging_sat/set_all_fields.sh),
+which sets every command-settable telemetry field to a distinctive value one
+send at a time — heater setpoints, exposure, quaternion, wheel speeds — a
+guided tour of the behavior wiring rather than a boundary probe (a test
+cross-validates every line of it against the XTCE).
 
 ### Monitor styles
 
@@ -226,6 +251,33 @@ xtce-sim monitor · my_vehicle · 127.0.0.1:5000     packets 1,284
 ```
 
 Filter to specific packets with `--packet NAME` (repeatable).
+
+### Web console
+
+`xtce-sim ui` serves a live browser console — every packet, every field, in
+one window, updated the instant data arrives:
+
+```bash
+xtce-sim ui --def examples/imaging_sat/imaging_sat.xml --port 5000
+# Console: http://127.0.0.1:8080/  (sim 127.0.0.1:5000, Ctrl-C to stop)
+```
+
+The layering is deliberate. The sim server plays the *spacecraft*: it speaks
+only framed CCSDS over TCP and never learns about JSON or browsers. `ui` is a
+separate small process playing the *ground station* — it connects to the
+sim's TCP port exactly like `monitor` does, decodes each packet against the
+definition, and pushes JSON to the browser over WebSocket. On connect the
+browser receives the full definition (packets, fields, units, enum labels)
+and builds its panels from it — the page hardcodes nothing.
+
+In the console: one panel per packet with every field, values in engineering
+units with an **EU/RAW** toggle (same rules as `monitor --raw`), a changed
+value flashes briefly, panels dim when their packets stop arriving, and a
+link dot tracks the sim connection — kill the sim and it goes red, restart
+and the bridge reconnects on its own. Because telemetry is *pushed*,
+immediate emissions (see below) appear the moment they happen, between
+beacon beats. `--http-port` moves the console off 8080; commanding from the
+browser is planned, not yet built.
 
 ### Live telemetry
 
@@ -296,8 +348,8 @@ xtce-sim send --id sat-c --port 5003 RESET SubsystemId=2 ResetType=HARD
 ```
 
 ```
-08:49:01 [sat-a] listening on 127.0.0.1:5001 — 55 command(s), 14 packet(s)
-08:49:01 [sat-b] listening on 127.0.0.1:5002 — 55 command(s), 14 packet(s)
+08:49:01 [sat-a] listening on 127.0.0.1:5001 — 61 command(s), 18 packet(s)
+08:49:01 [sat-b] listening on 127.0.0.1:5002 — 61 command(s), 18 packet(s)
 08:49:04 [sat-a] command 0x10 SET_POWER args={'SubsystemId': 1, 'PowerState': 'ON'}
 08:49:05 [sat-b] command 0x20 START_COLLECTION args={'Mode': 'BURST', 'Duration': 3600}
 ```

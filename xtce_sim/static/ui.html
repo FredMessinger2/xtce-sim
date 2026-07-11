@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xtce-sim console</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #c9d1d9; --dim: #8b949e; --accent: #58a6ff;
+    --ok: #3fb950; --bad: #f85149; --flash: #1f6feb33;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    font-size: 13px; padding: 12px;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px;
+    padding: 4px 4px 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; color: var(--accent); font-weight: 600; }
+  #link { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); }
+  #link .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--bad); display: inline-block;
+  }
+  #link.up .dot { background: var(--ok); }
+  #toggle {
+    margin-left: auto; background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 12px; font: inherit; cursor: pointer;
+  }
+  #toggle:hover { border-color: var(--accent); }
+  #grid {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .panel.stale { opacity: 0.55; }
+  .panel h2 {
+    font-size: 13px; font-weight: 600; color: var(--accent);
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 10px; align-items: baseline;
+  }
+  .panel h2 .meta { margin-left: auto; color: var(--dim); font-weight: 400; font-size: 11px; }
+  .panel table { width: 100%; border-collapse: collapse; }
+  .panel td { padding: 3px 12px; vertical-align: baseline; }
+  .panel tr:nth-child(odd) { background: #ffffff06; }
+  td.f { color: var(--dim); width: 55%; }
+  td.v { text-align: right; white-space: nowrap; }
+  td.v.changed { background: var(--flash); }
+  td.u { color: var(--dim); width: 3.5em; font-size: 11px; }
+  #empty { color: var(--dim); padding: 24px 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="system">xtce-sim</h1>
+  <span id="link"><span class="dot"></span><span id="linktext">connecting…</span></span>
+  <button id="toggle" title="Toggle engineering units / raw wire counts">EU</button>
+</header>
+<div id="grid"><div id="empty">Waiting for the definition…</div></div>
+
+<script>
+"use strict";
+
+let showRaw = false;
+let definition = null;
+const latest = new Map();   // apid -> last telemetry message
+const panels = new Map();   // apid -> {panel, seq, time, cells: Map(field -> {v, u})}
+
+const grid = document.getElementById("grid");
+
+document.getElementById("toggle").addEventListener("click", () => {
+  showRaw = !showRaw;
+  document.getElementById("toggle").textContent = showRaw ? "RAW" : "EU";
+  for (const msg of latest.values()) render(msg, false);
+});
+
+function fmt(num) {
+  if (typeof num !== "number") return String(num);
+  if (Number.isInteger(num)) return String(num);
+  const a = Math.abs(num);
+  if (a !== 0 && (a >= 1e6 || a < 1e-3)) return num.toExponential(3);
+  return String(Number.parseFloat(num.toFixed(3)));  // fixed precision, trailing zeros dropped
+}
+
+function displayValue(fdef, fv) {
+  // Same rules as the terminal monitor (_display_value): the enum label
+  // wins in BOTH views, then the calibrated engineering value; the raw
+  // view shows wire counts with the unit suppressed (counts are unitless).
+  if (fv.label != null) return { text: fv.label, unit: fdef.unit };
+  const val = showRaw ? fv.raw : fv.eu;
+  const unit = (showRaw && fdef.calibrated) ? null : fdef.unit;
+  return { text: val == null ? "—" : fmt(val), unit };
+}
+
+function buildPanels(def) {
+  // A rebuild means a (re)connect: drop everything from the old world, or
+  // the EU/RAW toggle would repaint pre-restart telemetry as current and
+  // panels for vanished APIDs would leak.
+  panels.clear();
+  latest.clear();
+  grid.textContent = "";
+  document.getElementById("system").textContent = def.system + " · xtce-sim console";
+  document.title = def.system + " · xtce-sim console";
+  for (const p of def.packets) {
+    const panel = document.createElement("div");
+    panel.className = "panel stale";
+    const h2 = document.createElement("h2");
+    const nameEl = document.createElement("span");
+    nameEl.textContent = p.name;
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = "APID 0x" + p.apid.toString(16).toUpperCase() + " · no data";
+    h2.append(nameEl, meta);
+    const table = document.createElement("table");
+    const cells = new Map();
+    for (const f of p.fields) {
+      const tr = document.createElement("tr");
+      const tf = document.createElement("td"); tf.className = "f"; tf.textContent = f.name;
+      const tv = document.createElement("td"); tv.className = "v"; tv.textContent = "—";
+      const tu = document.createElement("td"); tu.className = "u";
+      tr.append(tf, tv, tu);
+      table.appendChild(tr);
+      cells.set(f.name, { v: tv, u: tu, def: f });
+    }
+    panel.append(h2, table);
+    grid.appendChild(panel);
+    panels.set(p.apid, { panel, meta, cells, lastSeen: 0 });
+  }
+}
+
+function render(msg, isArrival) {
+  const entry = panels.get(msg.apid);
+  if (!entry) return;
+  entry.meta.textContent =
+    "APID 0x" + msg.apid.toString(16).toUpperCase() +
+    " · seq " + msg.seq + " · " + msg.time.slice(11);
+  if (isArrival) {
+    entry.lastSeen = Date.now();
+    entry.panel.classList.remove("stale");
+  }
+  if (!msg.fields) return;
+  for (const [name, fv] of Object.entries(msg.fields)) {
+    const cell = entry.cells.get(name);
+    if (!cell) continue;
+    const { text, unit } = displayValue(cell.def, fv);
+    if (isArrival && cell.v.textContent !== text && cell.v.textContent !== "—") {
+      cell.v.classList.add("changed");
+      setTimeout(() => cell.v.classList.remove("changed"), 900);
+    }
+    cell.v.textContent = text;
+    cell.u.textContent = unit || "";
+  }
+}
+
+// Dim panels whose packets stopped arriving (>5 s without an update).
+setInterval(() => {
+  const now = Date.now();
+  for (const entry of panels.values()) {
+    if (entry.lastSeen && now - entry.lastSeen > 5000) {
+      entry.panel.classList.add("stale");
+    }
+  }
+}, 1000);
+
+function setLink(up, text) {
+  const el = document.getElementById("link");
+  el.classList.toggle("up", up);
+  document.getElementById("linktext").textContent = text;
+}
+
+function connect() {
+  const ws = new WebSocket(
+    (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws"
+  );
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "definition") {
+      definition = msg;
+      buildPanels(msg);
+    } else if (msg.type === "telemetry") {
+      latest.set(msg.apid, msg);
+      render(msg, true);
+    } else if (msg.type === "link") {
+      setLink(msg.up, msg.up ? "sim link up" : "sim link down");
+    }
+  };
+  ws.onclose = () => {
+    setLink(false, "bridge lost — retrying");
+    setTimeout(connect, 2000);   // the bridge itself went away; keep trying
+  };
+}
+connect();
+</script>
+</body>
+</html>
