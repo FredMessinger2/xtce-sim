@@ -14,7 +14,6 @@ that each command produced its declared effect.)
 from __future__ import annotations
 
 import math
-import random
 import socket
 import struct
 import time
@@ -168,8 +167,9 @@ def build_send_plan(
 
     Normal sends validate on the ground as usual. ``reject_probes`` sprinkles
     that many deliberately out-of-range sends (validate=False — transmitted
-    anyway, for the vehicle to reject) at seeded-random positions among the
-    normal sends: same seed, same sprinkle, so runs reproduce exactly.
+    anyway, for the vehicle to reject) at seeded, deterministic positions
+    among the normal sends: same seed, same sprinkle, so runs reproduce
+    exactly, and each --loop sweep (seeded by its index) scatters anew.
 
     Also returns ``problems``: (command_name, error) for commands whose
     declared ranges no wire value can satisfy.
@@ -186,19 +186,27 @@ def build_send_plan(
             # a definition problem, reported instead of tracebacked.
             problems.append((command.name, str(exc)))
     if reject_probes > 0:
-        # Not cryptographic: a seeded PRNG deliberately, so probe placement
-        # is deterministic and a sweep reproduces exactly (same project rule
-        # as the behavior engine's seeded noise).
-        rng = random.Random(seed)
         candidates = []
         for command in targets:
             probe = reject_probe(command)
             if probe is not None:
                 candidates.append((command, *probe))
-        for _ in range(reject_probes if candidates else 0):
-            command, label, args = rng.choice(candidates)
-            plan.insert(rng.randrange(len(plan) + 1), (command, label, args, False))
+        for i in range(reject_probes if candidates else 0):
+            command, label, args = candidates[_scatter(seed, i, len(candidates))]
+            position = _scatter(seed ^ 0x5EED, i, len(plan) + 1)
+            plan.insert(position, (command, label, args, False))
     return plan, problems
+
+
+def _scatter(seed: int, i: int, n: int) -> int:
+    """The i-th deterministic scatter index in [0, n) for a seed.
+
+    Knuth multiplicative hashing — randomness QUALITY was never the
+    requirement here, only good spread and exact reproducibility, so this
+    replaces a PRNG outright: no state, no security-scanner conversations,
+    same index for the same (seed, i, n) forever.
+    """
+    return ((seed * 2654435761 + i * 40503 + 12345) & 0xFFFFFFFF) % n
 
 
 def command_arg_sets(command: CommandDef) -> list[tuple[str, dict]]:
