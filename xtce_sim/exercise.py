@@ -13,6 +13,8 @@ that each command produced its declared effect.)
 
 from __future__ import annotations
 
+import math
+import random
 import socket
 import struct
 import time
@@ -74,7 +76,129 @@ def example_values(param: ParamInfo) -> list:
     if not declared:
         return [0]
     lo, hi = _int_wire_bounds(param)
+    if (param.valid_min is not None and param.valid_min > hi) or (
+        param.valid_max is not None and param.valid_max < lo
+    ):
+        # Disjoint: every wire-encodable value violates the declared range,
+        # so the vehicle would reject any instance of this command. That is a
+        # definition problem — diagnose it instead of stumbling into a
+        # clamped value the encoder then refuses.
+        raise ValueError(
+            f"{param.name}: no wire-encodable {param.python_type} value "
+            f"satisfies ValidRange [{param.valid_min}, {param.valid_max}]"
+        )
     return _dedupe([max(lo, min(hi, v)) for v in declared])
+
+
+def _invalid_value(param: ParamInfo):
+    """A wire-encodable value that VIOLATES the param's declared constraints.
+
+    None when no such value exists (an unconstrained param, or a range that
+    already spans its whole wire type) — such a param can't be probed.
+    """
+    if param.enumerations:
+        return _invalid_enum_value(param)
+    if param.python_type in ("float32", "float64"):
+        return _invalid_float_value(param)
+    return _invalid_int_value(param)
+
+
+def _invalid_enum_value(param: ParamInfo):
+    values = set(param.enumerations.values())
+    lo, hi = _int_wire_bounds(param)  # enums can ride signed wire types too
+    above = max(values) + 1
+    if above <= hi and above not in values:
+        return above
+    below = min(values) - 1
+    if below >= lo and below not in values:
+        return below
+    return None
+
+
+def _invalid_float_value(param: ParamInfo):
+    limit = _FLOAT32_MAX if param.python_type == "float32" else float("inf")
+    # A non-finite bound (maxInclusive="INF" parses) can't be exceeded —
+    # skip that side rather than emit a probe the vehicle would accept.
+    vmax, vmin = param.valid_max, param.valid_min
+    if vmax is not None and math.isfinite(vmax):
+        candidate = float(vmax) + max(1.0, abs(vmax) * 0.5)
+        if candidate <= limit:
+            return candidate
+    if vmin is not None and math.isfinite(vmin):
+        candidate = float(vmin) - max(1.0, abs(vmin) * 0.5)
+        if candidate >= -limit:
+            return candidate
+    return None
+
+
+def _invalid_int_value(param: ParamInfo):
+    lo, hi = _int_wire_bounds(param)
+    vmax, vmin = param.valid_max, param.valid_min
+    # isfinite guards int(inf) blowing up on a maxInclusive="INF" definition.
+    if vmax is not None and math.isfinite(vmax) and int(vmax) + 1 <= hi:
+        return int(vmax) + 1
+    if vmin is not None and math.isfinite(vmin) and int(vmin) - 1 >= lo:
+        return int(vmin) - 1
+    return None
+
+
+def reject_probe(command: CommandDef) -> Optional[tuple[str, dict]]:
+    """A deliberately-invalid ``(label, args)`` for one command, or None.
+
+    A valid baseline with exactly one argument pushed outside its declared
+    range/enum — the vehicle must reject it (REJECTED echo, no effects).
+    """
+    for param in command.params:
+        bad = _invalid_value(param)
+        if bad is None:
+            continue
+        try:
+            args = {p.name: example_values(p)[0] for p in command.params}
+        except (ValueError, OverflowError):
+            return None  # unsatisfiable/non-finite definition; reported by the sweep
+        args[param.name] = bad
+        return f"reject-probe {param.name}={bad}", args
+    return None
+
+
+def build_send_plan(
+    targets: list[CommandDef], *, reject_probes: int = 0, seed: int = 0
+) -> tuple[list, list]:
+    """The sweep's send plan: ``[(command, label, args, validate), ...]``.
+
+    Normal sends validate on the ground as usual. ``reject_probes`` sprinkles
+    that many deliberately out-of-range sends (validate=False — transmitted
+    anyway, for the vehicle to reject) at seeded-random positions among the
+    normal sends: same seed, same sprinkle, so runs reproduce exactly.
+
+    Also returns ``problems``: (command_name, error) for commands whose
+    declared ranges no wire value can satisfy.
+    """
+    plan: list = []
+    problems: list = []
+    for command in targets:
+        try:
+            plan.extend(
+                (command, label, args, True) for label, args in command_arg_sets(command)
+            )
+        except (ValueError, OverflowError) as exc:
+            # OverflowError covers a non-finite declared bound (int(inf)) —
+            # a definition problem, reported instead of tracebacked.
+            problems.append((command.name, str(exc)))
+    if reject_probes > 0:
+        # Not cryptographic: a seeded PRNG deliberately, so probe placement
+        # is deterministic and a sweep reproduces exactly (same project rule
+        # as the behavior engine's seeded noise).
+        rng = random.Random(seed)
+        candidates = []
+        for command in targets:
+            probe = reject_probe(command)
+            if probe is not None:
+                candidates.append((command, *probe))
+        for _ in range(reject_probes if candidates else 0):
+            command, label, args = rng.choice(candidates)
+            plan.insert(rng.randrange(len(plan) + 1), (command, label, args, False))
+    return plan, problems
 
 
 def command_arg_sets(command: CommandDef) -> list[tuple[str, dict]]:
@@ -204,6 +328,8 @@ def run_exercise(
     verify_timeout: float = 3.0,
     pause: float = 0.0,
     on_send=None,
+    reject_probes: int = 0,
+    probe_seed: int = 0,
 ) -> ExerciseReport:
     """Send every command's arg-sets, then (optionally) check telemetry health.
 
@@ -215,31 +341,42 @@ def run_exercise(
     ``pause`` waits that many seconds after each send, so a human watching
     telemetry can see each command's effect land. ``on_send`` is called with
     each SendResult as it happens (per-send narration for interactive use).
+
+    ``reject_probes`` sprinkles that many deliberately out-of-range sends
+    among the sweep (see build_send_plan) — transmitted with the ground
+    check bypassed, so the vehicle's own rejection path gets exercised.
+    A probe's SendResult records that it was TRANSMITTED; the vehicle's
+    verdict rides the command echo (the web console shows ✗ rejected).
     """
     report = ExerciseReport()
-    for command in simdef.commands:
-        if commands is not None and command.name not in commands:
-            continue
-        _send_arg_sets(command, host, port, apid, report, pause, on_send)
-    if verify:
-        report.telemetry = check_telemetry(host, port, simdef, timeout=verify_timeout)
-    return report
-
-
-def _send_arg_sets(command, host, port, apid, report, pause, on_send) -> None:
-    """Fire every arg-set of one command, recording (and narrating) each send.
-
-    Pacing happens *between* sends (never before the first or after the last
-    of a sweep), so a paused run doesn't sit idle after its final command.
-    """
-    for label, args in command_arg_sets(command):
-        if pause > 0 and report.sends:
+    targets = [
+        c for c in simdef.commands if commands is None or c.name in commands
+    ]
+    plan, problems = build_send_plan(
+        targets, reject_probes=reject_probes, seed=probe_seed
+    )
+    for name, error in problems:
+        # Unsatisfiable definition (range disjoint from the wire type) —
+        # one FAIL entry for the command; the sweep continues.
+        result = SendResult(name, "definition", False, error)
+        report.sends.append(result)
+        if on_send is not None:
+            on_send(result)
+    first = True
+    for command, label, args, validate in plan:
+        # Pacing happens *between* sends (never before the first or after
+        # the last), so a paused run doesn't sit idle after its final command.
+        if pause > 0 and not first:
             time.sleep(pause)
+        first = False
         try:
-            client.send_command(host, port, command, args, apid=apid)
+            client.send_command(host, port, command, args, apid=apid, validate=validate)
             result = SendResult(command.name, label, True)
         except (OSError, ValueError, struct.error, OverflowError) as exc:
             result = SendResult(command.name, label, False, str(exc))
         report.sends.append(result)
         if on_send is not None:
             on_send(result)
+    if verify:
+        report.telemetry = check_telemetry(host, port, simdef, timeout=verify_timeout)
+    return report

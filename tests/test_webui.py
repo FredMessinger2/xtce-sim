@@ -329,3 +329,18 @@ def test_definition_message_carries_significance(simdef):
     assert cmds["ADCS_DESATURATE"]["significance"] == "critical"
     assert "momentum" in cmds["ADCS_DESATURATE"]["significance_reason"].lower()
     assert cmds["TAKE_IMAGE"]["significance"] is None
+
+
+def test_command_message_rejected_status(simdef):
+    from xtce_sim.webui import command_message
+
+    cmd = simdef.command_by_name("ADCS_WHEEL_SET_SPEED")
+    payload = codec.encode_command(cmd, {"WheelId": 7, "Speed": 0}, validate=False)
+    cmd_packet = (
+        ccsds.CCSDSHeader(packet_type=int(ccsds.PacketType.COMMAND), apid=1).pack()
+        + bytes([cmd.opcode])
+        + payload
+    )
+    msg = command_message(simdef, ccsds.build_command_echo(cmd_packet, ccsds.ECHO_REJECTED))
+    assert msg["status"] == "rejected"
+    assert msg["args"]["WheelId"] == 7  # the offending value is visible

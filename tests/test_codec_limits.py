@@ -120,3 +120,102 @@ def test_send_oversized_filename_is_clean_error():
     assert result.exit_code != 0
     assert "70 bytes" in result.output and "64" in result.output
     assert "Traceback" not in result.output
+
+
+# ---- ValidRange / enum-membership enforcement (strict uplink) ---------------
+
+
+def _ranged_cmd():
+    return CommandDef(
+        name="MOVE",
+        opcode=0x10,
+        params=[
+            ParamInfo("Speed", 16, "int16", valid_min=-6000, valid_max=6000),
+            ParamInfo("Axis", 8, "uint8", enumerations={"X": 0, "Y": 1, "Z": 2}),
+            ParamInfo("Tag", 8, "uint8"),  # no declared range
+        ],
+    )
+
+
+def test_range_violations_inclusive_bounds():
+    cmd = _ranged_cmd()
+    assert codec.range_violations(cmd, {"Speed": 6000}) == []   # max is legal
+    assert codec.range_violations(cmd, {"Speed": -6000}) == []  # min is legal
+    v = codec.range_violations(cmd, {"Speed": 6001})
+    assert v and "outside ValidRange [-6000, 6000]" in v[0]
+
+
+def test_range_violations_enum_membership():
+    cmd = _ranged_cmd()
+    assert codec.range_violations(cmd, {"Axis": "Y"}) == []
+    assert codec.range_violations(cmd, {"Axis": 2}) == []
+    assert codec.range_violations(cmd, {"Axis": 9})       # raw non-member
+    assert codec.range_violations(cmd, {"Axis": "Warp"})  # unknown label
+
+
+def test_range_violations_unranged_param_passes_anything():
+    cmd = _ranged_cmd()
+    assert codec.range_violations(cmd, {"Tag": 255}) == []
+
+
+def test_encode_command_enforces_ranges_and_force_bypasses():
+    cmd = _ranged_cmd()
+    with pytest.raises(ValueError, match="outside ValidRange"):
+        codec.encode_command(cmd, {"Speed": 7000})
+    # The deliberate override still packs the wire bytes.
+    payload = codec.encode_command(cmd, {"Speed": 5000}, validate=False)
+    assert len(payload) == 4
+    codec.encode_command(cmd, {"Speed": 7000}, validate=False)  # must not raise
+
+
+def test_encode_validates_defaulted_arguments_too():
+    """An omitted argument packs as zero; if zero violates its range the
+    ground must refuse — not transmit and let the vehicle's rejection
+    surprise the operator."""
+    cmd = CommandDef(
+        name="SETPOINT",
+        opcode=0x22,
+        params=[
+            ParamInfo("HeaterId", 8, "uint8", valid_min=1, valid_max=2),
+            ParamInfo("Setpoint", 16, "int16"),
+        ],
+    )
+    with pytest.raises(ValueError, match="HeaterId=0 is outside ValidRange"):
+        codec.encode_command(cmd, {"Setpoint": 25})
+    codec.encode_command(cmd, {"HeaterId": 1, "Setpoint": 25})  # fine when supplied
+
+
+def test_nan_cannot_satisfy_a_declared_range():
+    cmd = _ranged_cmd()
+    v = codec.range_violations(cmd, {"Speed": float("nan")})
+    assert v and "nan cannot satisfy" in v[0]
+    # No declared range -> NaN is not our problem at this layer.
+    assert codec.range_violations(cmd, {"Tag": float("nan")}) == []
+
+
+def test_float32_boundary_decides_identically_on_both_ends():
+    """0.1 is not float32-exact: the wire value decodes slightly above it.
+    Ground and vehicle must reach the same verdict on the boundary."""
+    import struct as _struct
+
+    cmd = CommandDef(
+        name="TRIM",
+        opcode=0x23,
+        params=[ParamInfo("Gain", 32, "float32", valid_min=-0.1, valid_max=0.1)],
+    )
+    # Ground accepts the declared boundary...
+    payload = codec.encode_command(cmd, {"Gain": 0.1})
+    # ...and the decoded (float32-rounded) wire value still passes.
+    decoded = codec.decode_command(cmd, payload)
+    assert decoded["Gain"] == _struct.unpack(">f", _struct.pack(">f", 0.1))[0]
+    assert codec.range_violations(cmd, decoded) == []
+
+
+def test_bool_argument_range_checked_as_int():
+    cmd = CommandDef(
+        name="LEVEL",
+        opcode=0x24,
+        params=[ParamInfo("Mode", 8, "uint8", valid_min=2, valid_max=5)],
+    )
+    with pytest.raises(ValueError, match="Mode=1 is outside ValidRange"):
+        codec.encode_command(cmd, {"Mode": True})

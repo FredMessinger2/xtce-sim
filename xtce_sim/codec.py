@@ -16,6 +16,7 @@ running.
 from __future__ import annotations
 
 import logging
+import math
 import struct
 from typing import Optional
 
@@ -120,6 +121,10 @@ def _coerce_arg(param, value):
     that does not fit its fixed-size field raises rather than silently
     truncating (strict uplink).
     """
+    if isinstance(value, bool):
+        # bool packs as its int value; coercing here keeps the ground's range
+        # check aligned with what the vehicle will decode (an int).
+        value = int(value)
     if param.enumerations:
         return _coerce_enum_arg(param, value)
     if param.python_type in ("float32", "float64"):
@@ -142,11 +147,101 @@ def _coerce_arg(param, value):
     return value
 
 
-def encode_command(command: CommandDef, args: Optional[dict] = None) -> bytes:
+def range_violations(command: CommandDef, args: dict) -> list[str]:
+    """XTCE ValidRange / enum-membership violations in decoded/coerced args.
+
+    Used on BOTH ends of the link: the ground refuses to build an invalid
+    command (encode_command), and the vehicle rejects one that arrives
+    anyway (server dispatch). Bounds are inclusive; a param with no declared
+    range passes anything its wire type holds.
+
+    Ranges apply to the value as the operator supplies it. Command arguments
+    carry no calibrators in this pipeline (calibration exists only on the
+    telemetry side), so operator value == wire value and XTCE's
+    validRangeAppliesToCalibrated distinction is moot — if argument
+    calibrators ever land, the raw-vs-EU question reopens HERE.
+    """
+    violations: list[str] = []
+    for param in command.params:
+        if param.name not in args:
+            continue
+        problem = _arg_violation(param, args[param.name])
+        if problem is not None:
+            violations.append(problem)
+    return violations
+
+
+def _f32(x: float) -> float:
+    """x as float32 sees it — quantized through the wire encoding."""
+    return struct.unpack(">f", struct.pack(">f", x))[0]
+
+
+def _arg_violation(param, value) -> Optional[str]:
+    """One argument's range/enum violation message, or None if it passes."""
+    if param.enumerations:
+        return _enum_violation(param, value)
+    if not isinstance(value, (int, float)):
+        return None
+    return _numeric_violation(param, value)
+
+
+def _numeric_violation(param, value) -> Optional[str]:
+    lo, hi = param.valid_min, param.valid_max
+    if lo is None and hi is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        # NaN compares False against any bound — without this it would sail
+        # through a declared range on both ends of the link.
+        return f"{param.name}=nan cannot satisfy a declared ValidRange"
+    value, lo, hi = _wire_view(param, value, lo, hi)
+    out_low = lo is not None and value < lo
+    out_high = hi is not None and value > hi
+    if out_low or out_high:
+        return (
+            f"{param.name}={value} is outside ValidRange "
+            f"[{lo if lo is not None else '-inf'}, "
+            f"{hi if hi is not None else 'inf'}]"
+        )
+    return None
+
+
+def _wire_view(param, value, lo, hi):
+    """The comparison as the wire sees it.
+
+    Both ends must reach the same verdict: the vehicle checks the
+    float32-rounded wire value, so the ground quantizes the value AND the
+    bounds the same way (a declared bound like 0.1 is not float32-exact).
+    """
+    if param.python_type != "float32":
+        return value, lo, hi
+    return (
+        _f32(value),
+        _f32(lo) if lo is not None else None,
+        _f32(hi) if hi is not None else None,
+    )
+
+
+def _enum_violation(param, value) -> Optional[str]:
+    """A label must be declared; a numeric value must be an enumeration value."""
+    if isinstance(value, str):
+        if value not in param.enumerations:
+            return f"{param.name}={value!r} is not one of {sorted(param.enumerations)}"
+        return None
+    if value not in param.enumerations.values():
+        return f"{param.name}={value} is not a value of {sorted(param.enumerations)}"
+    return None
+
+
+def encode_command(
+    command: CommandDef, args: Optional[dict] = None, *, validate: bool = True
+) -> bytes:
     """Encode a command's argument payload (the bytes *after* the opcode).
 
     Missing arguments default to zero/empty; unknown argument names raise so
-    typos surface instead of being silently dropped.
+    typos surface instead of being silently dropped. Declared ValidRanges are
+    enforced (strict uplink, like the string capacity check); ``validate=
+    False`` bypasses that — the deliberate override for testing the vehicle's
+    own guards, not a convenience.
     """
     args = args or {}
     known = {p.name for p in command.params}
@@ -163,6 +258,15 @@ def encode_command(command: CommandDef, args: Optional[dict] = None) -> bytes:
             values.append(_coerce_arg(param, args[param.name]))
         else:
             values.append(_default_value(param.python_type))
+    if validate:
+        # Validate the FULL encoded set, defaults included: an omitted
+        # argument packs as zero, and if zero violates its declared range the
+        # vehicle will reject the command — the ground must refuse it first,
+        # not wave it through and let the operator find out from the echo.
+        full = {p.name: v for p, v in zip(command.params, values)}
+        violations = range_violations(command, full)
+        if violations:
+            raise ValueError(f"{command.name}: " + "; ".join(violations))
     return struct.pack(command_struct_format(command), *values)
 
 

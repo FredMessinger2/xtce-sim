@@ -192,6 +192,43 @@ console's command log wears a red or amber badge on each hazardous entry
 confirmation gate is future work, and would be designed for scripts, not
 sprung on them.
 
+### Argument range enforcement
+
+Declared `ValidRange`s (and enum membership) are enforced on **both ends of
+the link**, the way real systems do it. The ground refuses to build an
+invalid command — nothing is transmitted:
+
+```
+$ xtce-sim send --def examples/imaging_sat/imaging_sat.xml --port 5000 ADCS_WHEEL_SET_SPEED WheelId=7 Speed=0
+ADCS_WHEEL_SET_SPEED is VITAL: Bypasses the controller; test mode only
+Error: ADCS_WHEEL_SET_SPEED: WheelId=7 is outside ValidRange [1.0, 4.0]
+```
+
+And the vehicle validates for itself — it does not trust the ground. A
+command that arrives out of range anyway (a foreign client, a corrupted
+uplink, a truncated payload whose zero-padding falls outside a declared
+range) is **rejected**: no effects apply, the sim logs why, and the command
+echo carries the `rejected` status, so the web console's command log shows
+a red `✗ rejected` entry the moment it happens. To exercise that path
+deliberately, `send --force` skips the ground-side check and transmits
+anyway — the honest way to test flight software's own guards:
+
+```
+$ xtce-sim send --def examples/imaging_sat/imaging_sat.xml --port 5000 --force ADCS_WHEEL_SET_SPEED WheelId=7 Speed=0
+ADCS_WHEEL_SET_SPEED is VITAL: Bypasses the controller; test mode only
+--force: skipping ground-side range checks
+sent ADCS_WHEEL_SET_SPEED (0x47) args={'WheelId': '7', 'Speed': '0'}
+```
+
+Bounds are inclusive, and float32 arguments are compared as the wire sees
+them (value and bounds quantized identically on both ends, so a legal
+boundary value can never be accepted by the ground and rejected by the
+vehicle). Two scope notes: XTCE's *exclusive* min/max attributes parse but
+are not yet enforced; and command arguments carry no calibrators in this
+pipeline, so declared ranges apply directly to the value you type (which
+*is* the wire value) — XTCE's raw-vs-calibrated range distinction becomes
+relevant only if argument calibration lands later.
+
 ### Exercising the command surface
 
 Smoke-test every command a definition declares — one send per enum label and
@@ -225,6 +262,14 @@ xtce-sim exercise --id sat-a --port 5000 --pause 1 --loop
 happens (`ADCS_SET_MODE  Mode=NADIR  ok`), so you can match commands to the
 telemetry reacting; `--loop` repeats the whole sweep until Ctrl-C, reporting
 the sweep count on exit.
+
+`--reject-probes N` mixes N deliberately out-of-range sends into the sweep —
+a valid command with exactly one argument pushed past its declared range or
+enum, transmitted with the ground check bypassed, so the vehicle's own
+rejection path gets exercised alongside the happy path. Placement is
+seeded-deterministic (each `--loop` pass sprinkles differently, but the same
+run reproduces exactly), `--dry-run` marks them `[REJECT-PROBE]`, and in the
+web console each one lands as a red `✗ rejected` line in the command log.
 
 The imaging satellite also ships a scripted sweep,
 [`examples/imaging_sat/set_all_fields.sh`](examples/imaging_sat/set_all_fields.sh),
@@ -314,8 +359,8 @@ the telemetry grid — separated by a draggable splitter bar (the header's
 and position are remembered). Every command the sim processes while the
 console is open appears in the log as it executes: timestamp, name, every
 argument (enums as their labels), and a status mark — green ✓ for executed,
-red ✗ tagged with the failure status (`unknown_opcode`, `failed`) for one
-that wasn't. Hazardous commands (see [Command
+red ✗ tagged with the failure status (`rejected`, `unknown_opcode`,
+`failed`) for one that wasn't. Hazardous commands (see [Command
 significance](#command-significance)) wear a red (`critical`/`forbidden`) or
 amber (`vital`) badge; hovering it shows the declared reason. The log holds
 the last 500 entries and sticks to the bottom unless you've scrolled up to

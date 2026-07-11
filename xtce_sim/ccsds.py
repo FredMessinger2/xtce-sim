@@ -115,19 +115,23 @@ CMD_ECHO_APID = 0x7FD
 
 # Status semantics, honestly stated: EXECUTED means the command decoded and
 # the whole dispatch completed (individual behavior effects may still have
-# been skipped-with-a-warning). FAILED means the packet was undecodable, or
-# effect application / the command handler raised — in the handler case,
-# behavior effects and their immediate emissions may ALREADY have applied
-# before the failure. A one-byte status cannot express "partially landed";
-# the sim's own log carries the detail.
+# been skipped-with-a-warning). REJECTED means an argument violated its
+# declared ValidRange or enum — rejection precedes dispatch, so NO effect
+# applied and no immediate emission fired. FAILED means the packet was
+# undecodable, or effect application / the command handler raised — in the
+# handler case, behavior effects and their immediate emissions may ALREADY
+# have applied before the failure. A one-byte status cannot express
+# "partially landed"; the sim's own log carries the detail.
 ECHO_EXECUTED = 0
 ECHO_UNKNOWN_OPCODE = 1  # no command in the definition has this opcode
 ECHO_FAILED = 2
+ECHO_REJECTED = 3  # decoded fine, but an argument violates its ValidRange/enum
 
 ECHO_STATUS_NAMES = {
     ECHO_EXECUTED: "executed",
     ECHO_UNKNOWN_OPCODE: "unknown_opcode",
     ECHO_FAILED: "failed",
+    ECHO_REJECTED: "rejected",
 }
 
 # Largest embeddable command: 65535 (16-bit frame length) - 2 (length field)

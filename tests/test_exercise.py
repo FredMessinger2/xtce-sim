@@ -390,3 +390,156 @@ def test_exercise_connection_refused_is_clean(simdef, tmp_path):
     )
     assert result.exit_code != 0
     assert "could not reach" in result.output
+
+
+def test_unsatisfiable_range_is_diagnosed_not_stumbled_into():
+    """A ValidRange disjoint from the wire type means every possible send
+    would be rejected — the exerciser reports the definition problem."""
+    from xtce_sim.definition import CommandDef, ParamInfo
+    from xtce_sim.exercise import example_values
+
+    bad = ParamInfo("Setpoint", 8, "uint8", valid_min=1000, valid_max=5000)
+    with pytest.raises(ValueError, match="no wire-encodable uint8 value satisfies"):
+        example_values(bad)
+    # And a sweep containing such a command records one FAIL and moves on.
+    cmd = CommandDef(name="BAD", opcode=0x30, params=[bad])
+    report = run_exercise(
+        SimDefinition(space_system_name="S", commands=[cmd]),
+        "127.0.0.1", 1, verify=False,
+    )
+    assert len(report.sends) == 1
+    assert not report.sends[0].ok and "no wire-encodable" in report.sends[0].error
+
+
+# ---- rejection probes -------------------------------------------------------
+
+
+def test_invalid_value_generation():
+    from xtce_sim.exercise import _invalid_value
+
+    # Numeric: one past the declared max, still wire-encodable.
+    assert _invalid_value(_p("uint8", valid_min=1, valid_max=4)) == 5
+    # Range spans the whole wire type: nothing to probe.
+    assert _invalid_value(_p("uint8", valid_min=0, valid_max=255)) is None
+    # Unconstrained: nothing to probe.
+    assert _invalid_value(_p("int16")) is None
+    # Enum: first value past the declared set that fits the field.
+    assert _invalid_value(_p(enumerations={"A": 0, "B": 1})) == 2
+    # Float: pushed past the max.
+    bad = _invalid_value(_p("float32", size_bits=32, valid_min=-1.0, valid_max=1.0))
+    assert bad > 1.0
+
+
+def test_reject_probe_violates_exactly_one_argument(simdef):
+    from xtce_sim import codec
+    from xtce_sim.exercise import reject_probe
+
+    cmd = _cmd(simdef, "SET_POWER")  # SubsystemId ranged, PowerState enum
+    label, args = reject_probe(cmd)
+    assert label.startswith("reject-probe")
+    violations = codec.range_violations(cmd, args)
+    assert len(violations) == 1  # one argument out of range, the rest valid
+    codec.encode_command(cmd, args, validate=False)  # and it packs
+
+
+def test_build_send_plan_sprinkles_probes_deterministically(simdef):
+    from xtce_sim.exercise import build_send_plan
+
+    targets = list(simdef.commands)
+    plan_a, _ = build_send_plan(targets, reject_probes=5, seed=42)
+    plan_b, _ = build_send_plan(targets, reject_probes=5, seed=42)
+    assert plan_a == plan_b  # same seed, same sprinkle
+    probes = [(c.name, label) for c, label, _args, validate in plan_a if not validate]
+    assert len(probes) == 5
+    normal = [entry for entry in plan_a if entry[3]]
+    baseline_plan, _ = build_send_plan(targets, reject_probes=0)
+    assert normal == baseline_plan  # probes ADD to the sweep, never replace
+
+
+async def test_reject_probes_end_to_end_vehicle_rejects_each(simdef):
+    """Probes transmit, and the vehicle answers each with a REJECTED echo."""
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=10.0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        report = await asyncio.to_thread(
+            run_exercise,
+            simdef, "127.0.0.1", server.bound_port,
+            verify=False, reject_probes=3,
+        )
+        assert report.ok  # every send (probes included) transmitted
+        probes = [s for s in report.sends if s.label.startswith("reject-probe")]
+        assert len(probes) == 3
+        # Count REJECTED echoes on the downlink: exactly one per probe.
+        rejected = 0
+        buffer = b""
+        for _ in range(300):
+            buffer += await asyncio.wait_for(reader.read(65536), timeout=2.0)
+            packets, buffer = ccsds.deframe(buffer)
+            for pkt in packets:
+                if ccsds.CCSDSHeader.unpack(pkt[:6]).apid != ccsds.CMD_ECHO_APID:
+                    continue
+                status, _ = ccsds.parse_command_echo(pkt)
+                if status == ccsds.ECHO_REJECTED:
+                    rejected += 1
+            if rejected >= 3:
+                break
+        assert rejected == 3
+        writer.close()
+    finally:
+        await server.stop()
+
+
+def test_exercise_dry_run_shows_reject_probes(simdef, tmp_path):
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    result = CliRunner().invoke(
+        main,
+        ["exercise", "--def", str(def_json), "--port", "1", "--dry-run",
+         "--reject-probes", "4"],
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.count("reject-probe") == 4
+
+
+def test_invalid_value_nonfinite_bounds_are_not_probeable():
+    from xtce_sim.exercise import _invalid_value
+
+    # maxInclusive="INF" parses to float inf — can't be exceeded, and must
+    # not crash the int path (int(inf) raises OverflowError).
+    assert _invalid_value(_p("float64", size_bits=64, valid_max=float("inf"))) is None
+    assert _invalid_value(_p("uint8", valid_max=float("inf"))) is None
+    assert _invalid_value(_p("uint8", valid_min=float("-inf"))) is None
+
+
+def test_invalid_enum_value_respects_signed_wire_types():
+    from xtce_sim.exercise import _invalid_value
+
+    # int8 enum crowding the top of the wire type: the probe must come from
+    # BELOW the declared set, not overflow struct.pack at 128.
+    bad = _invalid_value(_p("int8", enumerations={"A": 126, "B": 127}))
+    assert bad == 125
+    import struct
+    struct.pack(">b", bad)  # wire-encodable
+
+
+def test_invalid_float_value_falls_through_to_min_side():
+    from xtce_sim.exercise import _invalid_value
+
+    # Max-side candidate would overflow float32; the min side still works.
+    p = _p("float32", size_bits=32, valid_min=0.0, valid_max=3.2e38)
+    bad = _invalid_value(p)
+    assert bad is not None and bad < 0.0
+
+
+def test_nonfinite_bound_definition_degrades_to_problem_not_traceback():
+    from xtce_sim.definition import CommandDef
+    from xtce_sim.exercise import build_send_plan
+
+    cmd = CommandDef(
+        name="INF", opcode=0x31,
+        params=[_p("uint8", name="X", valid_min=1, valid_max=float("inf"))],
+    )
+    plan, problems = build_send_plan([cmd], reject_probes=2)
+    assert problems and problems[0][0] == "INF"
+    assert all(validate for _c, _l, _a, validate in plan)  # no probe emitted

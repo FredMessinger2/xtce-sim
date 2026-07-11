@@ -469,3 +469,90 @@ def test_exercise_dry_run_badges_hazardous_commands(tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert "[CRITICAL]" in result.output and "[VITAL]" in result.output
+
+
+def test_send_rejects_out_of_range_locally(tmp_path):
+    """Ground-side enforcement: nothing is transmitted, the message names
+    the argument and its declared range."""
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    result = CliRunner().invoke(
+        main,
+        ["send", "--def", str(def_json), "--port", "1",
+         "ADCS_WHEEL_SET_SPEED", "WheelId=7", "Speed=0"],
+    )
+    assert result.exit_code != 0
+    assert "WheelId=7" in result.output and "outside ValidRange" in result.output
+    assert "sent" not in result.output
+    # It failed BEFORE connecting: no could-not-reach error for port 1.
+    assert "could not reach" not in result.output
+
+
+async def test_send_force_transmits_and_vehicle_rejects(tmp_path):
+    """--force bypasses the ground check; the vehicle rejects for itself —
+    observed via the REJECTED command echo on a watching connection."""
+    import asyncio
+
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=10.0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        result = await asyncio.to_thread(
+            CliRunner().invoke,
+            main,
+            ["send", "--def", str(def_json), "--port", str(server.bound_port),
+             "--force", "ADCS_WHEEL_SET_SPEED", "WheelId=7", "Speed=0"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "skipping ground-side range checks" in result.output
+        assert "sent ADCS_WHEEL_SET_SPEED" in result.output
+        # The vehicle's verdict, on the downlink:
+        buffer = b""
+        status = None
+        for _ in range(200):
+            buffer += await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            packets, buffer = ccsds.deframe(buffer)
+            echo = next(
+                (p for p in packets
+                 if ccsds.CCSDSHeader.unpack(p[:6]).apid == ccsds.CMD_ECHO_APID),
+                None,
+            )
+            if echo is not None:
+                status, _embedded = ccsds.parse_command_echo(echo)
+                break
+        assert status == ccsds.ECHO_REJECTED
+        writer.close()
+    finally:
+        await server.stop()
+
+
+def test_reject_probes_with_no_probeable_commands_warns(tmp_path):
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    # NOOP has no arguments: nothing to push out of range.
+    result = CliRunner().invoke(
+        main,
+        ["exercise", "--def", str(def_json), "--port", "1", "--dry-run",
+         "--command", "NOOP", "--reject-probes", "3"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "no selected command has a probe-able argument" in result.output
+    assert "[REJECT-PROBE]" not in result.output  # none could be planned
+
+
+def test_report_counts_only_transmitted_probes(monkeypatch, capsys):
+    from xtce_sim.cli import _print_exercise_report
+    from xtce_sim.exercise import ExerciseReport, SendResult
+
+    report = ExerciseReport()
+    report.sends.append(SendResult("A", "reject-probe X=9", True))
+    report.sends.append(SendResult("B", "reject-probe Y=9", False, "refused"))
+    _print_exercise_report(report, verify=False)
+    out = capsys.readouterr().out
+    assert "Rejection probes: 1 transmitted" in out  # the failed one not counted
+    assert "should reject" in out  # hedged: the exerciser doesn't read echoes

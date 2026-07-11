@@ -22,9 +22,14 @@ def send_command(
     args: Optional[dict] = None,
     *,
     apid: int = 1,
+    validate: bool = True,
 ) -> bytes:
-    """Connect, send one command frame, and disconnect. Returns the CCSDS packet."""
-    payload = codec.encode_command(command, args)
+    """Connect, send one command frame, and disconnect. Returns the CCSDS packet.
+
+    ``validate=False`` skips the ground-side ValidRange check and transmits
+    anyway — for testing the vehicle's own argument guards.
+    """
+    payload = codec.encode_command(command, args, validate=validate)
     packet = (
         ccsds.CCSDSHeader(packet_type=int(ccsds.PacketType.COMMAND), apid=apid).pack()
         + bytes([command.opcode])

@@ -351,6 +351,17 @@ class SimServer:
         # client's connection.
         try:
             args = codec.decode_command(command, payload)
+            # The vehicle validates for itself — it does not trust the ground.
+            # Out-of-range arguments reject the command before any effect
+            # applies; a truncated payload whose zero-padding lands outside a
+            # declared range rejects here too.
+            violations = codec.range_violations(command, args)
+            if violations:
+                self.logger.warning(
+                    "rejected 0x%02X %s: %s", opcode, command.name, "; ".join(violations)
+                )
+                self._echo_command(packet, ccsds.ECHO_REJECTED)
+                return
             self.logger.info("command 0x%02X %s args=%s", opcode, command.name, args)
             if self.behavior_engine is not None:
                 applied = self.behavior_engine.apply_command(command, args)

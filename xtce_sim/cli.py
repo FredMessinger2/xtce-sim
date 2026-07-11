@@ -30,7 +30,7 @@ import click
 
 from xtce_sim import behavior, ccsds, client, codec, render
 from xtce_sim.definition import SimDefinition
-from xtce_sim.exercise import command_arg_sets, run_exercise
+from xtce_sim.exercise import build_send_plan, reject_probe, run_exercise
 from xtce_sim.generate import GeneratorError, emit_python, format_json, format_text
 from xtce_sim.logs import enable_trace, setup_logging
 from xtce_sim.server import SimServer
@@ -371,6 +371,12 @@ def run(
     help="Definition source: an XTCE .xml or a cmd_tlm.json.",
 )
 @click.option("--apid", default=1, show_default=True, type=int, help="APID for the command packet.")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Transmit even if arguments violate their declared ValidRanges "
+    "(tests the vehicle's own guards; expect a rejection).",
+)
 def send(
     command_args: tuple[str, ...],
     port: int,
@@ -378,6 +384,7 @@ def send(
     instance_id: str | None,
     def_path: Path | None,
     apid: int,
+    force: bool,
 ) -> None:
     """Send a command: xtce-sim send --id sat-a --port 5000 SET_POWER SubsystemId=3 PowerState=ON."""
     simdef = _load_definition(instance_id, def_path)
@@ -406,8 +413,13 @@ def send(
             err=True,
         )
 
+    if force:
+        click.echo(
+            click.style("--force: skipping ground-side range checks", fg="yellow"),
+            err=True,
+        )
     try:
-        client.send_command(host, port, command, args, apid=apid)
+        client.send_command(host, port, command, args, apid=apid, validate=not force)
     except (ValueError, struct.error) as exc:
         raise click.ClickException(str(exc)) from exc
     except OSError as exc:
@@ -678,8 +690,18 @@ def _run_dashboard(host, port, instance, decode, count) -> None:
     is_flag=True,
     help="Repeat the sweep until Ctrl-C (pair with --pause for per-send narration).",
 )
+@click.option(
+    "--reject-probes",
+    default=0,
+    show_default=True,
+    type=click.IntRange(min=0),
+    help="Sprinkle N deliberately out-of-range sends among the sweep "
+    "(ground check bypassed) so the vehicle's rejection path gets exercised; "
+    "placement is seeded-deterministic.",
+)
 def exercise(
-    port, host, instance_id, def_path, apid, command_filter, verify, dry_run, pause, loop
+    port, host, instance_id, def_path, apid, command_filter, verify, dry_run,
+    pause, loop, reject_probes
 ) -> None:
     """Send a valid instance of every command, then check telemetry health.
 
@@ -691,7 +713,9 @@ def exercise(
 
     For watching effects live (monitor or web console), --pause 1 slows the
     sweep to one send per second and echoes each send as it goes; --loop
-    repeats the whole sweep until interrupted.
+    repeats the whole sweep until interrupted. --reject-probes N mixes in
+    invalid sends the vehicle must refuse — each shows up as ✗ rejected in
+    the web console's command log.
     """
     simdef = _load_definition(instance_id, def_path)
 
@@ -702,8 +726,19 @@ def exercise(
             raise click.ClickException(f"unknown command(s): {sorted(missing)}")
     targets = [c for c in simdef.commands if not wanted or c.name in wanted]
 
+    if reject_probes and not any(reject_probe(c) for c in targets):
+        # Asked-for probes that can't exist deserve a say-so, not silence.
+        click.echo(
+            click.style(
+                "reject-probes: no selected command has a probe-able argument "
+                "(no finite ValidRange or bounded enum) — none will be sent",
+                fg="yellow",
+            ),
+            err=True,
+        )
+
     if dry_run:
-        _exercise_dry_run(targets)
+        _exercise_dry_run(targets, reject_probes)
         return
 
     # Fail fast with a clean message if the sim isn't reachable.
@@ -713,7 +748,8 @@ def exercise(
         raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
 
     any_failed, interrupted = _run_sweeps(
-        simdef, targets, host, port, apid=apid, verify=verify, pause=pause, loop=loop
+        simdef, targets, host, port, apid=apid, verify=verify, pause=pause,
+        loop=loop, reject_probes=reject_probes,
     )
     # Exit code: any failed sweep fails the run (soak included); a Ctrl-C on
     # a one-shot run means it never finished, which is not success either.
@@ -723,7 +759,7 @@ def exercise(
         raise SystemExit(130)
 
 
-def _run_sweeps(simdef, targets, host, port, *, apid, verify, pause, loop):
+def _run_sweeps(simdef, targets, host, port, *, apid, verify, pause, loop, reject_probes=0):
     """Run exercise sweeps (once, or looping until Ctrl-C).
 
     Returns (any_failed, interrupted). A looping run stops on its own when
@@ -748,6 +784,10 @@ def _run_sweeps(simdef, targets, host, port, *, apid, verify, pause, loop):
                 verify=verify,
                 pause=pause,
                 on_send=on_send,
+                reject_probes=reject_probes,
+                # Seeded per sweep: deterministic overall, but each loop pass
+                # sprinkles its probes at different points in the sweep.
+                probe_seed=sweeps_done,
             )
             sweeps_done += 1
             any_failed = any_failed or not report.ok
@@ -774,18 +814,20 @@ def _echo_send(result) -> None:
     click.echo(f"  {result.command:<22} {result.label:<26} {status}")
 
 
-def _exercise_dry_run(targets) -> None:
-    """Print the commands/args that ``exercise`` would send, without connecting."""
-    total = 0
-    for cmd in targets:
-        sig = ""
-        if cmd.hazardous:
+def _exercise_dry_run(targets, reject_probes: int = 0) -> None:
+    """Print the send plan ``exercise`` would run, without connecting."""
+    plan, problems = build_send_plan(targets, reject_probes=reject_probes)
+    for name, error in problems:
+        click.echo(click.style(f"  {name:<22} unsatisfiable: {error}", fg="red"))
+    for cmd, label, args, validate in plan:
+        tag = ""
+        if not validate:
+            tag = " " + click.style("[REJECT-PROBE]", fg="magenta")
+        elif cmd.hazardous:
             color = "red" if cmd.significance in ("critical", "forbidden") else "yellow"
-            sig = " " + click.style(f"[{cmd.significance.upper()}]", fg=color)
-        for label, args in command_arg_sets(cmd):
-            total += 1
-            click.echo(f"  {cmd.name:<22} {label:<26} {args}{sig}")
-    click.echo(f"{total} sends across {len(targets)} command(s) — dry run, nothing sent")
+            tag = " " + click.style(f"[{cmd.significance.upper()}]", fg=color)
+        click.echo(f"  {cmd.name:<22} {label:<26} {args}{tag}")
+    click.echo(f"{len(plan)} sends across {len(targets)} command(s) — dry run, nothing sent")
 
 
 @main.command()
@@ -849,6 +891,14 @@ def _print_exercise_report(report, *, verify: bool) -> None:
     total = len(report.sends)
     tail = f", {len(report.failures)} FAILED" if report.failures else ""
     click.echo(f"Commands: sent {total - len(report.failures)}/{total} OK{tail}")
+    probes = sum(1 for s in report.sends if s.ok and s.label.startswith("reject-probe"))
+    if probes:
+        # "should reject": the exerciser doesn't read echoes — the vehicle's
+        # verdict is visible on the downlink (console log / REJECTED echoes).
+        click.echo(
+            f"Rejection probes: {probes} transmitted — the vehicle should "
+            f"reject each (✗ rejected in the console's command log)"
+        )
 
     if not (verify and report.telemetry is not None):
         return

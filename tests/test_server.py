@@ -444,3 +444,56 @@ async def test_execution_error_is_echoed_as_failed(simdef):
         writer.close()
     finally:
         await server.stop()
+
+
+async def test_out_of_range_argument_is_rejected_with_echo(simdef):
+    """The vehicle validates for itself: a non-member enum value arriving on
+    the wire rejects the command with the REJECTED echo status."""
+    from xtce_sim import codec
+
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=10.0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        cmd = simdef.command_by_name("SET_POWER")
+        payload = codec.encode_command(
+            cmd, {"SubsystemId": 0, "PowerState": 99}, validate=False
+        )
+        packet = (
+            ccsds.CCSDSHeader(packet_type=1, apid=1).pack()
+            + bytes([cmd.opcode])
+            + payload
+        )
+        writer.write(ccsds.frame(packet))
+        await writer.drain()
+        status, embedded = ccsds.parse_command_echo(await _read_echo(reader))
+        assert status == ccsds.ECHO_REJECTED
+        assert embedded == packet
+        assert server.client_count == 1  # rejection is not a connection error
+        writer.close()
+    finally:
+        await server.stop()
+
+
+async def test_truncated_payload_zero_padding_can_reject():
+    """A short payload pads with zeros by design; when the padded zero falls
+    outside a declared range (HeaterId is 1..2), the vehicle now rejects
+    instead of executing with a nonsense argument."""
+    from xtce_sim.definition import SimDefinition as SimDef
+
+    imaging = SimDef.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    server = SimServer(imaging, host="127.0.0.1", port=0, beacon_interval=10.0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        cmd = imaging.command_by_name("SET_HEATER_SETPOINT")
+        packet = (  # opcode only — no argument bytes at all
+            ccsds.CCSDSHeader(packet_type=1, apid=1).pack() + bytes([cmd.opcode])
+        )
+        writer.write(ccsds.frame(packet))
+        await writer.drain()
+        status, _ = ccsds.parse_command_echo(await _read_echo(reader))
+        assert status == ccsds.ECHO_REJECTED
+        writer.close()
+    finally:
+        await server.stop()
