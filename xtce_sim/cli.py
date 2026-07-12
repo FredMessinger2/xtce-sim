@@ -526,10 +526,12 @@ def upload(
             )
         )
         return
+    # .get with "?": a receipt packet may omit the storage fields, and a
+    # missing number is honestly unknown, not zero.
     click.echo(
-        f"receipt: SUCCESS — {file.name} aboard ({receipt['FR_FILE_SIZE']} bytes); "
-        f"storage {receipt['FR_STORAGE_USED']} used / "
-        f"{receipt['FR_STORAGE_AVAILABLE']} available"
+        f"receipt: SUCCESS — {file.name} aboard ({receipt.get('FR_FILE_SIZE', '?')} bytes); "
+        f"storage {receipt.get('FR_STORAGE_USED', '?')} used / "
+        f"{receipt.get('FR_STORAGE_AVAILABLE', '?')} available"
     )
 
 

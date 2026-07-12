@@ -684,3 +684,77 @@ async def test_beacon_carries_true_storage_numbers(imaging, tmp_path):
         assert values["FR_STORAGE_AVAILABLE"] > 0
     finally:
         await server.stop()
+
+
+async def test_upload_verdict_survives_interfering_file_list(imaging, tmp_path):
+    """THE correlation attack from review: while a replacement upload is in
+    flight, a FILE_LIST from another ground broadcasts a SUCCESS receipt
+    naming the same file (the OLD copy). The uploader's matcher must skip it
+    and wait for its own transfer's verdict."""
+    server = _file_server(imaging, tmp_path, beacon_interval=10.0)
+    server.file_service.store.write("plan.ats", b"the old version, longer")
+    await server.start()
+    try:
+        new_data = b"v2"
+        crc = zlib.crc32(new_data) & 0xFFFFFFFF
+        receipt_def = imaging.packet_by_name("FILE_RECEIPT")
+        matcher = sim_client._ReceiptMatcher(receipt_def, "plan.ats", len(new_data), crc)
+
+        # Open the transfer but do NOT finish it yet.
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        writer.write(ccsds.frame(ccsds.build_file_start("plan.ats", len(new_data), crc)))
+        writer.write(ccsds.frame(ccsds.build_file_data(0, new_data)))
+        await writer.drain()
+
+        # Another ground lists the store: a SUCCESS receipt naming plan.ats
+        # (old size/CRC 23 bytes) is broadcast to everyone, uploader included.
+        list_cmd = imaging.command_by_name("FILE_LIST")
+        await asyncio.to_thread(
+            sim_client.send_command, "127.0.0.1", server.bound_port, list_cmd, {}
+        )
+
+        async def pump(until):
+            """Feed every downlinked packet through the client's matcher, in
+            arrival order, until ``until(packets)`` is satisfied or a verdict
+            appears; returns (verdict, satisfied)."""
+            buffer = b""
+            seen: list[bytes] = []
+            for _ in range(400):
+                verdict = None
+                buffer += await asyncio.wait_for(reader.read(4096), timeout=2.0)
+                packets, buffer = ccsds.deframe(buffer)
+                for pkt in packets:
+                    got = matcher.verdict([pkt])
+                    if got is not None:
+                        verdict = got
+                seen.extend(packets)
+                if verdict is not None or until(seen):
+                    return verdict, until(seen)
+            raise AssertionError("pump never satisfied")
+
+        def stale_list_receipt_arrived(seen: list[bytes]) -> bool:
+            for pkt in seen:
+                if ccsds.CCSDSHeader.unpack(pkt[:6]).apid != receipt_def.apid:
+                    continue
+                values = codec.unpack_telemetry(receipt_def, pkt[6:])
+                if values["FR_FILE_SIZE"] == 23:  # the old copy, listed
+                    return True
+            return False
+
+        # Phase 1: the stale LIST receipt is provably on the wire before
+        # FINISH, and the matcher must NOT have taken it as the verdict.
+        verdict, satisfied = await pump(stale_list_receipt_arrived)
+        assert satisfied and verdict is None
+
+        writer.write(ccsds.frame(ccsds.build_file_finish()))
+        await writer.drain()
+
+        # Phase 2: the true verdict arrives and describes OUR transfer.
+        verdict, _ = await pump(lambda seen: False)
+        assert verdict is not None
+        assert matcher.is_success(verdict)
+        assert verdict["FR_FILE_SIZE"] == len(new_data)
+        assert (tmp_path / "files/plan.ats").read_bytes() == new_data
+        writer.close()
+    finally:
+        await server.stop()
