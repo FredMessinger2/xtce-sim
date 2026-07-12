@@ -6,8 +6,7 @@ FINISH packets on a reserved link-protocol APID (see ccsds.py); the vehicle
 reassembles the chunks, verifies the declared size and CRC-32 against what
 actually arrived, and only then lands the file in its storage directory —
 ``runs/<id>/files/`` — atomically. Every outcome is reported on the downlink
-as a FILE_RECEIPT packet carrying real numbers: the actual byte count, the
-actual CRC, the actual storage usage. A vehicle whose definition declares no
+as a FILE_RECEIPT packet. A vehicle whose definition declares no
 FILE_RECEIPT packet still stores files; its receipts are log-only.
 
 Honesty rules, stated plainly:
@@ -17,6 +16,11 @@ Honesty rules, stated plainly:
   field's capacity), sizes against the storage quota, and content against the
   declared CRC. A transfer that violates any of these is refused with a
   FAILED receipt, never partially applied.
+- A SUCCESS receipt carries measured numbers: the byte count that arrived
+  and the CRC computed over it (verified equal to the declaration). A FAILED
+  receipt echoes the *declared* size and CRC — they identify the transfer as
+  commanded, which is what the ground correlates on — and the log line
+  carries the measured values that refused it.
 - A receipt with an empty FR_FILENAME is a *storage-status view* (the answer
   to FILE_STATUS, and the beacon's resting value), not a transfer event.
 - FR_FILE_RECEIVED_COUNT counts files landed since this boot; storage used /
@@ -27,6 +31,14 @@ The service owns no I/O loop and no sockets: the server feeds it uplink
 packets and file-management commands, and every handler returns the list of
 receipt value-dicts to downlink — the same injected-dependency shape the
 sequencer uses, so the whole machine tests without a network.
+
+Scale bounds, so nobody meets them as surprises: a transfer buffers its
+declared size in memory (at most the quota, per uploading connection), and
+CRC/write work runs synchronously on the server's event loop — bounded by
+the quota to well under a beacon interval on local disks. Replacing a file
+briefly holds old + new on disk (the atomic ``.part`` write), so peak disk
+is the quota plus the largest replaced file. If stores ever outgrow these
+numbers, move the CRC/write work to a thread and stream to disk.
 """
 
 from __future__ import annotations
@@ -95,8 +107,11 @@ class FileStore:
     """
 
     def __init__(self, root: Path, quota: int = DEFAULT_QUOTA) -> None:
-        if quota <= 0:
-            raise ValueError(f"quota must be positive, got {quota}")
+        if not 0 < quota <= 0xFFFFFFFF:
+            # The receipt contract downlinks storage numbers as uint32; a
+            # quota those fields cannot express would make every receipt
+            # unpackable and vanish them silently.
+            raise ValueError(f"quota must be in 1..{0xFFFFFFFF} bytes, got {quota}")
         self.root = root
         self.quota = quota
         self.root.mkdir(parents=True, exist_ok=True)

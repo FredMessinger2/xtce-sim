@@ -389,3 +389,11 @@ def test_beacon_values_show_storage_truth(service, store, simdef):
     # Other packets are not the file service's to write.
     other = next(p for p in simdef.packets if p.apid != packet_def.apid)
     assert service.beacon_values(other) == {}
+
+
+def test_store_quota_bounded_by_the_receipt_fields(tmp_path):
+    """Storage numbers downlink as uint32; a quota they cannot express is
+    refused at construction rather than vanishing every receipt later."""
+    with pytest.raises(ValueError):
+        FileStore(tmp_path / "files", quota=2**32)
+    FileStore(tmp_path / "files", quota=2**32 - 1)  # the boundary builds

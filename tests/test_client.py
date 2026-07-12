@@ -136,3 +136,105 @@ def test_stream_packets_decodes(simdef: SimDefinition):
     assert pkt_def is not None
     values = codec.unpack_telemetry(pkt_def, packets[0][6:])
     assert len(values) == len(pkt_def.fields)
+
+
+# ------------------------------------------------------- upload correlation ----
+
+
+@pytest.fixture(scope="module")
+def imaging() -> SimDefinition:
+    return SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+
+
+def _receipt_packet(imaging, *, name, size, crc, status, count):
+    """One FILE_RECEIPT wire packet, built through the real codec."""
+    from xtce_sim import ccsds
+
+    receipt_def = imaging.packet_by_name("FILE_RECEIPT")
+    payload = codec.pack_telemetry(
+        receipt_def,
+        {
+            "FR_FILENAME": name.encode(),
+            "FR_FILE_SIZE": size,
+            "FR_CHECKSUM": crc,
+            "FR_TRANSFER_STATUS": status,  # SUCCESS=0 FAILED=1 IN_PROGRESS=2
+            "FR_FILE_RECEIVED_COUNT": count,
+        },
+    )
+    return ccsds.build_telemetry_packet(receipt_def.apid, payload)
+
+
+def _matcher(imaging, *, name="plan.ats", size=100, crc=0xABCD):
+    receipt_def = imaging.packet_by_name("FILE_RECEIPT")
+    return client._ReceiptMatcher(receipt_def, name, size, crc)
+
+
+def test_matcher_ignores_receipts_for_other_files_and_triples(imaging):
+    """A FILE_LIST answer naming this file but describing the OLD stored copy
+    (different size/CRC) must not become this upload's verdict."""
+    m = _matcher(imaging, size=100, crc=0xABCD)
+    stale_list = _receipt_packet(
+        imaging, name="plan.ats", size=64, crc=0x1111, status=0, count=3
+    )
+    other_file = _receipt_packet(
+        imaging, name="other.ats", size=100, crc=0xABCD, status=0, count=4
+    )
+    assert m.verdict([stale_list, other_file]) is None
+
+
+def test_matcher_requires_the_count_to_advance_for_success(imaging):
+    """A FILE_LIST of an identical, already-stored copy repeats the exact
+    triple with SUCCESS — but no landing happened, so the count is unmoved
+    and it must not be taken as the verdict."""
+    m = _matcher(imaging)
+    in_progress = _receipt_packet(
+        imaging, name="plan.ats", size=100, crc=0xABCD, status=2, count=3
+    )
+    identical_list = _receipt_packet(
+        imaging, name="plan.ats", size=100, crc=0xABCD, status=0, count=3
+    )
+    landed = _receipt_packet(
+        imaging, name="plan.ats", size=100, crc=0xABCD, status=0, count=4
+    )
+    assert m.verdict([in_progress, identical_list]) is None
+    verdict = m.verdict([landed])
+    assert verdict is not None and m.is_success(verdict)
+
+
+def test_matcher_success_before_in_progress_is_not_trusted(imaging):
+    """Without our own IN_PROGRESS baseline, a SUCCESS bearing the triple
+    could be any client's event — keep waiting rather than guess."""
+    m = _matcher(imaging)
+    early = _receipt_packet(
+        imaging, name="plan.ats", size=100, crc=0xABCD, status=0, count=9
+    )
+    assert m.verdict([early]) is None
+
+
+def test_matcher_takes_a_failed_triple_as_the_refusal(imaging):
+    m = _matcher(imaging)
+    failed = _receipt_packet(
+        imaging, name="plan.ats", size=100, crc=0xABCD, status=1, count=3
+    )
+    verdict = m.verdict([failed])
+    assert verdict is not None and not m.is_success(verdict)
+
+
+def test_upload_file_refuses_doomed_name_before_connecting():
+    """The library path checks the name too, not just the CLI: nothing must
+    be sent (port 1 would raise OSError if a connection were attempted)."""
+    with pytest.raises(client.UploadError, match="exceeds 32 bytes"):
+        client.upload_file("127.0.0.1", 1, "n" * 40, b"data")
+
+
+def test_confirmable_requires_the_correlation_fields(imaging):
+    from xtce_sim.definition import FieldInfo, PacketDef
+
+    assert client._confirmable(imaging.packet_by_name("FILE_RECEIPT"))
+    assert not client._confirmable(None)
+    degraded = PacketDef(
+        name="FILE_RECEIPT",
+        apid=0x15,
+        fields=[FieldInfo("FR_FILENAME", 256, "string")],
+    )
+    assert not client._confirmable(degraded)
