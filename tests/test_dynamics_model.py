@@ -472,3 +472,103 @@ def test_wheel_current_and_temp_reflect_torque_magnitude(simdef):
     out = model.outputs()
     assert out["ADCS_WHEEL1_CURRENT"] == pytest.approx(2.05)  # 0.05 + 0.05/0.025
     assert out["ADCS_WHEEL1_TEMP"] == pytest.approx(45.0)  # 20 + 25 at full current
+
+
+# ---------------------------------------------------------------------------
+# Mode reachability: the mode binding is validated against the modes THIS
+# vehicle can reach through its wired command roles, not the full enum.
+
+
+def _stub_simdef(mode_enum, commands):
+    from types import SimpleNamespace
+
+    field = SimpleNamespace(
+        name="MODE", python_type="uint8", enumerations=mode_enum, calibrator=None
+    )
+    return SimpleNamespace(
+        packets=[SimpleNamespace(fields=[field])],
+        command_by_name=lambda name: commands.get(name),
+    )
+
+
+def _stub_cmd(*params, enums=None):
+    from types import SimpleNamespace
+
+    enums = enums or {}
+    return SimpleNamespace(
+        params=[SimpleNamespace(name=p, enumerations=enums.get(p)) for p in params]
+    )
+
+
+def test_mode_binding_accepts_a_reachable_subset_enum():
+    # my_vehicle's real situation: no track command, so no TARGET_TRACK in
+    # the mode enum — and that is a correct ICD, not a load error.
+    stub = _stub_simdef(
+        {"STANDBY": 0, "INERTIAL_POINT": 1},
+        {"ADCS_SLEW_TO_QUATERNION": _stub_cmd("Q1", "Q2", "Q3", "Q4")},
+    )
+    errors = []
+    cfg = parse_model("adcs", _minimal_table(outputs={"MODE": "mode"}), stub, errors.append)
+    assert errors == []
+    assert cfg is not None
+
+
+def test_wired_track_target_requires_the_target_track_label():
+    stub = _stub_simdef(
+        {"STANDBY": 0, "INERTIAL_POINT": 1},
+        {
+            "ADCS_SLEW_TO_QUATERNION": _stub_cmd("Q1", "Q2", "Q3", "Q4"),
+            "ADCS_TRACK_TARGET": _stub_cmd("Latitude", "Longitude"),
+        },
+    )
+    errors = []
+    cfg = parse_model("adcs", _minimal_table(outputs={"MODE": "mode"}), stub, errors.append)
+    assert cfg is None
+    assert any("TARGET_TRACK" in e and "missing from the field's enumeration" in e for e in errors)
+
+
+def test_set_mode_argument_labels_must_be_adcs_modes():
+    stub = _stub_simdef(
+        {m.name: m.value for m in AdcsMode},
+        {"ADCS_SET_MODE": _stub_cmd("Mode", enums={"Mode": {"STANDBY": 0, "WARP": 9}})},
+    )
+    errors = []
+    cfg = parse_model("adcs", _minimal_table(outputs={"MODE": "mode"}), stub, errors.append)
+    assert cfg is None
+    assert any("Mode label 'WARP' is not an ADCS mode" in e for e in errors)
+
+
+def test_unconstrained_mode_argument_assumes_all_modes():
+    # A Mode argument with no enumeration could name any mode, so the
+    # bound field must carry them all.
+    stub = _stub_simdef({"STANDBY": 0}, {"ADCS_SET_MODE": _stub_cmd("Mode")})
+    errors = []
+    cfg = parse_model("adcs", _minimal_table(outputs={"MODE": "mode"}), stub, errors.append)
+    assert cfg is None
+    assert any("missing from the field's enumeration" in e for e in errors)
+
+
+def test_boot_mode_standby_is_always_required():
+    # The under-approximation direction: STANDBY is reachable on every
+    # vehicle (it is the boot mode), so an enum without it must fail even
+    # when no commands are wired at all.
+    stub = _stub_simdef({"NADIR": 0}, {})
+    errors = []
+    cfg = parse_model("adcs", _minimal_table(outputs={"MODE": "mode"}), stub, errors.append)
+    assert cfg is None
+    assert any("STANDBY" in e and "missing from the field's enumeration" in e for e in errors)
+
+
+def test_wired_slew_requires_the_inertial_point_label():
+    # A slew role forces INERTIAL_POINT into the reachable set even when
+    # set_mode is unwired and cannot re-contribute the label.
+    stub = _stub_simdef(
+        {"STANDBY": 0},
+        {"ADCS_SLEW_TO_QUATERNION": _stub_cmd("Q1", "Q2", "Q3", "Q4")},
+    )
+    errors = []
+    cfg = parse_model("adcs", _minimal_table(outputs={"MODE": "mode"}), stub, errors.append)
+    assert cfg is None
+    assert any(
+        "INERTIAL_POINT" in e and "missing from the field's enumeration" in e for e in errors
+    )

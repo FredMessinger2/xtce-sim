@@ -223,8 +223,11 @@ def parse_model(name: str, body, simdef, error: Callable[[str], None]) -> AdcsMo
         err(f"{where}.sensors.seed: must be an integer")
         seed = 1
 
-    outputs = _parse_outputs(body.get("outputs", {}), simdef, len(wheels or ()), where, err)
     commands = _parse_commands(body.get("commands", {}), simdef, where, err)
+    mode_labels = _reachable_modes(commands, simdef, where, err)
+    outputs = _parse_outputs(
+        body.get("outputs", {}), simdef, len(wheels or ()), mode_labels, where, err
+    )
 
     if problems_before.count or inertia is None or wheels is None or orbit is None:
         return None
@@ -395,9 +398,10 @@ def _parse_orbit(table, where: str, err) -> CircularOrbit | None:
 
 
 #: Label-emitting sources and every label they can produce, for load-time
-#: enum compatibility checks. Everything else is numeric.
+#: enum compatibility checks. Everything else is numeric. The "mode"
+#: source is handled separately: its label set depends on which command
+#: roles the vehicle wires (see _reachable_modes).
 _SOURCE_LABELS = {
-    "mode": tuple(m.name for m in AdcsMode),
     "est_state": tuple(s.value for s in EstimatorState),
     "momentum_flag": ("OK", "NEAR_SATURATION"),
     "st_health": ("OK", "FAULT"),
@@ -407,7 +411,33 @@ _SOURCE_LABELS = {
 }
 
 
-def _parse_outputs(table, simdef, wheel_count: int, where: str, err) -> dict[str, str]:
+def _reachable_modes(commands: dict[str, str], simdef, where: str, err) -> tuple[str, ...]:
+    """The mode labels this vehicle can actually reach through its wired
+    command roles. A vehicle whose XTCE declares no TRACK_TARGET command
+    legitimately omits TARGET_TRACK from its mode enum; demanding the
+    full set would reject a correct ICD, so the mode binding is checked
+    against reachability instead."""
+    all_names = {m.name for m in AdcsMode}
+    reachable = {"STANDBY"}  # the boot mode
+    if "slew_to_quaternion" in commands or "slew_to_angles" in commands:
+        reachable.add("INERTIAL_POINT")
+    if "track_target" in commands:
+        reachable.add("TARGET_TRACK")
+    name = commands.get("set_mode")
+    if name is None:
+        return tuple(sorted(reachable))
+    param = next(p for p in simdef.command_by_name(name).params if p.name == "Mode")
+    if not param.enumerations:
+        # An unconstrained Mode argument could name anything: assume all.
+        return tuple(sorted(all_names))
+    for label in sorted(set(param.enumerations) - all_names):
+        err(f"{where}.commands.set_mode: {name} Mode label {label!r} is not an ADCS mode")
+    return tuple(sorted(reachable | (set(param.enumerations) & all_names)))
+
+
+def _parse_outputs(
+    table, simdef, wheel_count: int, mode_labels: tuple[str, ...], where: str, err
+) -> dict[str, str]:
     if not isinstance(table, dict) or not table:
         err(f"{where}.outputs: at least one field binding is required")
         return {}
@@ -422,7 +452,7 @@ def _parse_outputs(table, simdef, wheel_count: int, where: str, err) -> dict[str
         if source not in valid_keys:
             err(f"{where}.outputs: {fname}: unknown source {source!r}")
             continue
-        problem = _binding_problem(field, source)
+        problem = _binding_problem(field, source, mode_labels)
         if problem is not None:
             err(f"{where}.outputs: {fname}: {problem}")
             continue
@@ -430,11 +460,11 @@ def _parse_outputs(table, simdef, wheel_count: int, where: str, err) -> dict[str
     return outputs
 
 
-def _binding_problem(field, source: str) -> str | None:
+def _binding_problem(field, source: str, mode_labels: tuple[str, ...]) -> str | None:
     """Why this source's values could not survive storage into this field
     (None when the binding is sound). Everything here is knowable at load;
     the alternative is a store warning on every tick, forever."""
-    labels = _SOURCE_LABELS.get(source)
+    labels = mode_labels if source == "mode" else _SOURCE_LABELS.get(source)
     if labels is not None:
         if field.python_type in ("string", "bytes"):
             return None

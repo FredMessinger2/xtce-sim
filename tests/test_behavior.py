@@ -51,12 +51,16 @@ def test_shipped_imaging_sidecar_validates(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     assert len(spec.initial) == 5  # ADCS seeds moved into the model
     assert set(spec.commands) == {
-        "SET_MODE", "HEATER_ON", "HEATER_OFF", "SET_HEATER_SETPOINT",
-        "IMAGER_ON", "IMAGER_OFF", "SET_EXPOSURE", "TAKE_IMAGE",
+        "SET_MODE",
+        "HEATER_ON",
+        "HEATER_OFF",
+        "SET_HEATER_SETPOINT",
+        "IMAGER_ON",
+        "IMAGER_OFF",
+        "SET_EXPOSURE",
+        "TAKE_IMAGE",
     }
-    ramp = next(
-        e for e in spec.commands["HEATER_ON"] if isinstance(e, RampEffect)
-    )
+    ramp = next(e for e in spec.commands["HEATER_ON"] if isinstance(e, RampEffect))
     assert ramp.target == "@THM_HEATER{HeaterId}_SETPOINT" and ramp.tau == 30.0
     # The ADCS is a model now: one, owning 41 fields and 11 commands.
     assert len(spec.models) == 1
@@ -65,9 +69,15 @@ def test_shipped_imaging_sidecar_validates(simdef):
     assert len(spec.models[0].commands) == 11
 
 
-def test_sidecar_discovery():
+def test_sidecar_discovery(tmp_path):
     assert sidecar_path([IMAGING]) == EXAMPLES / "imaging_sat"
-    assert sidecar_path([EXAMPLES / "my_vehicle/my_vehicle.xml"]) is None  # none exists
+    assert sidecar_path([EXAMPLES / "my_vehicle/my_vehicle.xml"]) == EXAMPLES / "my_vehicle"
+    # A directory with no .toml beside the XTCE discovers nothing.
+    import shutil
+
+    bare = tmp_path / "my_vehicle.xml"
+    shutil.copy(EXAMPLES / "my_vehicle/my_vehicle.xml", bare)
+    assert sidecar_path([bare]) is None
 
 
 # ---- effect parsing ---------------------------------------------------------
@@ -106,9 +116,7 @@ def test_unknown_command_table(tmp_path, simdef):
 
 
 def test_unknown_field(tmp_path, simdef):
-    assert "unknown telemetry field" in _errors(
-        tmp_path, simdef, "[IMAGER_ON]\nNOT_A_FIELD = 1\n"
-    )
+    assert "unknown telemetry field" in _errors(tmp_path, simdef, "[IMAGER_ON]\nNOT_A_FIELD = 1\n")
 
 
 def test_unknown_arg_reference(tmp_path, simdef):
@@ -143,18 +151,21 @@ def test_ramp_requires_tau_and_numeric_target(tmp_path, simdef):
         tmp_path, simdef, "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0 }\n"
     )
     assert "tau must be a positive number" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = -1 }\n",
     )
     assert "@FIELD reference" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = "warm", tau = 5 }\n',
     )
 
 
 def test_unknown_verb_key(tmp_path, simdef):
     msg = _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_too = 35.0, tau = 5 }\n",
     )
     assert "unknown key(s) ['ramp_too']" in msg
@@ -168,7 +179,8 @@ def test_bad_emit_value(tmp_path, simdef):
 
 def test_initial_unknown_field_and_bad_label(tmp_path, simdef):
     msg = _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[_initial]\nNOT_A_FIELD = 1\nHK_SYSTEM_MODE = "WARP_SPEED"\n',
     )
     assert "unknown telemetry field" in msg and "not a label" in msg
@@ -176,7 +188,8 @@ def test_initial_unknown_field_and_bad_label(tmp_path, simdef):
 
 def test_all_errors_collected_in_one_raise(tmp_path, simdef):
     msg = _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[NO_SUCH_CMD]\nX = 1\n[IMAGER_ON]\nNOT_A_FIELD = 1\nIMG_STATE = { bogus = 1 }\n",
     )
     assert "3 problem(s)" in msg
@@ -196,9 +209,7 @@ def test_templated_field_values_are_still_validated(tmp_path, simdef):
     # Value checks must expand templates just like existence checks do —
     # a bad label on a templated field is not allowed to slip through, and
     # EVERY expansion is checked (both heaters here).
-    msg = _errors(
-        tmp_path, simdef, '[HEATER_ON]\n"THM_HEATER{HeaterId}_STATE" = "BANANA"\n'
-    )
+    msg = _errors(tmp_path, simdef, '[HEATER_ON]\n"THM_HEATER{HeaterId}_STATE" = "BANANA"\n')
     assert "not a label of THM_HEATER1_STATE" in msg
     assert "not a label of THM_HEATER2_STATE" in msg
 
@@ -216,7 +227,8 @@ def test_table_form_set_accepts_arg_copy_with_emit(tmp_path, simdef):
     # '@arg:' means copy in the table form too — that's how a copy gets
     # emit="immediate" — and it must not parse as a literal string set.
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[SET_EXPOSURE]\nIMG_EXPOSURE_MS = { set = "@arg:ExposureMs", emit = "immediate" }\n',
     )
     eff = spec.commands["SET_EXPOSURE"][0]
@@ -239,15 +251,11 @@ def test_raw_int_for_enum_field_must_be_a_real_value(tmp_path, simdef):
     # 3 is IMAGING — fine as a raw escape; 99 maps to nothing and is a typo.
     spec = _load(tmp_path, simdef, "[SET_MODE]\nHK_SYSTEM_MODE = 3\n")
     assert spec.commands["SET_MODE"][0].value == 3
-    assert "not a raw value" in _errors(
-        tmp_path, simdef, "[SET_MODE]\nHK_SYSTEM_MODE = 99\n"
-    )
+    assert "not a raw value" in _errors(tmp_path, simdef, "[SET_MODE]\nHK_SYSTEM_MODE = 99\n")
 
 
 def test_bare_at_field_set_value_gets_a_hint(tmp_path, simdef):
-    msg = _errors(
-        tmp_path, simdef, '[IMAGER_ON]\nIMG_STATE = "@IMG_EXPOSURE_MS"\n'
-    )
+    msg = _errors(tmp_path, simdef, '[IMAGER_ON]\nIMG_STATE = "@IMG_EXPOSURE_MS"\n')
     assert 'did you mean "@arg:' in msg
 
 
@@ -271,17 +279,25 @@ def test_inspect_narrates_behavior_sidecar():
 def test_inspect_behavior_validation_failure_is_fatal(tmp_path):
     bad = tmp_path / "bad.behavior.toml"
     bad.write_text("[NO_SUCH_CMD]\nX = 1\n")
-    result = CliRunner().invoke(
-        main, ["inspect", str(IMAGING), "--behavior", str(bad)]
-    )
+    result = CliRunner().invoke(main, ["inspect", str(IMAGING), "--behavior", str(bad)])
     assert result.exit_code != 0
     assert "unknown command" in result.output
 
 
-def test_inspect_without_sidecar_unchanged():
-    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle/my_vehicle.xml")])
+def test_inspect_without_sidecar_unchanged(tmp_path):
+    import shutil
+
+    bare = tmp_path / "my_vehicle.xml"
+    shutil.copy(EXAMPLES / "my_vehicle/my_vehicle.xml", bare)
+    result = CliRunner().invoke(main, ["inspect", str(bare)])
     assert result.exit_code == 0, result.output
     assert "Behavior (" not in result.output
+
+
+def test_inspect_my_vehicle_narrates_its_model():
+    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle/my_vehicle.xml")])
+    assert result.exit_code == 0, result.output
+    assert "model adcs: rigid-body ADCS (3 wheels" in result.output
 
 
 def test_describe_lines(simdef):
@@ -304,9 +320,13 @@ def engine(simdef):
 def simdef_quadratic(tmp_path_factory):
     """imaging_sat with IMG temperature calibration made quadratic (x^2) —
     a legal XTCE calibrator with no unique inverse."""
-    xml = (EXAMPLES / "imaging_sat/imaging_sat.xml").read_text().replace(
-        '<xtce:Term coefficient="0.01" exponent="1" />',
-        '<xtce:Term coefficient="0.01" exponent="2" />',
+    xml = (
+        (EXAMPLES / "imaging_sat/imaging_sat.xml")
+        .read_text()
+        .replace(
+            '<xtce:Term coefficient="0.01" exponent="1" />',
+            '<xtce:Term coefficient="0.01" exponent="2" />',
+        )
     )
     path = tmp_path_factory.mktemp("quad") / "quad.xml"
     path.write_text(xml)
@@ -381,12 +401,10 @@ def test_engine_bad_copy_value_warns_and_skips(engine, simdef, caplog):
 
 
 def test_engine_clamps_int_to_wire_width(tmp_path, simdef):
-    spec = _load(tmp_path, simdef, "[SET_EXPOSURE]\nIMG_GAIN = \"@arg:GainLevel\"\n")
+    spec = _load(tmp_path, simdef, '[SET_EXPOSURE]\nIMG_GAIN = "@arg:GainLevel"\n')
     eng = behavior.BehaviorEngine(spec, simdef)
     eng.apply_command(_cmd(simdef, "SET_EXPOSURE"), {"GainLevel": 99999})
-    field = next(
-        f for p in simdef.packets for f in p.fields if f.name == "IMG_GAIN"
-    )
+    field = next(f for p in simdef.packets for f in p.fields if f.name == "IMG_GAIN")
     assert eng.state["IMG_GAIN"] == (1 << field.size_bits) - 1  # clamped, no overflow
 
 
@@ -398,7 +416,10 @@ async def test_server_end_to_end_command_changes_telemetry(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     engine = behavior.BehaviorEngine(spec, simdef)
     server = SimServer(
-        simdef, host="127.0.0.1", port=0, beacon_interval=0.05,
+        simdef,
+        host="127.0.0.1",
+        port=0,
+        beacon_interval=0.05,
         behavior_engine=engine,
     )
     await server.start()
@@ -406,17 +427,13 @@ async def test_server_end_to_end_command_changes_telemetry(simdef):
         import asyncio
 
         cmd = simdef.command_by_name("IMAGER_ON")
-        await asyncio.to_thread(
-            client.send_command, "127.0.0.1", server.bound_port, cmd, {}
-        )
+        await asyncio.to_thread(client.send_command, "127.0.0.1", server.bound_port, cmd, {})
         await asyncio.sleep(0.1)  # let the dispatch land
 
         img = simdef.packet_by_name("IMAGER_STATUS")
 
         def read_one():
-            for pkt in client.stream_packets(
-                "127.0.0.1", server.bound_port, timeout=2.0
-            ):
+            for pkt in client.stream_packets("127.0.0.1", server.bound_port, timeout=2.0):
                 header = ccsds.CCSDSHeader.unpack(pkt[:6])
                 if header.apid == img.apid:
                     return codec.unpack_telemetry(img, pkt[6:])
@@ -444,9 +461,13 @@ def test_nonfinite_values_rejected_at_load(tmp_path, simdef):
 
 def test_nonfinite_copied_argument_skipped_at_runtime(tmp_path, simdef):
     # A float argument can decode to nan off the wire — skip, never crash.
-    spec = _load(tmp_path, simdef, '[SET_HEATER_SETPOINT]\nTHM_HEATER1_SETPOINT = "@arg:Setpoint"\n')
+    spec = _load(
+        tmp_path, simdef, '[SET_HEATER_SETPOINT]\nTHM_HEATER1_SETPOINT = "@arg:Setpoint"\n'
+    )
     eng = behavior.BehaviorEngine(spec, simdef)
-    eng.apply_command(_cmd(simdef, "SET_HEATER_SETPOINT"), {"Setpoint": float("nan"), "HeaterId": 1})
+    eng.apply_command(
+        _cmd(simdef, "SET_HEATER_SETPOINT"), {"Setpoint": float("nan"), "HeaterId": 1}
+    )
     assert "THM_HEATER1_SETPOINT" not in eng.state
 
 
@@ -464,7 +485,9 @@ def test_overlay_wins_over_telemetry_source(engine, simdef):
     from xtce_sim.server import SimServer
 
     server = SimServer(
-        simdef, host="127.0.0.1", port=1,  # never started; just merging
+        simdef,
+        host="127.0.0.1",
+        port=1,  # never started; just merging
         behavior_engine=engine,
         telemetry_source=lambda pkt: {f.name: 7 for f in pkt.fields},
     )
@@ -541,7 +564,8 @@ def test_ramp_on_string_field_rejected(tmp_path, simdef):
         tmp_path, simdef, "[FILE_DELETE]\nFR_FILENAME = { ramp_to = 1, tau = 5 }\n"
     )
     assert "not a numeric field" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = "@FR_FILENAME", tau = 5 }\n',
     )
 
@@ -606,7 +630,8 @@ def test_engine_copies_bytes_arg_into_string_field_only(tmp_path, simdef):
     # decode hands string args over as bytes: fine into a string field,
     # skipped (not crashed) into a numeric one.
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[FILE_DELETE]\nFR_FILENAME = "@arg:Filename"\nFR_FILE_SIZE = "@arg:Filename"\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef)
@@ -649,7 +674,8 @@ def test_ramp_advances_toward_target_and_completes(engine, simdef):
 
 def test_ramp_trajectory_is_tick_size_independent(tmp_path, simdef):
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_initial]\nHK_ISSUED_TIMESTAMP = 0.0\n"
         "[IMAGER_ON]\nHK_ISSUED_TIMESTAMP = { ramp_to = 100.0, tau = 10 }\n",
     )
@@ -701,7 +727,8 @@ def test_ramp_holds_when_target_field_not_numeric_yet(tmp_path, simdef, caplog):
 
     # @FIELD target with no value in the overlay: hold (warn), don't move.
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[HEATER_ON]\n"THM_HEATER{HeaterId}_TEMP" = { ramp_to = "@THM_HEATER{HeaterId}_SETPOINT", tau = 30.0 }\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef)  # no [_initial]: setpoint unset
@@ -729,7 +756,10 @@ async def test_server_beacon_ticks_ramps_end_to_end(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     engine = behavior.BehaviorEngine(spec, simdef)
     server = SimServer(
-        simdef, host="127.0.0.1", port=0, beacon_interval=0.05,
+        simdef,
+        host="127.0.0.1",
+        port=0,
+        beacon_interval=0.05,
         behavior_engine=engine,
     )
     await server.start()
@@ -758,7 +788,8 @@ async def test_server_beacon_ticks_ramps_end_to_end(simdef):
 
 def test_float_field_ramp_lands_exactly_and_retires(tmp_path, simdef):
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_initial]\nHK_ISSUED_TIMESTAMP = 0.0\n"
         "[IMAGER_ON]\nHK_ISSUED_TIMESTAMP = { ramp_to = 100.0, tau = 5 }\n",
     )
@@ -779,6 +810,7 @@ def test_direct_write_cancels_active_ramp(engine, simdef):
     # a direct copy onto the ramped field (via setpoint command redirected)...
     spec_over = engine.spec.commands.setdefault("NOOP", [])
     from xtce_sim.behavior import SetEffect
+
     spec_over.append(SetEffect(field="THM_HEATER1_TEMP", value=33))
     engine.apply_command(_cmd(simdef, "NOOP"), {})
     assert _eu(engine, "THM_HEATER1_TEMP") == 33
@@ -791,7 +823,8 @@ def test_missing_ramp_target_warns_once_not_per_tick(tmp_path, simdef, caplog):
     import logging as _logging
 
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[HEATER_ON]\n"THM_HEATER{HeaterId}_TEMP" = { ramp_to = "@THM_HEATER{HeaterId}_SETPOINT", tau = 30.0 }\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef)  # setpoint never seeded
@@ -810,7 +843,8 @@ def test_missing_ramp_target_warns_once_not_per_tick(tmp_path, simdef, caplog):
 
 def test_infinite_ramp_target_rejected_at_load(tmp_path, simdef):
     assert "must be a finite number or @FIELD" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = inf, tau = 5 }\n",
     )
 
@@ -823,6 +857,7 @@ def test_shipped_sidecar_signals_load(simdef):
     assert len(spec.signals) == 8
     kinds = {type(e) for e in spec.signals}
     from xtce_sim.behavior import HoldEffect, OscillateEffect
+
     assert kinds == {OscillateEffect, HoldEffect}
 
 
@@ -831,27 +866,32 @@ def test_oscillate_validation(tmp_path, simdef):
         tmp_path, simdef, "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10 }\n"
     )
     assert "period must be a positive number" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10, amplitude = 5, period = 0 }\n",
     )
     assert "shape must be one of" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10, amplitude = 5, period = 60, shape = "square" }\n',
     )
     assert "noise must be a non-negative number" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10, amplitude = 5, period = 60, noise = -1 }\n",
     )
     # attributes are verb-scoped: amplitude with ramp_to is a typo
     assert "['amplitude'] not valid with ramp_to" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 5, tau = 3, amplitude = 2 }\n",
     )
 
 
 def test_signals_validation(tmp_path, simdef):
     msg = _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_signals]\nIMG_STATE = 1\nNOT_A_FIELD = { hold = 1 }\n"
         '"THM_HEATER{HeaterId}_TEMP" = { hold = 1 }\n',
     )
@@ -863,7 +903,8 @@ def test_signals_validation(tmp_path, simdef):
 def test_oscillate_wave_math_no_noise(tmp_path, simdef):
     # sine: quarter period -> center + amplitude, exactly (no noise)
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_signals]\nTHM_PANEL_PLUS_X = { oscillate = 10.0, amplitude = 20.0, period = 100 }\n",
     )
     eng = behavior.BehaviorEngine(spec, simdef)
@@ -909,7 +950,8 @@ def test_noisy_ramp_degrades_into_noisy_hold(tmp_path, simdef):
     from xtce_sim.behavior import _ActiveHold
 
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_initial]\nHK_ISSUED_TIMESTAMP = 0.0\n"
         "[IMAGER_ON]\nHK_ISSUED_TIMESTAMP = { ramp_to = 100.0, tau = 2, noise = 0.5 }\n",
     )
@@ -931,9 +973,7 @@ def test_command_behavior_replaces_boot_signal(simdef):
 
     assert isinstance(eng._behaviors["THM_PANEL_PLUS_X"], _ActiveOsc)
     # a command declaring a hold on the same field displaces the signal
-    eng.spec.commands.setdefault("NOOP", []).append(
-        HoldEffect(field="THM_PANEL_PLUS_X", value=0.0)
-    )
+    eng.spec.commands.setdefault("NOOP", []).append(HoldEffect(field="THM_PANEL_PLUS_X", value=0.0))
     eng.apply_command(_cmd(simdef, "NOOP"), {})
     assert not isinstance(eng._behaviors["THM_PANEL_PLUS_X"], _ActiveOsc)
 
@@ -943,9 +983,7 @@ def test_direct_set_cancels_boot_signal(simdef):
     eng = behavior.BehaviorEngine(spec, simdef)
     from xtce_sim.behavior import SetEffect
 
-    eng.spec.commands.setdefault("NOOP", []).append(
-        SetEffect(field="THM_RADIATOR", value=0)
-    )
+    eng.spec.commands.setdefault("NOOP", []).append(SetEffect(field="THM_RADIATOR", value=0))
     eng.apply_command(_cmd(simdef, "NOOP"), {})
     assert "THM_RADIATOR" not in eng._behaviors  # signal cancelled
     eng.tick(1.0)
@@ -973,34 +1011,40 @@ def test_signal_parse_error_reported_not_registered(tmp_path, simdef):
 
 def test_center_and_hold_value_validation(tmp_path, simdef):
     assert "must be an @FIELD reference" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[_signals]\nTHM_RADIATOR = { oscillate = "FOO", amplitude = 1, period = 60 }\n',
     )
     assert "must be a finite number or @FIELD" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_signals]\nTHM_RADIATOR = { oscillate = true, amplitude = 1, period = 60 }\n",
     )
     assert "amplitude must be a non-negative number" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_signals]\nTHM_RADIATOR = { oscillate = 1, amplitude = -1, period = 60 }\n",
     )
     assert "phase must be a finite number" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_signals]\nTHM_RADIATOR = { oscillate = 1, amplitude = 1, period = 60, phase = nan }\n",
     )
     assert "noise must be a non-negative number" in _errors(
         tmp_path, simdef, "[_signals]\nTHM_RADIATOR = { hold = 1, noise = -1 }\n"
     )
     assert "noise must be a non-negative number" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 5, tau = 1, noise = -1 }\n",
     )
 
 
 def test_oscillate_center_can_be_live_reference(tmp_path, simdef):
     spec = _load(
-        tmp_path, simdef,
-        '[_initial]\nTHM_HEATER1_SETPOINT = 20\n'
+        tmp_path,
+        simdef,
+        "[_initial]\nTHM_HEATER1_SETPOINT = 20\n"
         '[_signals]\nTHM_RADIATOR = { oscillate = "@THM_HEATER1_SETPOINT", amplitude = 4, period = 8 }\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef)
@@ -1029,8 +1073,12 @@ def test_tick_skips_behavior_with_missing_live_ref(simdef, caplog, tmp_path):
     eng = behavior.BehaviorEngine(spec, simdef)
     eng._behaviors["THM_RADIATOR"] = _ActiveHold(field="THM_RADIATOR", value="@GHOST")
     eng._behaviors["THM_PANEL_PLUS_X"] = _ActiveOsc(
-        field="THM_PANEL_PLUS_X", center="@GHOST", amplitude=1.0,
-        period=10.0, shape="sine", phase=0.0,
+        field="THM_PANEL_PLUS_X",
+        center="@GHOST",
+        amplitude=1.0,
+        period=10.0,
+        shape="sine",
+        phase=0.0,
     )
     with caplog.at_level("WARNING"):
         eng.tick(1.0)
@@ -1043,7 +1091,8 @@ def test_tick_skips_behavior_with_missing_live_ref(simdef, caplog, tmp_path):
 def test_signal_with_templated_reference_is_load_error(tmp_path, simdef):
     # review defect: this used to crash the loader with AttributeError
     assert "templates are not allowed here" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[_signals]\nTHM_RADIATOR = { hold = "@THM_HEATER{HeaterId}_SETPOINT" }\n',
     )
 
@@ -1052,7 +1101,8 @@ def test_noisy_ramp_settles_on_landed_value_not_live_target(tmp_path, simdef):
     # review defect: the degraded hold used to keep tracking @FIELD, so a
     # later setpoint change teleported the value instead of freezing it.
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_initial]\nTHM_HEATER1_SETPOINT = 40\n"
         '[HEATER_ON]\nTHM_HEATER1_TEMP = { ramp_to = "@THM_HEATER1_SETPOINT", tau = 2, noise = 0.1 }\n',
     )
@@ -1071,7 +1121,8 @@ def test_noisy_ramp_settles_on_landed_value_not_live_target(tmp_path, simdef):
 
 def test_self_reference_rejected_at_load(tmp_path, simdef):
     msg = _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[_signals]\nTHM_RADIATOR = { hold = "@THM_RADIATOR", noise = 0.3 }\n'
         'PWR_BATTERY_TEMP = { oscillate = "@PWR_BATTERY_TEMP", amplitude = 1, period = 60 }\n'
         '[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = "@IMG_FOCAL_PLANE_TEMP", tau = 5 }\n',
@@ -1083,9 +1134,9 @@ def test_templated_self_reference_skipped_at_runtime(tmp_path, simdef, caplog):
     # A concrete field with a templated reference is not equal at load
     # (identical templates ARE caught there) but can resolve to itself.
     spec = _load(
-        tmp_path, simdef,
-        '[HEATER_ON]\nTHM_HEATER1_TEMP = '
-        '{ hold = "@THM_HEATER{HeaterId}_TEMP", noise = 0.5 }\n',
+        tmp_path,
+        simdef,
+        '[HEATER_ON]\nTHM_HEATER1_TEMP = { hold = "@THM_HEATER{HeaterId}_TEMP", noise = 0.5 }\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef)
     with caplog.at_level("WARNING"):
@@ -1096,11 +1147,13 @@ def test_templated_self_reference_skipped_at_runtime(tmp_path, simdef, caplog):
 
 def test_tau_and_increment_must_be_finite(tmp_path, simdef):
     assert "tau must be a positive number" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35, tau = inf }\n",
     )
     assert "tau must be a positive number" in _errors(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35, tau = nan }\n",
     )
     assert "increment must be a finite number" in _errors(
@@ -1126,8 +1179,9 @@ def test_oscillator_clock_advances_while_center_unresolved(tmp_path, simdef):
     # Center resolves only after 25s (quarter period); the wave must resume
     # at its true phase, not restart from zero.
     spec = _load(
-        tmp_path, simdef,
-        '[_signals]\nTHM_RADIATOR = '
+        tmp_path,
+        simdef,
+        "[_signals]\nTHM_RADIATOR = "
         '{ oscillate = "@THM_HEATER1_SETPOINT", amplitude = 20, period = 100 }\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef)
@@ -1162,10 +1216,11 @@ def test_restarted_behavior_continues_noise_stream(tmp_path, simdef):
 
 def test_immediate_rejected_on_continuous_verbs(tmp_path, simdef):
     msg = _errors(
-        tmp_path, simdef,
-        '[IMAGER_ON]\n'
+        tmp_path,
+        simdef,
+        "[IMAGER_ON]\n"
         'IMG_FOCAL_PLANE_TEMP = { ramp_to = 35, tau = 5, emit = "immediate" }\n'
-        '[_signals]\n'
+        "[_signals]\n"
         'THM_RADIATOR = { hold = -5, emit = "immediate" }\n'
         'PWR_SOLAR_VOLTAGE = { oscillate = 16, amplitude = 2, period = 60, emit = "immediate" }\n',
     )
@@ -1174,12 +1229,13 @@ def test_immediate_rejected_on_continuous_verbs(tmp_path, simdef):
 
 def test_immediate_apids_collected_deduped_and_cleared(tmp_path, simdef):
     spec = _load(
-        tmp_path, simdef,
-        '[IMAGER_ON]\n'
+        tmp_path,
+        simdef,
+        "[IMAGER_ON]\n"
         'IMG_STATE = { set = "IDLE", emit = "immediate" }\n'
-        'IMG_GAIN = { set = 2, emit = "immediate" }\n'          # same packet
+        'IMG_GAIN = { set = 2, emit = "immediate" }\n'  # same packet
         'THM_HEATER1_STATE = { set = "ON", emit = "immediate" }\n'  # other packet
-        'IMG_EXPOSURE_MS = 5\n',                                  # interval-paced
+        "IMG_EXPOSURE_MS = 5\n",  # interval-paced
     )
     eng = behavior.BehaviorEngine(spec, simdef)
     eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
@@ -1191,9 +1247,9 @@ def test_immediate_apids_collected_deduped_and_cleared(tmp_path, simdef):
 
 def test_immediate_skipped_effect_emits_nothing(tmp_path, simdef):
     spec = _load(
-        tmp_path, simdef,
-        '[SET_EXPOSURE]\n'
-        'IMG_EXPOSURE_MS = { set = "@arg:ExposureMs", emit = "immediate" }\n',
+        tmp_path,
+        simdef,
+        '[SET_EXPOSURE]\nIMG_EXPOSURE_MS = { set = "@arg:ExposureMs", emit = "immediate" }\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef)
     eng.apply_command(_cmd(simdef, "SET_EXPOSURE"), {})  # arg missing: warn-skip
@@ -1209,12 +1265,16 @@ async def test_immediate_emission_end_to_end(tmp_path, simdef):
     from xtce_sim.server import SimServer
 
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[TAKE_IMAGE]\nIMG_STATE = { set = "CAPTURING", emit = "immediate" }\n',
     )
     engine = behavior.BehaviorEngine(spec, simdef)
     server = SimServer(
-        simdef, host="127.0.0.1", port=0, beacon_interval=5.0,
+        simdef,
+        host="127.0.0.1",
+        port=0,
+        beacon_interval=5.0,
         behavior_engine=engine,
     )
     await server.start()
@@ -1254,8 +1314,9 @@ async def test_failing_immediate_send_skips_but_continues(tmp_path, simdef):
     from xtce_sim.server import SimServer
 
     spec = _load(
-        tmp_path, simdef,
-        '[TAKE_IMAGE]\n'
+        tmp_path,
+        simdef,
+        "[TAKE_IMAGE]\n"
         'IMG_STATE = { set = "CAPTURING", emit = "immediate" }\n'
         'EVT_EVENT_ID = { set = 11, emit = "immediate" }\n',
     )
@@ -1266,8 +1327,12 @@ async def test_failing_immediate_send_skips_but_continues(tmp_path, simdef):
         handled.append(command.name)
 
     server = SimServer(
-        simdef, host="127.0.0.1", port=0, beacon_interval=60.0,
-        behavior_engine=engine, command_handler=handler,
+        simdef,
+        host="127.0.0.1",
+        port=0,
+        beacon_interval=60.0,
+        behavior_engine=engine,
+        command_handler=handler,
     )
     imager_apid = simdef.packet_by_name("IMAGER_STATUS").apid
     sent = []
@@ -1300,9 +1365,9 @@ async def test_failing_immediate_send_skips_but_continues(tmp_path, simdef):
 def test_behavior_values_are_engineering_units(tmp_path, simdef):
     # 25.5 degC seeds as 2550 counts (0.01 degC/count); increment adds degrees.
     spec = _load(
-        tmp_path, simdef,
-        "[_initial]\nTHM_RADIATOR = -5.0\n"
-        "[IMAGER_ON]\nTHM_RADIATOR = { increment = 1.5 }\n",
+        tmp_path,
+        simdef,
+        "[_initial]\nTHM_RADIATOR = -5.0\n[IMAGER_ON]\nTHM_RADIATOR = { increment = 1.5 }\n",
     )
     eng = behavior.BehaviorEngine(spec, simdef)
     assert eng.state["THM_RADIATOR"] == -500  # counts on the wire
@@ -1324,7 +1389,8 @@ def test_live_reference_across_different_scales(tmp_path, simdef):
     # both sides of the reference resolve in engineering units, so the ramp
     # lands at the setpoint's EU value regardless of count scales.
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         "[_initial]\nTHM_HEATER1_SETPOINT = 33.0\n"
         '[HEATER_ON]\n"THM_HEATER{HeaterId}_TEMP" = '
         '{ ramp_to = "@THM_HEATER1_SETPOINT", tau = 2 }\n',
@@ -1338,7 +1404,8 @@ def test_live_reference_across_different_scales(tmp_path, simdef):
 
 def test_non_invertible_calibrator_rejected_at_load(tmp_path, simdef_quadratic):
     msg = _errors_for(
-        tmp_path, simdef_quadratic,
+        tmp_path,
+        simdef_quadratic,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 30, tau = 5 }\n"
         "[_initial]\nIMG_FOCAL_PLANE_TEMP = 20.0\n",
     )
@@ -1347,19 +1414,19 @@ def test_non_invertible_calibrator_rejected_at_load(tmp_path, simdef_quadratic):
 
 def test_copy_to_non_invertible_field_rejected_at_load(tmp_path, simdef_quadratic):
     msg = _errors_for(
-        tmp_path, simdef_quadratic,
+        tmp_path,
+        simdef_quadratic,
         '[SET_EXPOSURE]\nIMG_FOCAL_PLANE_TEMP = "@arg:ExposureMs"\n',
     )
     assert "non-invertible calibrator" in msg
 
 
-def test_deferred_template_to_non_invertible_field_refused_once(
-    tmp_path, simdef_quadratic, caplog
-):
+def test_deferred_template_to_non_invertible_field_refused_once(tmp_path, simdef_quadratic, caplog):
     # An unbounded template escapes load validation; the runtime refusal
     # happens once at start with the real reason, not per tick.
     spec = _load(
-        tmp_path, simdef_quadratic,
+        tmp_path,
+        simdef_quadratic,
         '[SET_EXPOSURE]\n"IMG_FOCAL_PLANE_{ExposureMs}" = { hold = 25.0 }\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef_quadratic)
@@ -1374,7 +1441,8 @@ def test_deferred_template_to_non_invertible_field_refused_once(
 
 def test_effects_log_confirms_in_engineering_units(tmp_path, simdef):
     spec = _load(
-        tmp_path, simdef,
+        tmp_path,
+        simdef,
         '[SET_HEATER_SETPOINT]\n"THM_HEATER{HeaterId}_SETPOINT" = "@arg:Setpoint"\n',
     )
     eng = behavior.BehaviorEngine(spec, simdef)
@@ -1534,9 +1602,7 @@ def test_set_mode_and_estimator_state_are_telemetered(adcs_engine, simdef):
 
 def test_bad_wheel_id_warns_and_applies_nothing(adcs_engine, simdef, caplog):
     with caplog.at_level(logging.WARNING, logger="xtce_sim.dynamics"):
-        applied = adcs_engine.apply_command(
-            _cmd(simdef, "ADCS_WHEEL_ENABLE"), {"WheelId": 9}
-        )
+        applied = adcs_engine.apply_command(_cmd(simdef, "ADCS_WHEEL_ENABLE"), {"WheelId": 9})
     assert applied == []
     assert "WheelId 9 out of range" in caplog.text
     # A rejected command emits NOTHING out of cycle: an unscheduled ADCS
@@ -1552,9 +1618,7 @@ def test_model_field_cannot_be_written_by_another_table(tmp_path, simdef):
     for toml in (EXAMPLES / "imaging_sat").glob("*.toml"):
         shutil.copy(toml, tmp_path)
     shutil.copy(EXAMPLES / "imaging_sat" / "imaging_sat.xml", tmp_path)
-    (tmp_path / "zz_extra.toml").write_text(
-        '[ADCS_SET_MODE]\nADCS_MODE = { set = "@arg:Mode" }\n'
-    )
+    (tmp_path / "zz_extra.toml").write_text('[ADCS_SET_MODE]\nADCS_MODE = { set = "@arg:Mode" }\n')
     with pytest.raises(behavior.BehaviorError) as exc:
         load_behavior(tmp_path, simdef)
     assert "owned by model 'adcs'" in str(exc.value)
@@ -1575,7 +1639,8 @@ def test_two_models_cannot_consume_the_same_command(tmp_path, simdef):
         text += (
             f"[_models.{name}]\n"
             f"[_models.{name}.body]\ninertia = [12.0, 14.0, 9.0]\n"
-            + wheel % name
+            + wheel
+            % name
             + f"[_models.{name}.orbit]\naltitude_km = 500.0\n"
             f"[_models.{name}.outputs]\n{binding}\n"
         )
@@ -1600,9 +1665,68 @@ def test_templated_effect_cannot_teleport_a_model_wheel_speed(tmp_path, simdef, 
     spec = load_behavior(tmp_path, simdef)  # loads: the template hides the name
     engine = behavior.BehaviorEngine(spec, simdef)
     with caplog.at_level(logging.WARNING):
-        engine.apply_command(
-            _cmd(simdef, "ADCS_WHEEL_SET_SPEED"), {"WheelId": 1, "Speed": -2200.0}
-        )
+        engine.apply_command(_cmd(simdef, "ADCS_WHEEL_SET_SPEED"), {"WheelId": 1, "Speed": -2200.0})
     assert "owned by a model; skipped" in caplog.text
     # The wheel is spinning up through its motor, not teleported.
     assert abs(_eu(engine, "ADCS_WHEEL1_SPEED")) < 1.0
+
+
+# ---- my_vehicle 3-wheel model (shipped my_vehicle/adcs.toml) -----------------
+#
+# The same physics stack, configured for a subset ICD: three orthogonal
+# wheels, six of the eleven command roles, and a mode enum that
+# legitimately omits TARGET_TRACK (no track command) with STANDBY at a
+# different raw value than the ImagingSat's.
+
+
+@pytest.fixture(scope="module")
+def mv_simdef() -> SimDefinition:
+    return SimDefinition.from_xtce(
+        [
+            EXAMPLES / "my_vehicle/my_vehicle_commands.xml",
+            EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml",
+        ]
+    )
+
+
+@pytest.fixture()
+def mv_engine(mv_simdef):
+    spec = load_behavior(EXAMPLES / "my_vehicle", mv_simdef)
+    return behavior.BehaviorEngine(spec, mv_simdef)
+
+
+def test_my_vehicle_boots_with_its_own_mode_encoding(mv_engine, mv_simdef):
+    # Labels map through THIS vehicle's enum: STANDBY is raw 4 here (the
+    # ImagingSat's is 5) — a wire-value copy would be wrong on one of them.
+    status = mv_simdef.packet_by_name("ADCS_STATUS")
+    mode = next(f for f in status.fields if f.name == "ADCS_MODE")
+    assert mode.enumerations["STANDBY"] == 4
+    assert "TARGET_TRACK" not in mode.enumerations  # the subset is the point
+    assert mv_engine.state["ADCS_MODE"] == 4
+    assert _eu(mv_engine, "ADCS_ATT_QUAT_Q4") == pytest.approx(1.0, abs=0.01)
+
+
+def test_my_vehicle_slew_converges_on_three_wheels(mv_engine, mv_simdef):
+    applied = mv_engine.apply_command(
+        _cmd(mv_simdef, "ADCS_SLEW_TO_QUATERNION"),
+        {"Q1": 0.0, "Q2": 0.0, "Q3": 0.7071, "Q4": 0.7071},
+    )
+    assert any("slew" in line for line in applied)
+    for _ in range(24):
+        mv_engine.tick(5.0)
+    assert _eu(mv_engine, "ADCS_ATT_QUAT_Q3") == pytest.approx(0.7071, abs=0.005)
+    assert _eu(mv_engine, "ADCS_POINTING_ERROR") < 0.2
+
+
+def test_my_vehicle_unwired_roles_are_simply_absent(mv_engine):
+    model = mv_engine.models[0]
+    assert not model.handles("ADCS_TRACK_TARGET")
+    assert not model.handles("ADCS_SET_GYRO_BIAS")
+    assert sorted(model.config.commands) == [
+        "desaturate",
+        "reset_estimator",
+        "set_mode",
+        "slew_to_quaternion",
+        "wheel_disable",
+        "wheel_enable",
+    ]
