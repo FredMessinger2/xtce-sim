@@ -259,33 +259,36 @@ def _check_model_ownership(
     template that resolves onto a model field at execution time is caught
     by the engine's runtime guard instead (warned and skipped).
     """
-    owned: dict[str, str] = {}
-    for cfg in models:
-        for fname in cfg.outputs:
-            if fname in owned:
-                ctx.error(f"[_models] {fname}: bound by both {owned[fname]!r} and {cfg.name!r}")
-            owned[fname] = cfg.name
-    consumed: dict[str, str] = {}
-    for cfg in models:
-        for cname in cfg.commands.values():
-            if cname in consumed:
-                ctx.error(
-                    f"[_models] command {cname}: consumed by both "
-                    f"{consumed[cname]!r} and {cfg.name!r}"
-                )
-            consumed[cname] = cfg.name
-    if not owned:
-        return
-    for fname in initial:
+    owned = _claim_unique(
+        ((fname, cfg.name) for cfg in models for fname in cfg.outputs),
+        "[_models] {key}: bound by both {first!r} and {second!r}",
+        ctx,
+    )
+    _claim_unique(
+        ((cname, cfg.name) for cfg in models for cname in cfg.commands.values()),
+        "[_models] command {key}: consumed by both {first!r} and {second!r}",
+        ctx,
+    )
+    writers = [(f"[_initial] {fname}", fname) for fname in initial]
+    writers += [(f"[_signals] {eff.field}", eff.field) for eff in signals]
+    writers += [
+        (f"[{cname}] {eff.field}", eff.field)
+        for cname, effects in commands.items()
+        for eff in effects
+    ]
+    for where, fname in writers:
         if fname in owned:
-            ctx.error(f"[_initial] {fname}: owned by model {owned[fname]!r}")
-    for eff in signals:
-        if eff.field in owned:
-            ctx.error(f"[_signals] {eff.field}: owned by model {owned[eff.field]!r}")
-    for cname, effects in commands.items():
-        for eff in effects:
-            if eff.field in owned:
-                ctx.error(f"[{cname}] {eff.field}: owned by model {owned[eff.field]!r}")
+            ctx.error(f"{where}: owned by model {owned[fname]!r}")
+
+
+def _claim_unique(pairs, conflict: str, ctx: "_Context") -> dict[str, str]:
+    """Each key claimed by at most one model; a second claimant errors."""
+    claims: dict[str, str] = {}
+    for key, claimant in pairs:
+        if key in claims:
+            ctx.error(conflict.format(key=key, first=claims[key], second=claimant))
+        claims[key] = claimant
+    return claims
 
 
 def _load_one_file(
