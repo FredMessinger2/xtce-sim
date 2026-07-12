@@ -113,6 +113,12 @@ xtce-sim run examples/my_vehicle/my_vehicle_commands.xml examples/my_vehicle/my_
   --id sat-a --port 5000
 ```
 
+Either way, the directory's behavior file
+([`examples/my_vehicle/adcs.toml`](examples/my_vehicle/adcs.toml)) is
+discovered automatically, so this satellite's ADCS telemetry is live physics
+from the first beacon — a three-wheel variant of the model described in
+[Physics models](#physics-models-the-adcs-flies) below.
+
 A second, richer example ships as
 [`examples/imaging_sat/imaging_sat.xml`](examples/imaging_sat/imaging_sat.xml) — an Earth-observation
 satellite with imaging, thermal, a full ADCS (attitude determination and
@@ -382,7 +388,9 @@ is its renderer).
 ### Live telemetry
 
 Telemetry values come from up to three layers. With no options the sim beacons
-zeros. Add `--live` to `run` and it beacons changing synthetic values instead —
+zeros for every field no behavior file claims (both bundled satellites carry
+behavior files that fly their ADCS fields from boot, options or not). Add
+`--live` to `run` and it beacons changing synthetic values instead —
 counters climb, temperatures and voltages drift, wheel speeds wobble — so
 `monitor` shows moving data:
 
@@ -608,6 +616,13 @@ momentum through the magnetorquers while the hold loop keeps pointing —
 `ADCS_MOMENTUM_TOTAL` drains on live telemetry. Wheel currents follow
 delivered motor torque; speeds read back in RPM, rates in deg/s, the field in
 µT — the XTCE's units, converted from the model's SI internals.
+
+The same model flies `my_vehicle` as a three-wheel variant
+([`examples/my_vehicle/adcs.toml`](examples/my_vehicle/adcs.toml)) whose ICD
+is a deliberate subset: six of the eleven command roles, fewer telemetry
+fields, and a mode enumeration without TARGET_TRACK — validation checks the
+mode binding against the modes *that vehicle can actually reach* through its
+wired commands, so a leaner ICD is a correct configuration, not an error.
 
 Ownership is validated at load: a field bound under `[outputs]` belongs to
 the model, and any `[_initial]` seed or command-table effect that targets it

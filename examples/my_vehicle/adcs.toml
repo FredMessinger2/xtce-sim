@@ -1,0 +1,89 @@
+# ADCS behavior for my_vehicle: the same rigid-body dynamics model the
+# ImagingSat flies, configured for a smaller craft.
+#
+# This vehicle's ICD is a deliberate subset of the ImagingSat's: three
+# orthogonal wheels instead of the four-wheel pyramid, six ADCS commands
+# (no slew-to-angles, no ground-target tracking, no wheel speed command,
+# no magnetorquer enable, no gyro-bias injection), and a leaner telemetry
+# surface (no estimator state, momentum, sun vector, or wheel temps).
+# The model handles that honestly: unwired command roles are simply
+# uncommandable, unbound outputs are simply not telemetered, and the
+# mode binding is validated against the modes THIS vehicle can reach —
+# its AdcsModeType has no TARGET_TRACK, and that is correct, because it
+# has no ADCS_TRACK_TARGET command either.
+
+[_models.adcs]
+kind = "adcs"
+substep = 0.1 # s of physics per RK4 step
+
+[_models.adcs.body]
+inertia = [8.0, 8.0, 5.0] # kg*m^2, principal diagonal
+
+# Three orthogonal wheels, one per body axis (no redundancy: disabling
+# any wheel costs authority about its axis — try it).
+[[_models.adcs.wheels]]
+axis = [1.0, 0.0, 0.0]
+inertia = 0.015   # kg*m^2
+max_torque = 0.04 # N*m
+max_speed = 500.0 # rad/s (~4775 RPM)
+
+[[_models.adcs.wheels]]
+axis = [0.0, 1.0, 0.0]
+inertia = 0.015
+max_torque = 0.04
+max_speed = 500.0
+
+[[_models.adcs.wheels]]
+axis = [0.0, 0.0, 1.0]
+inertia = 0.015
+max_torque = 0.04
+max_speed = 500.0
+
+[_models.adcs.orbit]
+altitude_km = 550.0
+inclination_deg = 97.6 # sun-synchronous
+
+[_models.adcs.controller]
+response_time = 8.0 # s to close on a small attitude error
+
+# Autonomous torque rods: this vehicle's ICD has no MTQ_ENABLE command and
+# no chain-state telemetry, so the magnetorquers are permanently on and
+# invisible to the operator — DETUMBLE and DESATURATE depend on them.
+# Declared explicitly (rather than inheriting the default) because the
+# hardware is real even where the ICD is silent.
+[_models.adcs.mtq]
+max_dipole = 2.0 # A*m^2 per axis, sized for the smaller craft
+
+[_models.adcs.sensors]
+seed = 2 # distinct noise streams from the ImagingSat
+
+# Model outputs -> XTCE fields. Only what this vehicle's ICD declares;
+# the timestamps stay with the synthetic generator.
+[_models.adcs.outputs]
+ADCS_MODE = "mode"
+ADCS_POINTING_ERROR = "pointing_err_deg"
+ADCS_ST_HEALTH = "st_health"
+ADCS_ATT_QUAT_Q1 = "quat_q1"
+ADCS_ATT_QUAT_Q2 = "quat_q2"
+ADCS_ATT_QUAT_Q3 = "quat_q3"
+ADCS_ATT_QUAT_Q4 = "quat_q4"
+ADCS_RATE_X = "rate_x_deg"
+ADCS_RATE_Y = "rate_y_deg"
+ADCS_RATE_Z = "rate_z_deg"
+ADCS_WHEEL1_SPEED = "wheel1_speed_rpm"
+ADCS_WHEEL2_SPEED = "wheel2_speed_rpm"
+ADCS_WHEEL3_SPEED = "wheel3_speed_rpm"
+ADCS_WHEEL1_CURRENT = "wheel1_current_a"
+ADCS_WHEEL2_CURRENT = "wheel2_current_a"
+ADCS_WHEEL3_CURRENT = "wheel3_current_a"
+ADCS_ST_QUAT_Q1 = "st_quat_q1"
+ADCS_ST_QUAT_Q2 = "st_quat_q2"
+ADCS_ST_QUAT_Q3 = "st_quat_q3"
+ADCS_ST_QUAT_Q4 = "st_quat_q4"
+ADCS_ST_VALID = "st_valid"
+ADCS_MAG_X = "mag_x_ut"
+ADCS_MAG_Y = "mag_y_ut"
+ADCS_MAG_Z = "mag_z_ut"
+
+# Command routing uses the conventional names; this satellite declares
+# six of the eleven roles, and the other five stay unwired by design.
