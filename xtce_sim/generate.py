@@ -535,14 +535,14 @@ def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
                 f"duplicate APID 0x{apid:X}: packets {seen_apids[apid]!r} and "
                 f"{container.name!r} collide"
             )
-        if apid == ccsds.CMD_ECHO_APID:
-            # Reserved for the command echo (see ccsds.py) — a payload packet
-            # here would be routed to the console's command log as garbage
-            # and hidden by the monitor. Refuse loudly at build time.
+        if apid in ccsds.RESERVED_APIDS:
+            # Reserved for the simulator's link protocol (see ccsds.py) — a
+            # payload packet here would be routed to the console's command
+            # log or the file service as garbage. Refuse loudly at build time.
             raise GeneratorError(
                 f"packet {container.name!r} uses APID 0x{apid:X}, which is "
-                f"reserved for the simulator's command echo (see ccsds.py) — "
-                f"pick another APID"
+                f"reserved for the simulator's {ccsds.RESERVED_APIDS[apid]} "
+                f"(see ccsds.py) — pick another APID"
             )
         seen_apids[apid] = container.name
 

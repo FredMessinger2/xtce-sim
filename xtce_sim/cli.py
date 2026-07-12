@@ -23,12 +23,13 @@ import struct
 import sys
 import time
 import xml.etree.ElementTree as ET
+import zlib
 from datetime import datetime
 from pathlib import Path
 
 import click
 
-from xtce_sim import behavior, ccsds, client, codec, render, sequences
+from xtce_sim import behavior, ccsds, client, codec, fileservice, render, sequences
 from xtce_sim.definition import SimDefinition
 from xtce_sim.exercise import build_send_plan, reject_probe, run_exercise
 from xtce_sim.generate import GeneratorError, emit_python, format_json, format_text
@@ -109,7 +110,7 @@ def _build_and_dump(
     instance_id: str | None,
     out_dir: Path | None,
     emit_py: bool,
-) -> tuple[SimDefinition, str]:
+) -> tuple[SimDefinition, str, Path]:
     """Build the SimDefinition and dump cmd_tlm.{txt,json} (+ generated.py)."""
     simdef = SimDefinition.from_xtce(list(xtce))
     instance_id = instance_id or xtce[0].stem
@@ -128,7 +129,7 @@ def _build_and_dump(
         (out / "generated.py").write_text(emit_python(simdef))
         click.echo(f"Wrote {out / 'generated.py'}")
 
-    return simdef, instance_id
+    return simdef, instance_id, out
 
 
 def _find_run_dump(instance_id: str) -> Path | None:
@@ -330,11 +331,15 @@ def run(
 ) -> None:
     """Build, dump, then serve a CCSDS simulator on an explicit TCP port."""
     _maybe_enable_trace(verbose)
-    simdef, resolved_id = _build_and_dump(xtce, instance_id, out_dir, emit_py)
+    simdef, resolved_id, run_dir = _build_and_dump(xtce, instance_id, out_dir, emit_py)
 
     logger = setup_logging(resolved_id, color=color)
     source = None if no_behavior else (behavior_path or behavior.sidecar_path(list(xtce)))
     engine = _load_behavior_engine(source, simdef)
+    # The vehicle's file store lives with its other run artifacts; it
+    # persists across restarts of the same instance, as real storage would.
+    store = fileservice.FileStore(run_dir / "files")
+    service = fileservice.FileService(store, simdef, logger=logger)
 
     server = SimServer(
         simdef,
@@ -343,6 +348,7 @@ def run(
         beacon_interval=interval,
         telemetry_source=LiveTelemetry() if live else None,
         behavior_engine=engine,
+        file_service=service,
         logger=logger,
     )
 
@@ -351,6 +357,10 @@ def run(
             f"Behavior: {engine.spec.source_label} — {len(engine.spec.commands)} "
             f"command(s) with effects, {len(engine.spec.initial)} initial value(s)"
         )
+    click.echo(
+        f"File store: {store.root} — {len(store.names())} file(s), "
+        f"{store.used()} bytes used"
+    )
     click.echo(f"Serving {resolved_id} on {host}:{port} (Ctrl-C to stop)")
     try:
         # serve_forever() binds, beacons, and cleans up (stop()) in its finally.
@@ -430,6 +440,97 @@ def send(
         raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
 
     click.echo(f"sent {command.name} (0x{command.opcode:02X}) args={args or '{}'}")
+
+
+@main.command()
+@click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--port", required=True, type=int, help="TCP port of the running sim.")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host to connect to.")
+@click.option("--id", "instance_id", default=None, help="Load def from runs/<id>/cmd_tlm.json.")
+@click.option(
+    "--def",
+    "def_path",
+    default=None,
+    type=click.Path(exists=True, path_type=Path),
+    help="Definition source: an XTCE .xml or a cmd_tlm.json.",
+)
+@click.option(
+    "--timeout",
+    default="10s",
+    show_default=True,
+    help="How long to wait for the vehicle's receipt (e.g. 10s, 1m).",
+)
+@click.option(
+    "--chunk-size",
+    default=client.UPLOAD_CHUNK_SIZE,
+    show_default=True,
+    type=click.IntRange(1, ccsds.FILE_CHUNK_MAX),
+    help="Bytes per DATA frame on the wire.",
+)
+def upload(
+    file: Path,
+    port: int,
+    host: str,
+    instance_id: str | None,
+    def_path: Path | None,
+    timeout: str,
+    chunk_size: int,
+) -> None:
+    """Upload a file to the vehicle's onboard store, over the command link.
+
+    The file goes up in chunks on the reserved file-uplink APID; the vehicle
+    reassembles it, verifies size and CRC-32, lands it in runs/<id>/files/,
+    and answers with a FILE_RECEIPT — which this command waits for, so the
+    exit status is the vehicle's verdict, not just "bytes were sent".
+    """
+    simdef = _load_definition(instance_id, def_path)
+    try:
+        wait = sequences.parse_duration(timeout)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    problem = fileservice.name_problem(file.name)
+    if problem is not None:
+        # The vehicle would refuse this name anyway; say why before sending.
+        raise click.ClickException(f"{file.name}: {problem}")
+    try:
+        data = file.read_bytes()
+    except OSError as exc:
+        raise click.ClickException(f"could not read {file}: {exc}") from exc
+
+    chunks = -(-len(data) // chunk_size)  # ceiling; 0 for an empty file
+    click.echo(
+        f"uploading {file.name} — {len(data)} bytes, "
+        f"CRC-32 0x{zlib.crc32(data) & 0xFFFFFFFF:08X}, {chunks} chunk(s)"
+    )
+    try:
+        receipt = client.upload_file(
+            host,
+            port,
+            file.name,
+            data,
+            simdef=simdef,
+            chunk_size=chunk_size,
+            timeout=wait,
+        )
+    except client.UploadError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except OSError as exc:
+        raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
+
+    if receipt is None:
+        click.echo(
+            click.style(
+                "sent — this vehicle downlinks no FILE_RECEIPT, so the "
+                "transfer is not confirmed",
+                fg="yellow",
+            )
+        )
+        return
+    click.echo(
+        f"receipt: SUCCESS — {file.name} aboard ({receipt['FR_FILE_SIZE']} bytes); "
+        f"storage {receipt['FR_STORAGE_USED']} used / "
+        f"{receipt['FR_STORAGE_AVAILABLE']} available"
+    )
 
 
 def _decode_packet(

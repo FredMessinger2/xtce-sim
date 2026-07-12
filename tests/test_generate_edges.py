@@ -82,6 +82,17 @@ def test_reserved_echo_apid_rejected():
         build_packets(xdef)
 
 
+def test_reserved_file_uplink_apid_rejected():
+    from xtce_sim import ccsds
+
+    xdef = models.XTCEDefinition(space_system_name="S", namespace="")
+    xdef.containers["P1"] = models.SequenceContainer(
+        name="P1", restriction_criteria={"CCSDS_APID": ccsds.FILE_UPLINK_APID}
+    )
+    with pytest.raises(GeneratorError, match="reserved for the simulator's file uplink"):
+        build_packets(xdef)
+
+
 def test_type_widths_and_signed_encodings():
     assert python_type_for_param(models.IntegerParameterType(name="x", size_in_bits=64)) == "uint64"
     assert (

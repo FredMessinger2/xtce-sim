@@ -101,8 +101,8 @@ def build_telemetry_packet(apid: int, payload: bytes, seq_count: int = 0) -> byt
 # The echo rides a RESERVED APID, documented here rather than declared in
 # any satellite's XTCE: like the length-prefix framing above, it is part of
 # this simulator's link protocol, not part of a vehicle's payload telemetry.
-# (0x7FF is the CCSDS idle-packet APID; 0x7FE is left free for future
-# protocol packets.) A definition that tries to claim this APID for its own
+# (0x7FF is the CCSDS idle-packet APID; 0x7FE carries the file uplink,
+# below.) A definition that tries to claim a reserved APID for its own
 # telemetry is rejected at build time.
 #
 #     payload = [1-byte status][the received command packet]
@@ -159,6 +159,129 @@ def parse_command_echo(packet: bytes) -> tuple[int | None, bytes]:
     if not payload:
         return None, b""
     return payload[0], payload[1:]
+
+
+# =============================================================================
+# FILE UPLINK (protocol infrastructure)
+# =============================================================================
+#
+# The ground moves a file to the vehicle by chopping it into chunks and
+# sending them over the same TCP link commands ride, on the second reserved
+# APID. Flight systems layer a file-transfer protocol over their command
+# link the same way (CFDP over CCSDS); this is that idea reduced to its
+# honest minimum for a reliable, ordered transport: TCP already guarantees
+# delivery and order, so the protocol only has to name the file, declare
+# its size and CRC-32 up front, and let the vehicle verify what actually
+# arrived before anything lands in storage.
+#
+# One transfer per connection at a time, three packet shapes (uplink
+# direction, packet type COMMAND), payload first byte is the chunk type:
+#
+#     START  = [0x00][1-byte name length][name, UTF-8][4-byte size][4-byte CRC-32]
+#     DATA   = [0x01][4-byte offset][chunk bytes]
+#     FINISH = [0x02]
+#
+# The offset is redundant on TCP but cheap, and it turns a reassembly bug
+# into a detected, refused transfer instead of a corrupt file. The vehicle
+# answers every outcome on the downlink as a FILE_RECEIPT packet (see
+# fileservice.py); this module only builds and parses the frames.
+
+FILE_UPLINK_APID = 0x7FE
+
+#: Link-protocol APIDs no satellite definition may claim: the generator
+#: refuses them at build time and the server warns if one sneaks past it.
+RESERVED_APIDS = {
+    CMD_ECHO_APID: "command echo",
+    FILE_UPLINK_APID: "file uplink",
+}
+
+FILE_START = 0
+FILE_DATA = 1
+FILE_FINISH = 2
+
+# Ceiling on a DATA chunk: 65535 (16-bit frame length) - 2 (length field)
+# - 2 (CRC) - 6 (CCSDS header) - 1 (chunk type) - 4 (offset).
+FILE_CHUNK_MAX = 65520
+
+
+def _build_uplink_packet(payload: bytes, seq_count: int) -> bytes:
+    header = CCSDSHeader(
+        packet_type=PacketType.COMMAND,
+        apid=FILE_UPLINK_APID,
+        seq_count=seq_count,
+        packet_length=len(payload) - 1,
+    )
+    return header.pack() + payload
+
+
+def build_file_start(filename: str, size: int, crc: int, seq_count: int = 0) -> bytes:
+    """The START packet opening a transfer: name, declared size, declared CRC-32."""
+    name = filename.encode("utf-8")
+    if not 1 <= len(name) <= 255:
+        raise ValueError(f"filename must encode to 1..255 bytes, got {len(name)}")
+    if not 0 <= size <= 0xFFFFFFFF:
+        raise ValueError(f"file size {size} does not fit the 32-bit size field")
+    payload = (
+        bytes([FILE_START, len(name)]) + name + struct.pack(">II", size, crc & 0xFFFFFFFF)
+    )
+    return _build_uplink_packet(payload, seq_count)
+
+
+def build_file_data(offset: int, chunk: bytes, seq_count: int = 0) -> bytes:
+    """One DATA packet carrying ``chunk`` at byte ``offset`` of the file."""
+    if len(chunk) > FILE_CHUNK_MAX:
+        raise ValueError(f"chunk is {len(chunk)} bytes; the wire frame holds {FILE_CHUNK_MAX}")
+    payload = bytes([FILE_DATA]) + struct.pack(">I", offset) + chunk
+    return _build_uplink_packet(payload, seq_count)
+
+
+def build_file_finish(seq_count: int = 0) -> bytes:
+    """The FINISH packet closing a transfer; verification data rode in START."""
+    return _build_uplink_packet(bytes([FILE_FINISH]), seq_count)
+
+
+def parse_file_uplink(packet: bytes) -> tuple[int, dict]:
+    """Split a file-uplink packet into ``(chunk_type, fields)``.
+
+    START yields ``{"filename", "size", "crc"}``; DATA yields ``{"offset",
+    "chunk"}``; FINISH yields ``{}``. Raises ``ValueError`` on any malformed
+    payload — the receiver treats that as a protocol violation, not a crash.
+    """
+    payload = packet[6:]
+    if not payload:
+        raise ValueError("file uplink packet has no payload")
+    chunk_type = payload[0]
+    body = payload[1:]
+    if chunk_type == FILE_START:
+        return FILE_START, _parse_file_start(body)
+    if chunk_type == FILE_DATA:
+        if len(body) < 4:
+            raise ValueError("DATA packet too short for its offset field")
+        return FILE_DATA, {"offset": struct.unpack(">I", body[:4])[0], "chunk": body[4:]}
+    if chunk_type == FILE_FINISH:
+        if body:
+            raise ValueError(f"FINISH packet carries {len(body)} unexpected byte(s)")
+        return FILE_FINISH, {}
+    raise ValueError(f"unknown file uplink chunk type {chunk_type}")
+
+
+def _parse_file_start(body: bytes) -> dict:
+    if not body:
+        raise ValueError("START packet has no name length")
+    name_len = body[0]
+    if name_len == 0:
+        raise ValueError("START packet declares an empty filename")
+    if len(body) != 1 + name_len + 8:
+        raise ValueError(
+            f"START packet is {len(body)} byte(s) after the type; "
+            f"a {name_len}-byte name needs exactly {1 + name_len + 8}"
+        )
+    try:
+        filename = body[1 : 1 + name_len].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"START filename is not valid UTF-8: {exc}") from exc
+    size, crc = struct.unpack(">II", body[1 + name_len :])
+    return {"filename": filename, "size": size, "crc": crc}
 
 
 def parse_command_packet(packet: bytes) -> tuple[int | None, bytes]:

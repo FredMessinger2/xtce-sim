@@ -3,12 +3,15 @@
 import asyncio
 import contextlib
 import logging
+import zlib
 from pathlib import Path
 
 import pytest
 
-from xtce_sim import ccsds
+from xtce_sim import ccsds, codec
+from xtce_sim import client as sim_client
 from xtce_sim.definition import SimDefinition
+from xtce_sim.fileservice import FileService, FileStore
 from xtce_sim.server import SimServer, _ClientConn
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -495,5 +498,189 @@ async def test_truncated_payload_zero_padding_can_reject():
         status, _ = ccsds.parse_command_echo(await _read_echo(reader))
         assert status == ccsds.ECHO_REJECTED
         writer.close()
+    finally:
+        await server.stop()
+
+
+# ---- file service (uplink + FILE_* commands, see fileservice.py) -------------
+
+
+@pytest.fixture(scope="module")
+def imaging() -> SimDefinition:
+    return SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+
+
+def _file_server(imaging, tmp_path, **kwargs) -> SimServer:
+    service = FileService(FileStore(tmp_path / "files"), imaging)
+    return SimServer(
+        imaging,
+        host="127.0.0.1",
+        port=0,
+        file_service=service,
+        **kwargs,
+    )
+
+
+async def _read_receipt(reader, imaging, *, want_name: bytes, skip_status: int = 2):
+    """Frames until a FILE_RECEIPT naming ``want_name`` with a terminal status."""
+    receipt_def = imaging.packet_by_name("FILE_RECEIPT")
+    buffer = b""
+    for _ in range(400):
+        buffer += await asyncio.wait_for(reader.read(4096), timeout=2.0)
+        packets, buffer = ccsds.deframe(buffer)
+        for pkt in packets:
+            if ccsds.CCSDSHeader.unpack(pkt[:6]).apid != receipt_def.apid:
+                continue
+            values = codec.unpack_telemetry(receipt_def, pkt[6:])
+            name = values["FR_FILENAME"].rstrip(b"\x00")
+            if name == want_name and values["FR_TRANSFER_STATUS"] != skip_status:
+                return values
+    raise AssertionError(f"no terminal receipt for {want_name!r} arrived")
+
+
+async def test_upload_end_to_end(imaging, tmp_path):
+    """The whole path: client chunks the file up, the vehicle lands it and
+    answers with a receipt the client returns as its verdict."""
+    server = _file_server(imaging, tmp_path, beacon_interval=10.0)
+    await server.start()
+    try:
+        data = b"2026-07-12T00:00:00Z NOOP\n" * 100
+        receipt = await asyncio.to_thread(
+            sim_client.upload_file,
+            "127.0.0.1",
+            server.bound_port,
+            "plan.ats",
+            data,
+            simdef=imaging,
+            chunk_size=64,  # force many DATA frames
+        )
+        assert receipt is not None
+        assert receipt["FR_FILE_SIZE"] == len(data)
+        assert receipt["FR_CHECKSUM"] == zlib.crc32(data) & 0xFFFFFFFF
+        assert (tmp_path / "files/plan.ats").read_bytes() == data
+    finally:
+        await server.stop()
+
+
+async def test_upload_refused_raises_for_the_ground(imaging, tmp_path):
+    """A CRC the content does not match is refused, and the ground client
+    turns the FAILED receipt into an error instead of quiet success."""
+    server = _file_server(imaging, tmp_path, beacon_interval=10.0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        writer.write(ccsds.frame(ccsds.build_file_start("bad.bin", 3, 0xBAD)))
+        writer.write(ccsds.frame(ccsds.build_file_data(0, b"abc")))
+        writer.write(ccsds.frame(ccsds.build_file_finish()))
+        await writer.drain()
+        values = await _read_receipt(reader, imaging, want_name=b"bad.bin")
+        assert values["FR_TRANSFER_STATUS"] == 1  # FAILED
+        assert not (tmp_path / "files/bad.bin").exists()
+        writer.close()
+    finally:
+        await server.stop()
+
+
+async def test_disconnect_mid_transfer_fails_it(imaging, tmp_path):
+    """Dropping the link half-way through a transfer ends it honestly: the
+    remaining clients see the FAILED receipt on the downlink."""
+    server = _file_server(imaging, tmp_path, beacon_interval=10.0)
+    await server.start()
+    try:
+        watcher_reader, watcher_writer = await asyncio.open_connection(
+            "127.0.0.1", server.bound_port
+        )
+        _, uploader_writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        uploader_writer.write(ccsds.frame(ccsds.build_file_start("half.bin", 100, 0)))
+        await uploader_writer.drain()
+        await asyncio.sleep(0.05)  # let the START land before the hangup
+        uploader_writer.close()
+        values = await _read_receipt(watcher_reader, imaging, want_name=b"half.bin")
+        assert values["FR_TRANSFER_STATUS"] == 1  # FAILED
+        watcher_writer.close()
+    finally:
+        await server.stop()
+
+
+async def test_file_commands_act_on_the_real_store(imaging, tmp_path):
+    """FILE_LIST answers one receipt per stored file; FILE_DELETE removes the
+    file from disk and is echoed EXECUTED like any command."""
+    server = _file_server(imaging, tmp_path, beacon_interval=10.0)
+    await server.start()
+    server.file_service.store.write("a.ats", b"AA")
+    server.file_service.store.write("b.ats", b"BBB")
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        list_cmd = imaging.command_by_name("FILE_LIST")
+        await asyncio.to_thread(
+            sim_client.send_command, "127.0.0.1", server.bound_port, list_cmd, {}
+        )
+        values = await _read_receipt(reader, imaging, want_name=b"b.ats")
+        assert values["FR_FILE_SIZE"] == 3
+        writer.close()
+
+        # A fresh watcher for the delete: the LIST receipts already carried
+        # a.ats with SUCCESS, and a stale one must not pass as the verdict.
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        delete_cmd = imaging.command_by_name("FILE_DELETE")
+        await asyncio.to_thread(
+            sim_client.send_command,
+            "127.0.0.1",
+            server.bound_port,
+            delete_cmd,
+            {"Filename": "a.ats"},
+        )
+        values = await _read_receipt(reader, imaging, want_name=b"a.ats")
+        assert values["FR_TRANSFER_STATUS"] == 0  # SUCCESS
+        assert not (tmp_path / "files/a.ats").exists()
+        writer.close()
+    finally:
+        await server.stop()
+
+
+async def test_uplink_without_file_service_is_dropped_not_fatal(imaging):
+    """No store configured: file frames are dropped with a warning, and the
+    connection keeps working for ordinary commands."""
+    server = SimServer(imaging, host="127.0.0.1", port=0, beacon_interval=10.0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        writer.write(ccsds.frame(ccsds.build_file_start("f", 1, 0)))
+        cmd = imaging.command_by_name("NOOP")
+        packet = ccsds.CCSDSHeader(packet_type=1, apid=1).pack() + bytes([cmd.opcode])
+        writer.write(ccsds.frame(packet))
+        await writer.drain()
+        status, _ = ccsds.parse_command_echo(await _read_echo(reader))
+        assert status == ccsds.ECHO_EXECUTED  # the link survived the file frame
+        writer.close()
+    finally:
+        await server.stop()
+
+
+async def test_beacon_carries_true_storage_numbers(imaging, tmp_path):
+    """Between events the FILE_RECEIPT beacon shows real storage truth (the
+    file service owns the packet), not all-zero fields."""
+    server = _file_server(imaging, tmp_path, beacon_interval=0.05)
+    server.file_service.store.write("f", b"1234")
+    await server.start()
+    try:
+        reader, _writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
+        receipt_def = imaging.packet_by_name("FILE_RECEIPT")
+        buffer = b""
+        for _ in range(400):
+            buffer += await asyncio.wait_for(reader.read(4096), timeout=2.0)
+            packets, buffer = ccsds.deframe(buffer)
+            beacon = next(
+                (p for p in packets
+                 if ccsds.CCSDSHeader.unpack(p[:6]).apid == receipt_def.apid),
+                None,
+            )
+            if beacon is not None:
+                break
+        assert beacon is not None
+        values = codec.unpack_telemetry(receipt_def, beacon[6:])
+        assert values["FR_FILENAME"].rstrip(b"\x00") == b""  # storage-status view
+        assert values["FR_STORAGE_USED"] == 4
+        assert values["FR_STORAGE_AVAILABLE"] > 0
     finally:
         await server.stop()
