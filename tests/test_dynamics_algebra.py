@@ -341,3 +341,41 @@ def test_rk4_multidimensional_state():
 def test_rk4_rejects_mismatched_derivative_length():
     with pytest.raises(ValueError):
         al.rk4_step(lambda s: (1.0, 2.0), (0.0,), 0.1)
+
+
+# ---------------------------------------------------------------------------
+# Frame construction
+
+
+def test_frame_to_quat_identity_and_known_rotation():
+    q = al.frame_to_quat((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    assert _quat_close(q, al.QUAT_IDENTITY)
+    # Body rotated +90 about z: body x points along reference y, etc.
+    q = al.frame_to_quat((0.0, 1.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0))
+    assert _quat_close(q, al.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi / 2.0))
+
+
+def test_frame_to_quat_roundtrip_hits_every_shepperd_branch():
+    # Small rotation (w dominant) plus near-180 rotations about each axis
+    # (x, y, z dominant respectively): each exercises a different branch.
+    cases = [
+        al.quat_from_axis_angle((1.0, 2.0, 3.0), 0.1),
+        al.quat_from_axis_angle((1.0, 0.1, 0.0), math.pi - 0.05),
+        al.quat_from_axis_angle((0.1, 1.0, 0.0), math.pi - 0.05),
+        al.quat_from_axis_angle((0.0, 0.1, 1.0), math.pi - 0.05),
+    ]
+    basis = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    for q in cases:
+        x, y, z = (al.quat_rotate(q, e) for e in basis)
+        recovered = al.frame_to_quat(x, y, z)
+        assert al.quat_angle(al.quat_error(q, recovered)) < 1e-9
+
+
+def test_frame_to_quat_rejects_malformed_frames():
+    x, y, z = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
+    with pytest.raises(ValueError, match="unit length"):
+        al.frame_to_quat((2.0, 0.0, 0.0), y, z)
+    with pytest.raises(ValueError, match="not orthogonal"):
+        al.frame_to_quat((0.8, 0.6, 0.0), y, z)
+    with pytest.raises(ValueError, match="left-handed"):
+        al.frame_to_quat(x, y, (0.0, 0.0, -1.0))

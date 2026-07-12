@@ -40,7 +40,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Sequence
+from typing import Callable, Sequence
 
 from xtce_sim.dynamics import algebra as al
 from xtce_sim.dynamics.plant import Plant, WheelParams
@@ -158,10 +158,19 @@ class AttitudeController:
     law: ControlLaw = ControlLaw.IDLE
     target: al.Quat = al.QUAT_IDENTITY
     omega_ref: al.Vec3 = (0.0, 0.0, 0.0)  # reference body rate, rad/s
+    # Where the controller gets its attitude and rates. None = plant truth
+    # (useful in tests); real avionics close the loop on the ESTIMATOR, so
+    # sensor faults and bias errors genuinely steer the vehicle.
+    state_provider: Callable[[], tuple[al.Quat, al.Vec3]] | None = None
 
     def __post_init__(self) -> None:
         self._allocator = WheelAllocator(self.plant.wheels)
         self._driven: set[int] = set()
+
+    def _believed_state(self) -> tuple[al.Quat, al.Vec3]:
+        if self.state_provider is None:
+            return self.plant.state.quat, self.plant.state.omega
+        return self.state_provider()
 
     # -- law selection --------------------------------------------------------
 
@@ -197,16 +206,16 @@ class AttitudeController:
     def update(self) -> None:
         if self.law is ControlLaw.IDLE:
             return
-        state = self.plant.state
+        quat, omega = self._believed_state()
         if self.law is ControlLaw.ATTITUDE_HOLD:
-            err = al.quat_error(self.target, state.quat)
-            rate_error = al.v_sub(state.omega, self.omega_ref)
+            err = al.quat_error(self.target, quat)
+            rate_error = al.v_sub(omega, self.omega_ref)
             torque = al.v_sub(
                 al.v_scale((err[0], err[1], err[2]), self.gains.kp),
                 al.v_scale(rate_error, self.gains.kd),
             )
         else:  # RATE_NULL: null the INERTIAL rates, no reference to track.
-            torque = al.v_scale(state.omega, -self.gains.kd)
+            torque = al.v_scale(omega, -self.gains.kd)
         enabled = [cmd.enabled for cmd in self.plant.commands]
         for i, u in enumerate(self._allocator.allocate(torque, enabled)):
             if enabled[i]:
@@ -216,11 +225,14 @@ class AttitudeController:
     # -- observables -----------------------------------------------------------
 
     def pointing_error(self) -> float:
-        """Angle between the current and target attitudes, radians — the
-        source for ADCS_POINTING_ERR telemetry. Only meaningful under
-        ATTITUDE_HOLD; in IDLE/RATE_NULL the target is stale, and the
-        telemetry layer should gate on `law` (unit 4)."""
-        return al.quat_angle(al.quat_error(self.target, self.plant.state.quat))
+        """Angle between the BELIEVED and target attitudes, radians — the
+        source for ADCS_POINTING_ERR telemetry, computed from the same
+        state the loop closes on (real telemetry reports the estimate,
+        not truth). Only meaningful under ATTITUDE_HOLD; in
+        IDLE/RATE_NULL the target is stale, and the telemetry layer
+        should gate on `law` (unit 4)."""
+        quat, _ = self._believed_state()
+        return al.quat_angle(al.quat_error(self.target, quat))
 
     def pointing_error_degrees(self) -> float:
         return math.degrees(self.pointing_error())

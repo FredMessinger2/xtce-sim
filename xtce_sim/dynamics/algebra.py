@@ -263,6 +263,77 @@ def quat_to_euler321(q: Quat) -> tuple[float, float, float]:
     return (roll, pitch, yaw)
 
 
+def frame_to_quat(x_axis: Vec3, y_axis: Vec3, z_axis: Vec3) -> Quat:
+    """Attitude quaternion of a frame given its BODY axes in REFERENCE
+    coordinates — the construction reference generators need (nadir/LVLH,
+    sun-pointing, target-track frames are all "these are my body axes").
+
+    The axes must be a right-handed orthonormal triad (checked to 1e-6;
+    raises ValueError otherwise — a malformed frame is a caller bug worth
+    failing loudly on). Uses Shepperd's method: pick the largest of the
+    four quaternion components from the rotation matrix's diagonal, so no
+    cancellation ever divides by a small number.
+    """
+    for name, a in (("x", x_axis), ("y", y_axis), ("z", z_axis)):
+        if abs(v_norm(a) - 1.0) > 1e-6:
+            raise ValueError(f"frame {name}-axis is not unit length")
+    if (
+        abs(v_dot(x_axis, y_axis)) > 1e-6
+        or abs(v_dot(y_axis, z_axis)) > 1e-6
+        or abs(v_dot(z_axis, x_axis)) > 1e-6
+    ):
+        raise ValueError("frame axes are not orthogonal")
+    if v_dot(v_cross(x_axis, y_axis), z_axis) < 0.0:
+        raise ValueError("frame axes are left-handed")
+    # Rotation matrix with the axes as COLUMNS (body -> reference).
+    m = (
+        (x_axis[0], y_axis[0], z_axis[0]),
+        (x_axis[1], y_axis[1], z_axis[1]),
+        (x_axis[2], y_axis[2], z_axis[2]),
+    )
+    trace = m[0][0] + m[1][1] + m[2][2]
+    # Shepperd: 4w² = 1+trace, 4x² = 1+2m00-trace, etc.; branch on the max.
+    candidates = (trace, m[0][0], m[1][1], m[2][2])
+    best = candidates.index(max(candidates))
+    if best == 0:
+        w = 0.5 * math.sqrt(1.0 + trace)
+        f = 0.25 / w
+        q = (
+            f * (m[2][1] - m[1][2]),
+            f * (m[0][2] - m[2][0]),
+            f * (m[1][0] - m[0][1]),
+            w,
+        )
+    elif best == 1:
+        x = 0.5 * math.sqrt(1.0 + 2.0 * m[0][0] - trace)
+        f = 0.25 / x
+        q = (
+            x,
+            f * (m[0][1] + m[1][0]),
+            f * (m[0][2] + m[2][0]),
+            f * (m[2][1] - m[1][2]),
+        )
+    elif best == 2:
+        y = 0.5 * math.sqrt(1.0 + 2.0 * m[1][1] - trace)
+        f = 0.25 / y
+        q = (
+            f * (m[0][1] + m[1][0]),
+            y,
+            f * (m[1][2] + m[2][1]),
+            f * (m[0][2] - m[2][0]),
+        )
+    else:
+        z = 0.5 * math.sqrt(1.0 + 2.0 * m[2][2] - trace)
+        f = 0.25 / z
+        q = (
+            f * (m[0][2] + m[2][0]),
+            f * (m[1][2] + m[2][1]),
+            z,
+            f * (m[1][0] - m[0][1]),
+        )
+    return quat_normalize(q)
+
+
 # ---------------------------------------------------------------------------
 # Fixed-step 4th-order Runge-Kutta
 
