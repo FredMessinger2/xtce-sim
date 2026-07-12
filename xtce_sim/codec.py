@@ -64,7 +64,10 @@ def _fit_telemetry_value(packet: PacketDef, field, value):
         logger.warning(
             "%s.%s: telemetry value is %d bytes, field holds %d — truncating "
             "(further occurrences suppressed)",
-            packet.name, field.name, len(value), capacity,
+            packet.name,
+            field.name,
+            len(value),
+            capacity,
         )
     return value[:capacity]
 
@@ -77,9 +80,7 @@ def pack_telemetry(packet: PacketDef, values: Optional[dict] = None) -> bytes:
     """
     values = values or {}
     ordered = [
-        _fit_telemetry_value(
-            packet, f, values.get(f.name, _default_value(f.python_type))
-        )
+        _fit_telemetry_value(packet, f, values.get(f.name, _default_value(f.python_type)))
         for f in packet.fields
     ]
     return struct.pack(packet.struct_format, *ordered)
@@ -106,8 +107,7 @@ def _coerce_enum_arg(param, value):
             return int(value, 0)  # allow a raw numeric enum value too
         except ValueError:
             raise ValueError(
-                f"{param.name}: unknown enum {value!r}; "
-                f"valid: {sorted(param.enumerations)}"
+                f"{param.name}: unknown enum {value!r}; valid: {sorted(param.enumerations)}"
             ) from None
     return value
 
@@ -132,18 +132,22 @@ def _coerce_arg(param, value):
     if param.python_type in _STRING_TYPES:
         encoded = value.encode() if isinstance(value, str) else value
         if not isinstance(encoded, (bytes, bytearray)):
-            raise ValueError(
-                f"{param.name}: expected str or bytes, got {type(value).__name__}"
-            )
+            raise ValueError(f"{param.name}: expected str or bytes, got {type(value).__name__}")
         capacity = param.size_bits // 8
         if len(encoded) > capacity:
             raise ValueError(
-                f"{param.name}: value is {len(encoded)} bytes once encoded, "
-                f"field holds {capacity}"
+                f"{param.name}: value is {len(encoded)} bytes once encoded, field holds {capacity}"
             )
         return encoded
     if isinstance(value, str):
-        return int(value, 0)
+        try:
+            return int(value, 0)
+        except ValueError:
+            # Name the argument: on a multi-argument command line, a bare
+            # "invalid literal for int()" leaves the operator hunting.
+            raise ValueError(
+                f"{param.name}: {value!r} is not an integer (decimal or 0x hex)"
+            ) from None
     return value
 
 
@@ -248,8 +252,7 @@ def encode_command(
     unknown = set(args) - known
     if unknown:
         raise ValueError(
-            f"{command.name}: unknown argument(s) {sorted(unknown)}; "
-            f"valid: {sorted(known)}"
+            f"{command.name}: unknown argument(s) {sorted(unknown)}; valid: {sorted(known)}"
         )
 
     values = []

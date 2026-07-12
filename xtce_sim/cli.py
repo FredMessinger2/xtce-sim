@@ -28,7 +28,7 @@ from pathlib import Path
 
 import click
 
-from xtce_sim import behavior, ccsds, client, codec, render
+from xtce_sim import behavior, ccsds, client, codec, render, sequences
 from xtce_sim.definition import SimDefinition
 from xtce_sim.exercise import build_send_plan, reject_probe, run_exercise
 from xtce_sim.generate import GeneratorError, emit_python, format_json, format_text
@@ -46,8 +46,7 @@ _ID_OPT = click.option(
     "--id",
     "instance_id",
     default=None,
-    help="Instance id; output goes to <satellite dir>/runs/<id>/ "
-    "(default: first file's stem).",
+    help="Instance id; output goes to <satellite dir>/runs/<id>/ (default: first file's stem).",
 )
 _OUT_OPT = click.option(
     "--out",
@@ -65,8 +64,7 @@ _VERBOSE_OPT = click.option(
     "-v",
     "--verbose",
     count=True,
-    help="Trace parser/builder decisions and inferences (-v); add every "
-    "parsed element (-vv).",
+    help="Trace parser/builder decisions and inferences (-v); add every parsed element (-vv).",
 )
 
 
@@ -142,8 +140,15 @@ def _find_run_dump(instance_id: str) -> Path | None:
     """
     rel = Path("runs") / instance_id / "cmd_tlm.json"
     esc = glob.escape(instance_id)
-    candidates = [p for p in (rel, *Path(".").glob(f"*/runs/{esc}/cmd_tlm.json"),
-                              *Path(".").glob(f"*/*/runs/{esc}/cmd_tlm.json")) if p.exists()]
+    candidates = [
+        p
+        for p in (
+            rel,
+            *Path(".").glob(f"*/runs/{esc}/cmd_tlm.json"),
+            *Path(".").glob(f"*/*/runs/{esc}/cmd_tlm.json"),
+        )
+        if p.exists()
+    ]
     unique = sorted({c.resolve() for c in candidates})
     if len(unique) > 1:
         raise click.ClickException(
@@ -221,8 +226,11 @@ def generate(
 )
 @_NO_BEHAVIOR_OPT
 def inspect(
-    xtce: tuple[Path, ...], full: bool, dump: bool,
-    behavior_path: Path | None, no_behavior: bool,
+    xtce: tuple[Path, ...],
+    full: bool,
+    dump: bool,
+    behavior_path: Path | None,
+    no_behavior: bool,
 ) -> None:
     """Narrate what the parser sees in an XTCE file and what it infers.
 
@@ -247,9 +255,7 @@ def inspect(
         click.echo()
         click.echo(format_text(simdef))
         click.echo()
-    source = None if no_behavior else (
-        behavior_path or behavior.sidecar_path(list(xtce))
-    )
+    source = None if no_behavior else (behavior_path or behavior.sidecar_path(list(xtce)))
     _inspect_behavior(source, simdef)
     click.echo(
         f"OK: {simdef.space_system_name} — {len(simdef.commands)} command(s), "
@@ -327,9 +333,7 @@ def run(
     simdef, resolved_id = _build_and_dump(xtce, instance_id, out_dir, emit_py)
 
     logger = setup_logging(resolved_id, color=color)
-    source = None if no_behavior else (
-        behavior_path or behavior.sidecar_path(list(xtce))
-    )
+    source = None if no_behavior else (behavior_path or behavior.sidecar_path(list(xtce)))
     engine = _load_behavior_engine(source, simdef)
 
     server = SimServer(
@@ -531,8 +535,7 @@ def _display_value(field, value, raw: bool = False):
     "--count",
     default=0,
     type=click.IntRange(min=0),
-    help="Stop after N updates — packets in compact/table, frames in dashboard "
-    "(0 = run forever).",
+    help="Stop after N updates — packets in compact/table, frames in dashboard (0 = run forever).",
 )
 @click.option(
     "--raw",
@@ -601,9 +604,7 @@ def _run_stream(host, port, style, decode, show_all_fields, count) -> None:
                 click.echo(frame)
         else:
             click.echo(
-                render.render_compact(
-                    ts, apid, name, seq, meta, prefix, show_all=show_all_fields
-                )
+                render.render_compact(ts, apid, name, seq, meta, prefix, show_all=show_all_fields)
             )
         shown += 1
         if count and shown >= count:
@@ -700,8 +701,17 @@ def _run_dashboard(host, port, instance, decode, count) -> None:
     "placement is seeded-deterministic.",
 )
 def exercise(
-    port, host, instance_id, def_path, apid, command_filter, verify, dry_run,
-    pause, loop, reject_probes
+    port,
+    host,
+    instance_id,
+    def_path,
+    apid,
+    command_filter,
+    verify,
+    dry_run,
+    pause,
+    loop,
+    reject_probes,
 ) -> None:
     """Send a valid instance of every command, then check telemetry health.
 
@@ -748,8 +758,15 @@ def exercise(
         raise click.ClickException(f"could not reach {host}:{port} — {exc}") from exc
 
     any_failed, interrupted = _run_sweeps(
-        simdef, targets, host, port, apid=apid, verify=verify, pause=pause,
-        loop=loop, reject_probes=reject_probes,
+        simdef,
+        targets,
+        host,
+        port,
+        apid=apid,
+        verify=verify,
+        pause=pause,
+        loop=loop,
+        reject_probes=reject_probes,
     )
     # Exit code: any failed sweep fails the run (soak included); a Ctrl-C on
     # a one-shot run means it never finished, which is not success either.
@@ -802,8 +819,7 @@ def _run_sweeps(simdef, targets, host, port, *, apid, verify, pause, loop, rejec
     except KeyboardInterrupt:
         interrupted = True
         click.echo(
-            f"\ninterrupted during sweep {sweeps_done + 1}; "
-            f"{sweeps_done} sweep(s) completed."
+            f"\ninterrupted during sweep {sweeps_done + 1}; {sweeps_done} sweep(s) completed."
         )
     return any_failed, interrupted
 
@@ -912,6 +928,114 @@ def _print_exercise_report(report, *, verify: bool) -> None:
     )
     if t.sample:
         click.echo(f"  sample: {t.sample}")
+
+
+@main.group()
+def seq() -> None:
+    """Ground tools for ATS/RTS sequence files."""
+
+
+def _read_sequence_text(path: Path) -> str:
+    """The file's text, read ONCE — callers parse and transform this same
+    string so nothing can change on disk between validation and use."""
+    try:
+        # newline="" keeps CRLF line endings intact so a shifted file
+        # round-trips byte-for-byte outside its timestamp tokens.
+        with open(path, encoding="utf-8", newline="") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise click.ClickException(f"could not read {path}: {exc}") from exc
+
+
+def _parse_sequence(path: Path, text: str, simdef: SimDefinition | None):
+    kind = sequences.KINDS.get(path.suffix.lower())
+    if kind is None:
+        raise click.ClickException(f"{path.name}: expected a .ats or .rts file")
+    parse = sequences.parse_ats if kind == "ats" else sequences.parse_rts
+    try:
+        return parse(text, path.name, simdef)
+    except sequences.SequenceError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@seq.command()
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.option("--id", "instance_id", default=None, help="Load def from runs/<id>/cmd_tlm.json.")
+@click.option(
+    "--def",
+    "def_path",
+    default=None,
+    type=click.Path(exists=True, path_type=Path),
+    help="Definition source: an XTCE .xml or a cmd_tlm.json.",
+)
+def check(file: Path, instance_id: str | None, def_path: Path | None) -> None:
+    """Validate a sequence file against a satellite definition.
+
+    Every entry is encoded through the same machinery the uplink uses, so
+    what passes here is exactly what LOAD will accept.
+    """
+    simdef = _load_definition(instance_id, def_path)
+    parsed = _parse_sequence(file, _read_sequence_text(file), simdef)
+    click.echo(f"OK: {parsed.name} — {len(parsed.entries)} command(s) over {parsed.span:.1f} s")
+    for entry in parsed.entries:
+        when = sequences.format_utc(entry.time) if parsed.kind == "ats" else f"+{entry.time:g}s"
+        args = " ".join(f"{k}={v}" for k, v in entry.args.items())
+        click.echo(f"  {when}  {entry.command} {args}".rstrip())
+
+
+@seq.command()
+@click.argument("file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--start-in",
+    "start_in",
+    required=True,
+    help="When the FIRST command should fire, from now (e.g. 30s, 5m, 1h).",
+)
+@click.option(
+    "--write",
+    is_flag=True,
+    help="Rewrite the file in place instead of printing to stdout.",
+)
+def shift(file: Path, start_in: str, write: bool) -> None:
+    """Move an ATS so its first command fires soon, preserving spacing.
+
+    The vehicle judges lateness against real UTC honestly, so a stale plan
+    must be re-based on the ground: this rewrites every timestamp by the
+    same amount, leaving comments and layout untouched.
+    """
+    if file.suffix.lower() != ".ats":
+        raise click.ClickException(
+            "only .ats files carry absolute times; an RTS is already relative"
+        )
+    try:
+        delay = sequences.parse_duration(start_in)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    text = _read_sequence_text(file)  # one read: parse and shift the same bytes
+    parsed = _parse_sequence(file, text, None)
+    # Whole-second delta: now+DUR is honored to within half a second and a
+    # whole-second plan stays whole-second (no microsecond noise in diffs).
+    delta = round((time.time() + delay) - parsed.entries[0].time)
+    shifted = sequences.shift_ats(text, file.name, delta)
+    if write:
+        _write_atomic(file, shifted)
+        first = sequences.format_utc(parsed.entries[0].time + delta)
+        click.echo(f"{file.name}: first command at {first}")
+    else:
+        click.echo(shifted, nl=False)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Replace the file's contents all-or-nothing: a crash mid-write must
+    not leave a half-written command plan behind."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        tmp.replace(path)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        raise click.ClickException(f"could not write {path}: {exc}") from exc
 
 
 if __name__ == "__main__":

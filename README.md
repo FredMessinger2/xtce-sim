@@ -89,6 +89,8 @@ xtce-sim monitor  --id ID --port N                 # watch decoded live telemetr
 xtce-sim ui       --id ID --port N                 # live browser console (WebSocket push)
 xtce-sim send     --id ID --port N CMD K=V ...     # send a command
 xtce-sim exercise --id ID --port N                 # send every command, check telemetry health
+xtce-sim seq check <file.ats|.rts> --def <xml>     # validate a command sequence file
+xtce-sim seq shift <file.ats> --start-in 30s       # re-base an ATS to start soon
 ```
 
 ### Example
