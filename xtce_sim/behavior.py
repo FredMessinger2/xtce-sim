@@ -75,6 +75,7 @@ from pathlib import Path
 from typing import Optional
 
 from xtce_sim.definition import CommandDef, SimDefinition
+from xtce_sim.dynamics.model import AdcsModel, AdcsModelConfig, parse_model
 
 _TEMPLATE_RE = re.compile(r"\{(\w+)\}")
 _EMIT_VALUES = ("interval", "immediate")
@@ -91,9 +92,7 @@ _VERB_ATTRS = {
 }
 _UNIVERSAL_ATTRS = {"emit"}
 _CONTINUOUS_VERBS = ("ramp_to", "oscillate", "hold")
-_VERB_KEYS = (
-    set(_VERB_ATTRS) | _UNIVERSAL_ATTRS | set().union(*_VERB_ATTRS.values())
-)
+_VERB_KEYS = set(_VERB_ATTRS) | _UNIVERSAL_ATTRS | set().union(*_VERB_ATTRS.values())
 _WAVE_SHAPES = ("sine", "triangle", "sawtooth")
 # Templated args are expanded for load-time validation up to this many
 # combinations; beyond it (or for unbounded args) field checks defer to
@@ -157,10 +156,7 @@ class HoldEffect:
     emit: str = "interval"
 
 
-Effect = (
-    SetEffect | CopyArgEffect | IncrementEffect
-    | RampEffect | OscillateEffect | HoldEffect
-)
+Effect = SetEffect | CopyArgEffect | IncrementEffect | RampEffect | OscillateEffect | HoldEffect
 # The effect classes behind _CONTINUOUS_VERBS: registered as active behaviors
 # and advanced by tick(), versus the instant set/copy/increment.
 _CONTINUOUS_EFFECTS = (RampEffect, OscillateEffect, HoldEffect)
@@ -176,6 +172,9 @@ class BehaviorSpec:
     # Continuous behaviors started at boot.
     signals: list[Effect] = field(default_factory=list)
     files: list[Path] = field(default_factory=list)  # the merged .toml files
+    # Physics models declared under [_models]: each owns its output fields
+    # (no other table may write them) and consumes its bound commands.
+    models: list[AdcsModelConfig] = field(default_factory=list)
 
     @property
     def source_label(self) -> str:
@@ -215,22 +214,78 @@ def load_behavior(source: Path, simdef: SimDefinition) -> BehaviorSpec:
     initial: dict[str, Scalar] = {}
     signals: list[Effect] = []
     commands: dict[str, list[Effect]] = {}
+    models: list[AdcsModelConfig] = []
     origins: dict[tuple, str] = {}  # (table, field template) -> file name
     for path in files:
         _load_one_file(
-            path, simdef, ctx, initial, signals, commands, origins,
+            path,
+            simdef,
+            ctx,
+            initial,
+            signals,
+            commands,
+            origins,
+            models,
             tag=len(files) > 1,
         )
 
+    _check_model_ownership(models, initial, signals, commands, ctx)
     if ctx.errors:
         problems = "\n  - ".join(ctx.errors)
-        raise BehaviorError(
-            f"{source}: {len(ctx.errors)} problem(s):\n  - {problems}"
-        )
+        raise BehaviorError(f"{source}: {len(ctx.errors)} problem(s):\n  - {problems}")
     return BehaviorSpec(
-        path=source, initial=initial, commands=commands, signals=signals,
+        path=source,
+        initial=initial,
+        commands=commands,
+        signals=signals,
         files=files,
+        models=models,
     )
+
+
+def _check_model_ownership(
+    models: list[AdcsModelConfig],
+    initial: dict,
+    signals: list,
+    commands: dict,
+    ctx: "_Context",
+) -> None:
+    """A model OWNS its output fields and its commands: any other claimant
+    is a conflict.
+
+    Two sources of truth for one field would fight every tick; two models
+    consuming one command name would silently shadow each other (dict
+    routing: last one wins). Fields are checked by literal name — a
+    template that resolves onto a model field at execution time is caught
+    by the engine's runtime guard instead (warned and skipped).
+    """
+    owned: dict[str, str] = {}
+    for cfg in models:
+        for fname in cfg.outputs:
+            if fname in owned:
+                ctx.error(f"[_models] {fname}: bound by both {owned[fname]!r} and {cfg.name!r}")
+            owned[fname] = cfg.name
+    consumed: dict[str, str] = {}
+    for cfg in models:
+        for cname in cfg.commands.values():
+            if cname in consumed:
+                ctx.error(
+                    f"[_models] command {cname}: consumed by both "
+                    f"{consumed[cname]!r} and {cfg.name!r}"
+                )
+            consumed[cname] = cfg.name
+    if not owned:
+        return
+    for fname in initial:
+        if fname in owned:
+            ctx.error(f"[_initial] {fname}: owned by model {owned[fname]!r}")
+    for eff in signals:
+        if eff.field in owned:
+            ctx.error(f"[_signals] {eff.field}: owned by model {owned[eff.field]!r}")
+    for cname, effects in commands.items():
+        for eff in effects:
+            if eff.field in owned:
+                ctx.error(f"[{cname}] {eff.field}: owned by model {owned[eff.field]!r}")
 
 
 def _load_one_file(
@@ -241,6 +296,7 @@ def _load_one_file(
     signals: list,
     commands: dict,
     origins: dict,
+    models: list,
     *,
     tag: bool,
 ) -> None:
@@ -263,6 +319,8 @@ def _load_one_file(
             _merge_initial(body, ctx, initial, merge)
         elif table == "_signals":
             _merge_signals(body, ctx, signals, merge)
+        elif table == "_models":
+            _merge_models(body, simdef, ctx, models, merge)
         else:
             _merge_command_table(table, body, simdef, ctx, commands, merge)
 
@@ -283,6 +341,20 @@ def _merge_signals(body, ctx: _Context, signals: list, merge: "_Merger") -> None
             signals.append(eff)
 
 
+def _merge_models(
+    body, simdef: SimDefinition, ctx: _Context, models: list, merge: "_Merger"
+) -> None:
+    if not isinstance(body, dict):
+        ctx.error("[_models]: must hold one sub-table per model")
+        return
+    for name, table in body.items():
+        if not merge.claim("_models", name):
+            continue
+        cfg = parse_model(name, table, simdef, ctx.error)
+        if cfg is not None:
+            models.append(cfg)
+
+
 class _Merger:
     """Cross-file ownership of (table, field): first file claims, rest error."""
 
@@ -299,8 +371,12 @@ class _Merger:
 
 
 def _merge_command_table(
-    table: str, body, simdef: SimDefinition, ctx: _Context,
-    commands: dict, merge: "_Merger",
+    table: str,
+    body,
+    simdef: SimDefinition,
+    ctx: _Context,
+    commands: dict,
+    merge: "_Merger",
 ) -> None:
     command = simdef.command_by_name(table)
     if command is None:
@@ -322,6 +398,8 @@ def describe(spec: BehaviorSpec) -> list[str]:
         lines.append(f"boot signals: {len(spec.signals)}")
         for eff in spec.signals:
             lines.append(f"  {_describe_effect(eff)}")
+    for cfg in spec.models:
+        lines.extend(cfg.describe())
     for cmd, effects in spec.commands.items():
         lines.append(f"{cmd}:")
         for eff in effects:
@@ -404,9 +482,7 @@ def _load_signals(body, ctx: _Context) -> list[Effect]:
         if fname not in ctx.fields:
             ctx.error(f"{where}: unknown telemetry field")
             continue
-        if not isinstance(spec, dict) or not any(
-            k in spec for k in _CONTINUOUS_VERBS
-        ):
+        if not isinstance(spec, dict) or not any(k in spec for k in _CONTINUOUS_VERBS):
             ctx.error(
                 f"{where}: signals must be continuous behaviors "
                 "(ramp_to/oscillate/hold); use [_initial] for one-shot values"
@@ -418,9 +494,7 @@ def _load_signals(body, ctx: _Context) -> list[Effect]:
     return signals
 
 
-def _load_command_table(
-    table: str, body, command: CommandDef, ctx: _Context
-) -> list[Effect]:
+def _load_command_table(table: str, body, command: CommandDef, ctx: _Context) -> list[Effect]:
     effects: list[Effect] = []
     if not isinstance(body, dict):
         ctx.error(f"[{table}]: must be a table of FIELD = effect")
@@ -447,7 +521,7 @@ def _scalar_effect(
 ) -> Optional[Effect]:
     """A set-or-copy from a scalar value (bare form, or the table 'set' key)."""
     if isinstance(value, str) and value.startswith("@arg:"):
-        arg = value[len("@arg:"):]
+        arg = value[len("@arg:") :]
         if not _has_arg(command, arg):
             ctx.error(f"{where}: @arg:{arg} — command has no argument {arg!r}")
             return None
@@ -456,7 +530,7 @@ def _scalar_effect(
         return CopyArgEffect(field=fname, arg=arg, emit=emit)
     if isinstance(value, str) and value.startswith("@"):
         ctx.error(
-            f"{where}: {value!r} — did you mean \"@arg:...\"? "
+            f'{where}: {value!r} — did you mean "@arg:..."? '
             "(@FIELD references are only valid as ramp_to targets)"
         )
         return None
@@ -477,16 +551,13 @@ def _parse_effect_table(
         return None
     verbs = [k for k in _VERB_ATTRS if k in spec]
     if len(verbs) != 1:
-        ctx.error(
-            f"{where}: exactly one of {'/'.join(_VERB_ATTRS)} "
-            f"required, got {verbs}"
-        )
+        ctx.error(f"{where}: exactly one of {'/'.join(_VERB_ATTRS)} required, got {verbs}")
         return None
     if not _attrs_match_verb(where, spec, verbs[0], ctx):
         return None
     if emit == "immediate" and verbs[0] in _CONTINUOUS_VERBS:
         ctx.error(
-            f"{where}: emit = \"immediate\" is not valid with {verbs[0]} — "
+            f'{where}: emit = "immediate" is not valid with {verbs[0]} — '
             "continuous behaviors pace with the beacon; mark an instant "
             "set/increment on another field instead"
         )
@@ -513,11 +584,7 @@ def _attrs_match_verb(where: str, spec: dict, verb: str, ctx: _Context) -> bool:
 
 
 def _finite_number(value) -> bool:
-    return (
-        not isinstance(value, bool)
-        and isinstance(value, (int, float))
-        and math.isfinite(value)
-    )
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
 
 
 def _parse_noise(where: str, spec: dict, ctx: _Context) -> Optional[float]:
@@ -578,9 +645,14 @@ def _parse_oscillate(
         return None
     _check_numeric_field(where, fname, command, ctx)
     return OscillateEffect(
-        field=fname, center=center, amplitude=float(amplitude),
-        period=float(period), shape=shape, phase=float(phase),
-        noise=noise, emit=emit,
+        field=fname,
+        center=center,
+        amplitude=float(amplitude),
+        period=float(period),
+        shape=shape,
+        phase=float(phase),
+        noise=noise,
+        emit=emit,
     )
 
 
@@ -621,9 +693,7 @@ def _parse_ramp(
     if target is None or noise is None:
         return None
     _check_numeric_field(where, fname, command, ctx)
-    return RampEffect(
-        field=fname, target=target, tau=float(tau), noise=noise, emit=emit
-    )
+    return RampEffect(field=fname, target=target, tau=float(tau), noise=noise, emit=emit)
 
 
 def _has_arg(command: CommandDef, name: str) -> bool:
@@ -883,13 +953,9 @@ class BehaviorEngine:
     def __init__(self, spec: BehaviorSpec, simdef: SimDefinition):
         self.spec = spec
         self._fields = {f.name: f for p in simdef.packets for f in p.fields}
-        self._params = {
-            c.name: {p.name: p for p in c.params} for c in simdef.commands
-        }
+        self._params = {c.name: {p.name: p for p in c.params} for c in simdef.commands}
         self.state: dict[str, object] = {}
-        self._field_apid = {
-            f.name: p.apid for p in simdef.packets for f in p.fields
-        }
+        self._field_apid = {f.name: p.apid for p in simdef.packets for f in p.fields}
         # APIDs whose packets should be emitted out-of-cycle because a just-
         # applied effect was marked emit = "immediate". The server drains this
         # via pop_immediate_apids() after each apply_command.
@@ -901,6 +967,10 @@ class BehaviorEngine:
         # continues its noise stream instead of replaying it, while separate
         # runs still reproduce (the seed is stable per field).
         self._rngs: dict[str, random.Random] = {}
+        # Fields owned by [_models] outputs. Load rejects literal writers;
+        # this set backs the runtime guard for TEMPLATE-resolved writers,
+        # which load validation cannot see.
+        self._model_owned = {f for cfg in spec.models for f in cfg.outputs}
         for fname, value in spec.initial.items():
             self._store(f"[_initial] {fname}", fname, value)
         # Boot signals: ambient behaviors running from t=0, no command needed.
@@ -910,17 +980,21 @@ class BehaviorEngine:
             if isinstance(eff, _CONTINUOUS_EFFECTS):
                 self._start_behavior(None, eff, {})
             else:
-                logger.warning(
-                    "[_signals] %s: not a continuous behavior; skipped", eff.field
-                )
+                logger.warning("[_signals] %s: not a continuous behavior; skipped", eff.field)
+        # Physics models: instantiate, route their commands, seed outputs so
+        # the very first beacon already carries a live attitude.
+        self.models = [AdcsModel(cfg) for cfg in spec.models]
+        self._model_by_command = {
+            name: model for model in self.models for name in model.config.commands.values()
+        }
+        for model in self.models:
+            self._store_model_outputs(model)
 
     # ---- packing side ------------------------------------------------------
 
     def values_for(self, packet) -> dict:
         """The overlay entries belonging to one packet (merge over synth)."""
-        return {
-            f.name: self.state[f.name] for f in packet.fields if f.name in self.state
-        }
+        return {f.name: self.state[f.name] for f in packet.fields if f.name in self.state}
 
     # ---- command side ------------------------------------------------------
 
@@ -938,6 +1012,17 @@ class BehaviorEngine:
         # A fresh start per command: nothing left over from an earlier apply
         # that errored before its APIDs were drained.
         self._pending_immediate.clear()
+        model = self._model_by_command.get(command.name)
+        if model is not None:
+            results = model.apply_command(command.name, args)
+            if results:
+                applied.extend(results)
+                self._store_model_outputs(model)
+                # The operator just steered the vehicle: show the result now,
+                # not a beacon interval later. A rejected command emits
+                # nothing — an out-of-cycle ADCS burst must always mean
+                # "the command took effect".
+                self._pending_immediate |= {self._field_apid[f] for f in model.config.outputs}
         for eff in self.spec.commands.get(command.name, []):
             if isinstance(eff, _CONTINUOUS_EFFECTS):
                 desc = self._start_behavior(command, eff, args)
@@ -958,6 +1043,11 @@ class BehaviorEngine:
         fname = self._resolve_template(where, eff.field, command, args)
         if fname is None:
             return None
+        if fname in self._model_owned:
+            # Template-resolved landing on a model output: the load-time
+            # ownership check cannot see templates, so enforce here.
+            logger.warning("%s: %s is owned by a model; skipped", where, fname)
+            return None
         if self._fields[fname].python_type in ("string", "bytes"):
             # A continuous behavior on a text field would warn every tick
             # forever (it never retires); refuse it once instead.
@@ -967,9 +1057,7 @@ class BehaviorEngine:
         if cal is not None and not cal.is_invertible:
             # Deferred-template case: load validation could not see this
             # concrete field. Refuse once, with the real reason.
-            logger.warning(
-                "%s: %s has a non-invertible calibrator; skipped", where, fname
-            )
+            logger.warning("%s: %s has a non-invertible calibrator; skipped", where, fname)
             return None
         if isinstance(eff, RampEffect):
             ref = eff.target
@@ -982,9 +1070,7 @@ class BehaviorEngine:
             if resolved is None:
                 return None
             if resolved == fname:  # template args can make @ref land on itself
-                logger.warning(
-                    "%s: reference @%s names its own field; skipped", where, fname
-                )
+                logger.warning("%s: reference @%s names its own field; skipped", where, fname)
                 return None
             ref = f"@{resolved}"
         rng = self._rngs.setdefault(fname, _field_rng(fname)) if eff.noise else None
@@ -994,14 +1080,17 @@ class BehaviorEngine:
     @staticmethod
     def _make_active(eff, fname: str, ref, rng) -> _ActiveBehavior:
         if isinstance(eff, RampEffect):
-            return _ActiveRamp(
-                field=fname, target=ref, tau=eff.tau, noise=eff.noise, rng=rng
-            )
+            return _ActiveRamp(field=fname, target=ref, tau=eff.tau, noise=eff.noise, rng=rng)
         if isinstance(eff, OscillateEffect):
             return _ActiveOsc(
-                field=fname, center=ref, amplitude=eff.amplitude,
-                period=eff.period, shape=eff.shape, phase=eff.phase,
-                noise=eff.noise, rng=rng,
+                field=fname,
+                center=ref,
+                amplitude=eff.amplitude,
+                period=eff.period,
+                shape=eff.shape,
+                phase=eff.phase,
+                noise=eff.noise,
+                rng=rng,
             )
         return _ActiveHold(field=fname, value=ref, noise=eff.noise, rng=rng)
 
@@ -1026,6 +1115,14 @@ class BehaviorEngine:
                 self._tick_osc(fname, beh, dt)
             else:
                 self._tick_hold(fname, beh)
+        for model in self.models:
+            model.advance(dt)
+            self._store_model_outputs(model)
+
+    def _store_model_outputs(self, model: AdcsModel) -> None:
+        where = f"[_models.{model.config.name}]"
+        for fname, value in model.outputs().items():
+            self._store(where, fname, value)
 
     def _tick_ramp(self, fname: str, ramp: _ActiveRamp, dt: float) -> None:
         target = self._live_number(ramp, ramp.target)
@@ -1089,7 +1186,8 @@ class BehaviorEngine:
                     logger.warning(
                         "%s: reference %s has no numeric value yet; holding "
                         "(suppressing further warnings for this behavior)",
-                        beh.field, ref,
+                        beh.field,
+                        ref,
                     )
                 return None
             beh.warned = False
@@ -1106,26 +1204,24 @@ class BehaviorEngine:
         """A stored wire count as its engineering value (identity when
         the field has no calibrator)."""
         f = self._fields.get(fname)
-        if (
-            f is not None
-            and f.calibrator is not None
-            and isinstance(value, (int, float))
-        ):
+        if f is not None and f.calibrator is not None and isinstance(value, (int, float)):
             return f.calibrator.apply(value)
         return value
-
 
     def _apply_effect(self, command, eff, args: dict) -> Optional[str]:
         where = f"[{command.name}] {eff.field}"
         fname = self._resolve_template(where, eff.field, command, args)
         if fname is None:
             return None
+        if fname in self._model_owned:
+            # Template-resolved landing on a model output: the load-time
+            # ownership check cannot see templates, so enforce here.
+            logger.warning("%s: %s is owned by a model; skipped", where, fname)
+            return None
         cal = self._fields[fname].calibrator
         if cal is not None and not cal.is_invertible:
             # Deferred-template / copy case load validation could not see.
-            logger.warning(
-                "%s: %s has a non-invertible calibrator; skipped", where, fname
-            )
+            logger.warning("%s: %s has a non-invertible calibrator; skipped", where, fname)
             return None
         if isinstance(eff, SetEffect):
             value = eff.value
@@ -1139,9 +1235,7 @@ class BehaviorEngine:
             value = self._raw_arg(command, args, eff.arg)
         else:  # IncrementEffect — arithmetic in engineering units
             current = self.state.get(fname, 0)
-            current = self._engineering(fname, current) if isinstance(
-                current, (int, float)
-            ) else 0
+            current = self._engineering(fname, current) if isinstance(current, (int, float)) else 0
             value = current + eff.by
         stored = self._store(where, fname, value)
         if stored is None:
@@ -1167,10 +1261,9 @@ class BehaviorEngine:
         apids, self._pending_immediate = self._pending_immediate, set()
         return apids
 
-    def _resolve_template(
-        self, where: str, template: str, command, args: dict
-    ) -> Optional[str]:
+    def _resolve_template(self, where: str, template: str, command, args: dict) -> Optional[str]:
         """Fill {Arg} placeholders with raw argument values; None on failure."""
+
         def sub(match: re.Match) -> str:
             return str(self._raw_arg(command, args, match.group(1)))
 
@@ -1207,7 +1300,10 @@ class BehaviorEngine:
         if wire is None:
             logger.warning(
                 "%s: value %r does not fit field %s (%s); skipped",
-                where, value, fname, field.python_type,
+                where,
+                value,
+                fname,
+                field.python_type,
             )
             return None
         self.state[fname] = wire

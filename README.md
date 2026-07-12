@@ -558,6 +558,64 @@ arrives on the ten-second beat. `xtce-sim inspect` narrates a loaded sidecar
 (initial values, boot signals, per-command effects, `[emit: immediate]`
 marks), so you can review the behavior without running anything.
 
+### Physics models: the ADCS flies
+
+Some subsystems are too coupled for per-field verbs: an attitude slew is not
+a value changing, it is a rigid body rotating because reaction wheels torqued
+it. The `[_models]` construct hands a whole slice of the telemetry space to a
+physics model. The imaging satellite's `adcs.toml` declares one:
+
+```toml
+[_models.adcs]
+kind = "adcs"
+substep = 0.1                # s of physics per RK4 step
+
+[_models.adcs.body]
+inertia = [12.0, 14.0, 9.0]  # kg*m^2
+
+[[_models.adcs.wheels]]      # x4: the reaction wheel pyramid
+axis = [0.6, 0.0, 0.8]
+inertia = 0.02
+max_torque = 0.05
+max_speed = 600.0
+
+[_models.adcs.orbit]
+altitude_km = 500.0
+inclination_deg = 51.6
+
+[_models.adcs.outputs]       # model outputs -> XTCE fields, explicitly
+ADCS_MODE = "mode"
+ADCS_ATT_QUAT_Q1 = "quat_q1"
+# ... 41 bindings in the shipped file
+```
+
+Behind those bindings runs owned, dependency-free physics: Euler's rigid-body
+equation with wheel momentum exchange integrated by RK4, a quaternion-feedback
+PD controller, a circular orbit with sun, eclipse, and a rotating tilted-dipole
+magnetic field, and modeled sensors (star tracker with a sun-exclusion cone,
+gyro with bias, sun sensor, magnetometer) feeding an estimator. **The control
+loop closes on the estimates, and the telemetry reports them** — command a
+bogus gyro bias and the vehicle genuinely settles off-target by the closed-form
+amount an ADCS engineer would predict.
+
+The ADCS commands are inputs to the model, not table entries:
+`ADCS_SLEW_TO_QUATERNION` starts a real slew that converges over tens of
+seconds through saturated wheel torques (watch `ADCS_POINTING_ERR` fall in the
+web console); `ADCS_SET_MODE Mode=NADIR` tracks the LVLH frame around the
+orbit; `Mode=DETUMBLE` runs a filtered B-dot law through the magnetorquers,
+exactly as slowly as the real technique; `ADCS_DESATURATE` dumps wheel
+momentum through the magnetorquers while the hold loop keeps pointing —
+`ADCS_MOMENTUM_TOTAL` drains on live telemetry. Wheel currents follow
+delivered motor torque; speeds read back in RPM, rates in deg/s, the field in
+µT — the XTCE's units, converted from the model's SI internals.
+
+Ownership is validated at load: a field bound under `[outputs]` belongs to
+the model, and any `[_initial]` seed or command-table effect that targets it
+is a load error naming the model — one source of truth per field. All
+simplifications (circular unperturbed orbit, fixed inertial sun, cylindrical
+shadow, centered dipole, quasi-static wheel temperatures) are documented in
+the module docstrings rather than hidden.
+
 ## Development
 
 ```bash

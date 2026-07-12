@@ -4,6 +4,7 @@ Validation is strict and total: every reference is checked against the
 resolved SimDefinition and all problems are reported in one BehaviorError.
 """
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -48,17 +49,20 @@ def _errors(tmp_path, simdef, text: str) -> str:
 
 def test_shipped_imaging_sidecar_validates(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    assert len(spec.initial) == 26
+    assert len(spec.initial) == 5  # ADCS seeds moved into the model
     assert set(spec.commands) == {
         "SET_MODE", "HEATER_ON", "HEATER_OFF", "SET_HEATER_SETPOINT",
         "IMAGER_ON", "IMAGER_OFF", "SET_EXPOSURE", "TAKE_IMAGE",
-        "ADCS_SET_MODE", "ADCS_SLEW_TO_QUATERNION", "ADCS_SLEW_TO_ANGLES",
-        "ADCS_WHEEL_SET_SPEED", "ADCS_MTQ_ENABLE", "ADCS_TRACK_TARGET",
     }
     ramp = next(
         e for e in spec.commands["HEATER_ON"] if isinstance(e, RampEffect)
     )
     assert ramp.target == "@THM_HEATER{HeaterId}_SETPOINT" and ramp.tau == 30.0
+    # The ADCS is a model now: one, owning 41 fields and 11 commands.
+    assert len(spec.models) == 1
+    assert spec.models[0].name == "adcs"
+    assert len(spec.models[0].outputs) == 41
+    assert len(spec.models[0].commands) == 11
 
 
 def test_sidecar_discovery():
@@ -1386,7 +1390,7 @@ def test_effects_log_confirms_in_engineering_units(tmp_path, simdef):
 def test_directory_source_merges_files(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     assert len(spec.files) == 5  # adcs, imager, power, system, thermal
-    assert len(spec.initial) == 26  # seeds merged across files (incl. ADCS)
+    assert len(spec.initial) == 5  # non-ADCS seeds (the model owns its fields)
     assert len(spec.signals) == 8
     assert "HEATER_ON" in spec.commands and "TAKE_IMAGE" in spec.commands
     assert "(5 file(s))" in spec.source_label
@@ -1420,7 +1424,11 @@ def test_bad_toml_in_one_file_reported_with_others(tmp_path, simdef):
     assert "a.toml: not valid TOML" in msg and "b.toml:" in msg
 
 
-# ---- ADCS setpoint reflections (shipped adcs.toml) --------------------------
+# ---- ADCS dynamics model (shipped adcs.toml [_models.adcs]) -----------------
+#
+# Commands are INPUTS to a physics model now: a slew CONVERGES over ticks
+# through the wheel motors instead of teleporting the quaternion, and every
+# ADCS field is a model output refreshed each tick.
 
 
 @pytest.fixture()
@@ -1429,40 +1437,75 @@ def adcs_engine(simdef):
     return behavior.BehaviorEngine(spec, simdef)
 
 
-def test_slew_to_quaternion_reflects_all_components(adcs_engine, simdef):
-    adcs_engine.apply_command(
+def _adcs_apids(simdef):
+    return {
+        simdef.packet_by_name(n).apid
+        for n in ("ADCS_STATUS", "ADCS_ATTITUDE", "ADCS_WHEELS", "ADCS_SENSORS")
+    }
+
+
+def _mode_raw(simdef, label):
+    status = simdef.packet_by_name("ADCS_STATUS")
+    field = next(f for f in status.fields if f.name == "ADCS_MODE")
+    return field.enumerations[label]
+
+
+def test_shipped_model_seeds_a_live_attitude_at_boot(adcs_engine, simdef):
+    # Before any beacon tick, the overlay already holds a real solution —
+    # an all-zeros quaternion is not an attitude.
+    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q4") == pytest.approx(1.0, abs=0.01)
+    assert adcs_engine.state["ADCS_MODE"] == _mode_raw(simdef, "STANDBY")
+    assert _eu(adcs_engine, "ADCS_MAG_Z") != 0.0  # dipole field is live
+
+
+def test_slew_to_quaternion_really_rotates_the_body(adcs_engine, simdef):
+    applied = adcs_engine.apply_command(
         _cmd(simdef, "ADCS_SLEW_TO_QUATERNION"),
         {"Q1": 0.0, "Q2": 0.0, "Q3": 0.7071, "Q4": 0.7071},
     )
-    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q3") == pytest.approx(0.7071, abs=1e-4)
-    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q4") == pytest.approx(0.7071, abs=1e-4)
-    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q1") == pytest.approx(0.0)
-    # The whole attitude packet goes out immediately, once.
-    attitude = simdef.packet_by_name("ADCS_ATTITUDE")
-    assert adcs_engine.pop_immediate_apids() == {attitude.apid}
+    assert any("slew" in line for line in applied)
+    # The command flips to INERTIAL_POINT and the vehicle is NOT there yet.
+    assert adcs_engine.state["ADCS_MODE"] == _mode_raw(simdef, "INERTIAL_POINT")
+    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q3") == pytest.approx(0.0, abs=0.01)
+    # Every ADCS packet shows the mode change immediately.
+    assert adcs_engine.pop_immediate_apids() == _adcs_apids(simdef)
+    # Ten beacon intervals later the 90-degree slew has converged.
+    for _ in range(24):
+        adcs_engine.tick(5.0)
+    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q3") == pytest.approx(0.7071, abs=0.005)
+    assert _eu(adcs_engine, "ADCS_ATT_QUAT_Q4") == pytest.approx(0.7071, abs=0.005)
+    assert _eu(adcs_engine, "ADCS_POINTING_ERR") < 0.2
 
 
-def test_slew_to_angles_reflects_euler(adcs_engine, simdef):
+def test_slew_to_angles_converges_on_the_commanded_euler(adcs_engine, simdef):
     adcs_engine.apply_command(
         _cmd(simdef, "ADCS_SLEW_TO_ANGLES"),
         {"Roll": 10.5, "Pitch": -15.25, "Yaw": 45.0},
     )
-    assert _eu(adcs_engine, "ADCS_ATT_ROLL") == pytest.approx(10.5, abs=0.01)
-    assert _eu(adcs_engine, "ADCS_ATT_PITCH") == pytest.approx(-15.25, abs=0.01)
-    assert _eu(adcs_engine, "ADCS_ATT_YAW") == pytest.approx(45.0, abs=0.01)
-    attitude = simdef.packet_by_name("ADCS_ATTITUDE")
-    assert adcs_engine.pop_immediate_apids() == {attitude.apid}
+    for _ in range(24):
+        adcs_engine.tick(5.0)
+    assert _eu(adcs_engine, "ADCS_ATT_ROLL") == pytest.approx(10.5, abs=0.1)
+    assert _eu(adcs_engine, "ADCS_ATT_PITCH") == pytest.approx(-15.25, abs=0.1)
+    assert _eu(adcs_engine, "ADCS_ATT_YAW") == pytest.approx(45.0, abs=0.1)
 
 
-def test_wheel_set_speed_reflects_only_the_commanded_wheel(adcs_engine, simdef):
+def test_wheel_set_speed_spins_up_through_the_motor(adcs_engine, simdef):
+    # STANDBY (boot mode): the wheel obeys its speed servo, which rides the
+    # torque limit — the speed is a spin-up curve, not a step.
     adcs_engine.apply_command(
         _cmd(simdef, "ADCS_WHEEL_SET_SPEED"), {"WheelId": 2, "Speed": -2200.0}
     )
-    assert _eu(adcs_engine, "ADCS_WHEEL2_SPEED") == pytest.approx(-2200.0, abs=0.2)
-    assert "ADCS_WHEEL1_SPEED" not in adcs_engine.state
-    assert "ADCS_WHEEL3_SPEED" not in adcs_engine.state
-    wheels = simdef.packet_by_name("ADCS_WHEELS")
-    assert adcs_engine.pop_immediate_apids() == {wheels.apid}
+    assert _eu(adcs_engine, "ADCS_WHEEL2_SPEED") == pytest.approx(0.0, abs=1.0)
+    adcs_engine.tick(30.0)
+    partway = _eu(adcs_engine, "ADCS_WHEEL2_SPEED")
+    assert -2200.0 < partway < -400.0  # moving, not arrived
+    for _ in range(4):
+        adcs_engine.tick(30.0)
+    assert _eu(adcs_engine, "ADCS_WHEEL2_SPEED") == pytest.approx(-2200.0, rel=0.02)
+    # The others stayed parked, and their telemetry says so.
+    assert _eu(adcs_engine, "ADCS_WHEEL1_SPEED") == pytest.approx(0.0, abs=1.0)
+    # Spinning draws more than idle current.
+    assert _eu(adcs_engine, "ADCS_WHEEL2_CURRENT") >= 0.05
 
 
 def test_mtq_enable_reflects_state_enum(adcs_engine, simdef):
@@ -1470,14 +1513,96 @@ def test_mtq_enable_reflects_state_enum(adcs_engine, simdef):
     status = simdef.packet_by_name("ADCS_STATUS")
     field = next(f for f in status.fields if f.name == "ADCS_MTQ_STATE")
     assert adcs_engine.state["ADCS_MTQ_STATE"] == field.enumerations["OFF"]
-    assert adcs_engine.pop_immediate_apids() == {status.apid}
+    assert adcs_engine.pop_immediate_apids() == _adcs_apids(simdef)
 
 
 def test_track_target_flips_mode_to_target_track(adcs_engine, simdef):
     adcs_engine.apply_command(
         _cmd(simdef, "ADCS_TRACK_TARGET"), {"Latitude": 34.05, "Longitude": -118.24}
     )
+    assert adcs_engine.state["ADCS_MODE"] == _mode_raw(simdef, "TARGET_TRACK")
+    assert adcs_engine.pop_immediate_apids() == _adcs_apids(simdef)
+
+
+def test_set_mode_and_estimator_state_are_telemetered(adcs_engine, simdef):
+    adcs_engine.apply_command(_cmd(simdef, "ADCS_SET_MODE"), {"Mode": "NADIR"})
+    assert adcs_engine.state["ADCS_MODE"] == _mode_raw(simdef, "NADIR")
     status = simdef.packet_by_name("ADCS_STATUS")
-    field = next(f for f in status.fields if f.name == "ADCS_MODE")
-    assert adcs_engine.state["ADCS_MODE"] == field.enumerations["TARGET_TRACK"]
-    assert adcs_engine.pop_immediate_apids() == {status.apid}
+    est = next(f for f in status.fields if f.name == "ADCS_EST_STATE")
+    assert adcs_engine.state["ADCS_EST_STATE"] in set(est.enumerations.values())
+
+
+def test_bad_wheel_id_warns_and_applies_nothing(adcs_engine, simdef, caplog):
+    with caplog.at_level(logging.WARNING, logger="xtce_sim.dynamics"):
+        applied = adcs_engine.apply_command(
+            _cmd(simdef, "ADCS_WHEEL_ENABLE"), {"WheelId": 9}
+        )
+    assert applied == []
+    assert "WheelId 9 out of range" in caplog.text
+    # A rejected command emits NOTHING out of cycle: an unscheduled ADCS
+    # burst on the wire must always mean "the command took effect".
+    assert adcs_engine.pop_immediate_apids() == set()
+
+
+def test_model_field_cannot_be_written_by_another_table(tmp_path, simdef):
+    # Ownership: adcs.toml binds ADCS_MODE to the model; a command table
+    # writing it anywhere in the satellite directory is a load error.
+    import shutil
+
+    for toml in (EXAMPLES / "imaging_sat").glob("*.toml"):
+        shutil.copy(toml, tmp_path)
+    shutil.copy(EXAMPLES / "imaging_sat" / "imaging_sat.xml", tmp_path)
+    (tmp_path / "zz_extra.toml").write_text(
+        '[ADCS_SET_MODE]\nADCS_MODE = { set = "@arg:Mode" }\n'
+    )
+    with pytest.raises(behavior.BehaviorError) as exc:
+        load_behavior(tmp_path, simdef)
+    assert "owned by model 'adcs'" in str(exc.value)
+
+
+def test_two_models_cannot_consume_the_same_command(tmp_path, simdef):
+    # Disjoint outputs pass field ownership, but both models default-bind
+    # ADCS_SET_MODE — dict routing would silently steer only the last one.
+    wheel = (
+        "[[_models.%s.wheels]]\n"
+        "axis = [0.6, 0.0, 0.8]\n"
+        "inertia = 0.02\n"
+        "max_torque = 0.05\n"
+        "max_speed = 600.0\n"
+    )
+    text = ""
+    for name, binding in (("a", 'ADCS_MODE = "mode"'), ("b", 'ADCS_EST_STATE = "est_state"')):
+        text += (
+            f"[_models.{name}]\n"
+            f"[_models.{name}.body]\ninertia = [12.0, 14.0, 9.0]\n"
+            + wheel % name
+            + f"[_models.{name}.orbit]\naltitude_km = 500.0\n"
+            f"[_models.{name}.outputs]\n{binding}\n"
+        )
+    (tmp_path / "two.behavior.toml").write_text(text)
+    with pytest.raises(behavior.BehaviorError) as exc:
+        load_behavior(tmp_path, simdef)
+    assert "command ADCS_SET_MODE: consumed by both 'a' and 'b'" in str(exc.value)
+
+
+def test_templated_effect_cannot_teleport_a_model_wheel_speed(tmp_path, simdef, caplog):
+    # A templated command effect escapes the load-time literal-name
+    # ownership check; the engine's runtime guard must refuse it, or the
+    # immediately-emitted packet would report the setpoint-teleport this
+    # unit exists to eliminate.
+    import shutil
+
+    for toml in (EXAMPLES / "imaging_sat").glob("*.toml"):
+        shutil.copy(toml, tmp_path)
+    (tmp_path / "zz_teleport.toml").write_text(
+        '[ADCS_WHEEL_SET_SPEED]\n"ADCS_WHEEL{WheelId}_SPEED" = "@arg:Speed"\n'
+    )
+    spec = load_behavior(tmp_path, simdef)  # loads: the template hides the name
+    engine = behavior.BehaviorEngine(spec, simdef)
+    with caplog.at_level(logging.WARNING):
+        engine.apply_command(
+            _cmd(simdef, "ADCS_WHEEL_SET_SPEED"), {"WheelId": 1, "Speed": -2200.0}
+        )
+    assert "owned by a model; skipped" in caplog.text
+    # The wheel is spinning up through its motor, not teleported.
+    assert abs(_eu(engine, "ADCS_WHEEL1_SPEED")) < 1.0

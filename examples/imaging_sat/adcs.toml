@@ -1,65 +1,107 @@
-# ADCS behavior for the ImagingSat example — minimal boot state only.
-# Values are ENGINEERING UNITS; calibrated fields transmit raw counts.
-# Dynamics (slews, wheel response, sensor motion) are future work; these
-# seeds exist because an all-zeros ADCS packet is not merely dull but
-# INVALID — a zero-length quaternion is not an attitude.
+# ADCS behavior for the ImagingSat: a real rigid-body dynamics model.
+#
+# Everything ADCS is OWNED by the [_models.adcs] stack below — plant,
+# sensors, estimator, controller, mode machine — advanced every beacon
+# tick in fixed physics substeps. Commands are inputs to the model
+# (a slew really rotates the body through the wheel motors; DETUMBLE
+# really bleeds momentum through the magnetorquers), and the telemetry
+# fields bound under [outputs] are what the avionics BELIEVE: attitude
+# and rates come from the star tracker + gyro estimator, not from truth.
+# The setpoint reflections that used to live here (teleporting
+# quaternions, stepped wheel speeds) are gone — this replaced them.
 
-[_initial]
-ADCS_MODE = "STANDBY"
-ADCS_EST_STATE = "VALID"
-# Identity quaternion: pointing exactly at the reference attitude.
-ADCS_ATT_QUAT_Q1 = 0.0
-ADCS_ATT_QUAT_Q2 = 0.0
-ADCS_ATT_QUAT_Q3 = 0.0
-ADCS_ATT_QUAT_Q4 = 1.0
-ADCS_ST_QUAT_Q1 = 0.0
-ADCS_ST_QUAT_Q2 = 0.0
-ADCS_ST_QUAT_Q3 = 0.0
-ADCS_ST_QUAT_Q4 = 1.0
-ADCS_ST_VALID = "OK"
-ADCS_SUN_PRESENT = "PRESENT"
-ADCS_MTQ_STATE = "ON"
-ADCS_SUN_Z = 1.0
-# Typical low-Earth-orbit field magnitude, mostly along one axis here.
-ADCS_MAG_X = 22.0
-ADCS_MAG_Y = -8.0
-ADCS_MAG_Z = 35.0
-ADCS_WHEEL1_TEMP = 20.0
-ADCS_WHEEL2_TEMP = 20.0
-ADCS_WHEEL3_TEMP = 20.0
-ADCS_WHEEL4_TEMP = 20.0
+[_models.adcs]
+kind = "adcs"
+substep = 0.1 # s of physics per RK4 step
 
-# Mode changes acknowledge instantly, like the other subsystems.
-[ADCS_SET_MODE]
-ADCS_MODE = { set = "@arg:Mode", emit = "immediate" }
+[_models.adcs.body]
+inertia = [12.0, 14.0, 9.0] # kg*m^2, principal diagonal
 
-# ---------------------------------------------------------------------------
-# Setpoint reflections: telemetry mirrors the commanded value the moment the
-# command executes. HONEST LIMIT — these are placeholders, not dynamics: a
-# slew JUMPS the quaternion (no rotation, no settling), a wheel speed STEPS
-# (no spin-up, no current draw), and derived quantities (Euler angles vs
-# quaternion, rates, momentum) are NOT kept consistent with each other.
-# Real ADCS dynamics replace these when the behaviors arc lands. Commands
-# with no direct telemetry mirror (WHEEL_ENABLE/DISABLE, DESATURATE,
-# RESET_ESTIMATOR, SET_GYRO_BIAS) stay unwired until then.
+# The 4-wheel pyramid, all canted toward body +Z.
+[[_models.adcs.wheels]]
+axis = [0.6, 0.0, 0.8]
+inertia = 0.02    # kg*m^2
+max_torque = 0.05 # N*m
+max_speed = 600.0 # rad/s (~5730 RPM)
 
-[ADCS_SLEW_TO_QUATERNION]
-ADCS_ATT_QUAT_Q1 = { set = "@arg:Q1", emit = "immediate" }
-ADCS_ATT_QUAT_Q2 = { set = "@arg:Q2", emit = "immediate" }
-ADCS_ATT_QUAT_Q3 = { set = "@arg:Q3", emit = "immediate" }
-ADCS_ATT_QUAT_Q4 = { set = "@arg:Q4", emit = "immediate" }
+[[_models.adcs.wheels]]
+axis = [-0.6, 0.0, 0.8]
+inertia = 0.02
+max_torque = 0.05
+max_speed = 600.0
 
-[ADCS_SLEW_TO_ANGLES]
-ADCS_ATT_ROLL = { set = "@arg:Roll", emit = "immediate" }
-ADCS_ATT_PITCH = { set = "@arg:Pitch", emit = "immediate" }
-ADCS_ATT_YAW = { set = "@arg:Yaw", emit = "immediate" }
+[[_models.adcs.wheels]]
+axis = [0.0, 0.6, 0.8]
+inertia = 0.02
+max_torque = 0.05
+max_speed = 600.0
 
-[ADCS_WHEEL_SET_SPEED]
-"ADCS_WHEEL{WheelId}_SPEED" = { set = "@arg:Speed", emit = "immediate" }
+[[_models.adcs.wheels]]
+axis = [0.0, -0.6, 0.8]
+inertia = 0.02
+max_torque = 0.05
+max_speed = 600.0
 
-[ADCS_MTQ_ENABLE]
-ADCS_MTQ_STATE = { set = "@arg:State", emit = "immediate" }
+[_models.adcs.orbit]
+altitude_km = 500.0
+inclination_deg = 51.6
 
-# Commanding a ground target puts the vehicle in target-track mode.
-[ADCS_TRACK_TARGET]
-ADCS_MODE = { set = "TARGET_TRACK", emit = "immediate" }
+[_models.adcs.controller]
+response_time = 10.0     # s to close on a small attitude error
+sun_axis = [0.0, 0.0, -1.0] # solar panels opposite the imager boresight
+
+[_models.adcs.mtq]
+max_dipole = 5.0 # A*m^2 per axis
+
+[_models.adcs.sensors]
+seed = 1 # same seed, same sensor noise, every run
+
+# Model outputs -> XTCE fields. Explicit and load-validated: a field
+# listed here is owned by the model (no other table may write it), and
+# the timestamps stay with the synthetic generator.
+[_models.adcs.outputs]
+ADCS_MODE = "mode"
+ADCS_EST_STATE = "est_state"
+ADCS_POINTING_ERR = "pointing_err_deg"
+ADCS_MOMENTUM_TOTAL = "momentum_total"
+ADCS_MOMENTUM_FLAG = "momentum_flag"
+ADCS_ST_HEALTH = "st_health"
+ADCS_MTQ_STATE = "mtq_state"
+ADCS_ATT_QUAT_Q1 = "quat_q1"
+ADCS_ATT_QUAT_Q2 = "quat_q2"
+ADCS_ATT_QUAT_Q3 = "quat_q3"
+ADCS_ATT_QUAT_Q4 = "quat_q4"
+ADCS_ATT_ROLL = "roll_deg"
+ADCS_ATT_PITCH = "pitch_deg"
+ADCS_ATT_YAW = "yaw_deg"
+ADCS_RATE_X = "rate_x_deg"
+ADCS_RATE_Y = "rate_y_deg"
+ADCS_RATE_Z = "rate_z_deg"
+ADCS_WHEEL1_SPEED = "wheel1_speed_rpm"
+ADCS_WHEEL2_SPEED = "wheel2_speed_rpm"
+ADCS_WHEEL3_SPEED = "wheel3_speed_rpm"
+ADCS_WHEEL4_SPEED = "wheel4_speed_rpm"
+ADCS_WHEEL1_CURRENT = "wheel1_current_a"
+ADCS_WHEEL2_CURRENT = "wheel2_current_a"
+ADCS_WHEEL3_CURRENT = "wheel3_current_a"
+ADCS_WHEEL4_CURRENT = "wheel4_current_a"
+ADCS_WHEEL1_TEMP = "wheel1_temp_c"
+ADCS_WHEEL2_TEMP = "wheel2_temp_c"
+ADCS_WHEEL3_TEMP = "wheel3_temp_c"
+ADCS_WHEEL4_TEMP = "wheel4_temp_c"
+ADCS_ST_QUAT_Q1 = "st_quat_q1"
+ADCS_ST_QUAT_Q2 = "st_quat_q2"
+ADCS_ST_QUAT_Q3 = "st_quat_q3"
+ADCS_ST_QUAT_Q4 = "st_quat_q4"
+ADCS_ST_VALID = "st_valid"
+ADCS_SUN_X = "sun_x"
+ADCS_SUN_Y = "sun_y"
+ADCS_SUN_Z = "sun_z"
+ADCS_SUN_PRESENT = "sun_present"
+ADCS_MAG_X = "mag_x_ut"
+ADCS_MAG_Y = "mag_y_ut"
+ADCS_MAG_Z = "mag_z_ut"
+
+# Command routing uses the conventional names (ADCS_SET_MODE,
+# ADCS_SLEW_TO_QUATERNION, ...), which this satellite declares, so no
+# [_models.adcs.commands] overrides are needed.
