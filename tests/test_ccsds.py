@@ -120,3 +120,70 @@ def test_command_echo_truncates_oversized_embed():
 def test_parse_command_echo_empty():
     bare = ccsds.build_telemetry_packet(ccsds.CMD_ECHO_APID, b"")
     assert ccsds.parse_command_echo(bare) == (None, b"")
+
+
+# ------------------------------------------------------------ file uplink ----
+
+
+def test_file_uplink_round_trip():
+    start = ccsds.build_file_start("plan.ats", 1234, 0xDEADBEEF, seq_count=7)
+    header = ccsds.CCSDSHeader.unpack(start[:6])
+    assert header.apid == ccsds.FILE_UPLINK_APID
+    assert header.packet_type == ccsds.PacketType.COMMAND
+    assert header.seq_count == 7
+    kind, fields = ccsds.parse_file_uplink(start)
+    assert kind == ccsds.FILE_START
+    assert fields == {"filename": "plan.ats", "size": 1234, "crc": 0xDEADBEEF}
+
+    data = ccsds.build_file_data(4096, b"chunk bytes")
+    kind, fields = ccsds.parse_file_uplink(data)
+    assert kind == ccsds.FILE_DATA
+    assert fields == {"offset": 4096, "chunk": b"chunk bytes"}
+
+    kind, fields = ccsds.parse_file_uplink(ccsds.build_file_finish())
+    assert kind == ccsds.FILE_FINISH
+    assert fields == {}
+
+
+def test_file_uplink_frames_fit_the_wire():
+    biggest = ccsds.build_file_data(0, b"\xab" * ccsds.FILE_CHUNK_MAX)
+    ccsds.frame(biggest)  # must not raise struct.error
+
+
+def test_file_start_builder_limits():
+    with pytest.raises(ValueError):
+        ccsds.build_file_start("", 1, 0)
+    with pytest.raises(ValueError):
+        ccsds.build_file_start("n" * 256, 1, 0)
+    with pytest.raises(ValueError):
+        ccsds.build_file_start("f", 2**32, 0)  # size field is 32 bits
+    ccsds.build_file_start("n" * 255, 2**32 - 1, 0)  # boundaries build
+
+
+def test_file_data_builder_limit():
+    with pytest.raises(ValueError):
+        ccsds.build_file_data(0, b"x" * (ccsds.FILE_CHUNK_MAX + 1))
+
+
+def test_parse_file_uplink_rejects_malformed():
+    def uplink(payload: bytes) -> bytes:
+        return ccsds.CCSDSHeader(apid=ccsds.FILE_UPLINK_APID).pack() + payload
+
+    cases = [
+        b"",  # no payload at all
+        bytes([99]),  # unknown chunk type
+        bytes([ccsds.FILE_DATA, 0, 0]),  # DATA too short for its offset
+        bytes([ccsds.FILE_FINISH]) + b"junk",  # FINISH must be bare
+        bytes([ccsds.FILE_START]),  # START with no name length
+        bytes([ccsds.FILE_START, 0]) + b"\x00" * 8,  # empty filename
+        bytes([ccsds.FILE_START, 4]) + b"ab" + b"\x00" * 8,  # short name
+        bytes([ccsds.FILE_START, 2]) + b"\xff\xfe" + b"\x00" * 8,  # bad UTF-8
+    ]
+    for payload in cases:
+        with pytest.raises(ValueError):
+            ccsds.parse_file_uplink(uplink(payload))
+
+
+def test_reserved_apids_cover_both_protocol_packets():
+    assert ccsds.RESERVED_APIDS[ccsds.CMD_ECHO_APID] == "command echo"
+    assert ccsds.RESERVED_APIDS[ccsds.FILE_UPLINK_APID] == "file uplink"

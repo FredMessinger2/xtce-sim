@@ -22,6 +22,7 @@ from typing import Awaitable, Callable, Optional
 
 from xtce_sim import ccsds, codec
 from xtce_sim.definition import CommandDef, SimDefinition
+from xtce_sim.fileservice import FileService
 
 # A command handler receives the server, the decoded command, and its argument
 # values, and may send telemetry via the server. It returns nothing.
@@ -55,6 +56,7 @@ class SimServer:
         command_handler: Optional[CommandHandler] = None,
         telemetry_source: Optional[Callable[[object], dict]] = None,
         behavior_engine: Optional[object] = None,
+        file_service: Optional[FileService] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.simdef = simdef
@@ -74,7 +76,12 @@ class SimServer:
         # Optional behavior.BehaviorEngine: commands mutate its overlay, and
         # the overlay wins over telemetry_source values at pack time.
         self.behavior_engine = behavior_engine
+        # Optional fileservice.FileService: receives file-uplink frames and
+        # FILE_* commands, and owns the FILE_RECEIPT packet's beacon values
+        # (single-writer, like a dynamics model owns its output fields).
+        self.file_service = file_service
         self.logger = logger or logging.getLogger("xtce_sim")
+        self._uplink_warned = False
 
         self._clients: dict[asyncio.StreamWriter, _ClientConn] = {}
         self._seq = ccsds.SequenceCounter()
@@ -85,16 +92,19 @@ class SimServer:
 
     async def start(self) -> None:
         """Bind the port and begin accepting connections and beaconing."""
-        # The generator refuses definitions that claim the echo APID, but a
-        # hand-edited cmd_tlm.json can sneak one past it — warn loudly, since
-        # that packet's beacons would masquerade as command echoes.
-        if self.simdef.packet_by_apid(ccsds.CMD_ECHO_APID) is not None:
-            self.logger.warning(
-                "packet %r uses APID 0x%X, reserved for the command echo — "
-                "ground tools will misread it",
-                self.simdef.packet_by_apid(ccsds.CMD_ECHO_APID).name,
-                ccsds.CMD_ECHO_APID,
-            )
+        # The generator refuses definitions that claim a reserved link APID,
+        # but a hand-edited cmd_tlm.json can sneak one past it — warn loudly,
+        # since that packet's beacons would masquerade as link protocol.
+        for apid, purpose in ccsds.RESERVED_APIDS.items():
+            claimed = self.simdef.packet_by_apid(apid)
+            if claimed is not None:
+                self.logger.warning(
+                    "packet %r uses APID 0x%X, reserved for the %s — "
+                    "ground tools will misread it",
+                    claimed.name,
+                    apid,
+                    purpose,
+                )
         self._server = await asyncio.start_server(
             self._handle_client, self.host, self.port
         )
@@ -213,7 +223,12 @@ class SimServer:
         overlay = (
             self.behavior_engine.values_for(packet_def) if self.behavior_engine else {}
         )
-        merged = {**base, **overlay}
+        # The file service owns its receipt packet outright (single-writer):
+        # between events the beacon shows true storage numbers, not zeros.
+        fileview = (
+            self.file_service.beacon_values(packet_def) if self.file_service else {}
+        )
+        merged = {**base, **overlay, **fileview}
         return merged or None
 
     def _enqueue(self, conn: _ClientConn, data: bytes) -> None:
@@ -307,14 +322,58 @@ class SimServer:
                     self.logger.warning("framing error from %s: %s", peer, exc)
                     break
                 for packet in packets:
-                    await self._dispatch(packet)
+                    if _is_file_uplink(packet):
+                        # Link protocol, not a vehicle command: file chunks
+                        # never enter command dispatch (their payloads are
+                        # not opcode + arguments). Keyed by the writer — the
+                        # same hashable identity the client dict uses.
+                        self._handle_file_uplink(writer, packet)
+                    else:
+                        await self._dispatch(packet)
         except OSError as exc:
             self.logger.debug("client %s read error: %s", peer, exc)
         finally:
             self._clients.pop(writer, None)
             conn.task.cancel()
             writer.close()
+            if self.file_service is not None:
+                # A dropped link ends its in-progress transfer, receipt and all.
+                try:
+                    self._send_file_receipts(self.file_service.connection_closed(writer))
+                except Exception:
+                    self.logger.exception("file transfer cleanup failed")
             self.logger.info("client disconnected: %s (%d total)", peer, len(self._clients))
+
+    # ---- file uplink ---------------------------------------------------------
+
+    def _handle_file_uplink(self, source: object, packet: bytes) -> None:
+        """Feed one file-uplink frame to the file service; broadcast the
+        receipts it answers with. Guarded: a file bug must not drop the link."""
+        if self.file_service is None:
+            if not self._uplink_warned:
+                # Warn once, not once per chunk — an upload is many frames.
+                self._uplink_warned = True
+                self.logger.warning(
+                    "file uplink received but no file store is configured — "
+                    "dropped (further occurrences suppressed)"
+                )
+            return
+        try:
+            self._send_file_receipts(self.file_service.handle_uplink(source, packet))
+        except Exception:
+            self.logger.exception("file uplink handling failed")
+
+    def _send_file_receipts(self, receipts: list[dict]) -> None:
+        """Broadcast each receipt the file service produced (guarded per
+        packet, like the beacon: one bad receipt must not drop the rest)."""
+        apid = self.file_service.receipt_apid
+        if apid is None:
+            return  # log-only vehicle: the service already told the story
+        for values in receipts:
+            try:
+                self.send_packet(apid, values)
+            except Exception:
+                self.logger.exception("failed to send FILE_RECEIPT")
 
     def _echo_command(self, packet: bytes, status: int) -> None:
         """Broadcast a command echo (see ccsds.py) — the ground's view of
@@ -379,6 +438,10 @@ class SimServer:
                         self.logger.exception(
                             "immediate: failed to send APID 0x%X", apid
                         )
+            if self.file_service is not None and self.file_service.handles(command.name):
+                # File-management commands act on the real store; a raise
+                # lands in the guard below and echoes FAILED like any command.
+                self._send_file_receipts(self.file_service.handle_command(command.name, args))
             if self.command_handler is not None:
                 await self.command_handler(self, command, args)
         except Exception:
@@ -386,6 +449,13 @@ class SimServer:
             self._echo_command(packet, ccsds.ECHO_FAILED)
             return
         self._echo_command(packet, ccsds.ECHO_EXECUTED)
+
+
+def _is_file_uplink(packet: bytes) -> bool:
+    """Whether this CCSDS packet rides the reserved file-uplink APID."""
+    if len(packet) < 6:
+        return False
+    return ccsds.CCSDSHeader.unpack(packet[:6]).apid == ccsds.FILE_UPLINK_APID
 
 
 async def run(

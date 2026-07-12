@@ -556,3 +556,140 @@ def test_report_counts_only_transmitted_probes(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Rejection probes: 1 transmitted" in out  # the failed one not counted
     assert "should reject" in out  # hedged: the exerciser doesn't read echoes
+
+
+# ------------------------------------------------------------------ upload ----
+
+
+async def _imaging_file_server(tmp_path):
+    """A live imaging_sat server with a file store, plus its def JSON path."""
+    from xtce_sim.fileservice import FileService, FileStore
+
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    service = FileService(FileStore(tmp_path / "files"), simdef)
+    server = SimServer(
+        simdef, host="127.0.0.1", port=0, beacon_interval=10.0, file_service=service
+    )
+    await server.start()
+    return server, def_json
+
+
+async def test_upload_verb_end_to_end(tmp_path):
+    """The console workflow: upload a file, read the vehicle's receipt back."""
+    server, def_json = await _imaging_file_server(tmp_path)
+    try:
+        plan = tmp_path / "plan.ats"
+        plan.write_bytes(b"2026-07-12T00:00:00Z NOOP\n" * 50)
+        result = await asyncio.to_thread(
+            CliRunner().invoke,
+            main,
+            ["upload", str(plan), "--def", str(def_json),
+             "--port", str(server.bound_port), "--chunk-size", "128"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "uploading plan.ats" in result.output
+        assert "receipt: SUCCESS" in result.output
+        assert (tmp_path / "files/plan.ats").read_bytes() == plan.read_bytes()
+    finally:
+        await server.stop()
+
+
+async def test_upload_verb_reports_vehicle_refusal(tmp_path):
+    """A file too big for the store comes back as the vehicle's FAILED
+    receipt, and the verb exits nonzero — not quiet success."""
+    server, def_json = await _imaging_file_server(tmp_path)
+    server.file_service.store.quota = 10  # shrink the store under the file
+    try:
+        big = tmp_path / "big.bin"
+        big.write_bytes(b"x" * 100)
+        result = await asyncio.to_thread(
+            CliRunner().invoke,
+            main,
+            ["upload", str(big), "--def", str(def_json),
+             "--port", str(server.bound_port)],
+        )
+        assert result.exit_code != 0
+        assert "vehicle refused" in result.output
+        assert not (tmp_path / "files/big.bin").exists()
+    finally:
+        await server.stop()
+
+
+def test_upload_refuses_a_doomed_filename_before_sending(tmp_path):
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    long_named = tmp_path / ("n" * 40 + ".ats")
+    long_named.write_bytes(b"x")
+    result = CliRunner().invoke(
+        main,
+        ["upload", str(long_named), "--def", str(def_json), "--port", "1"],
+    )
+    assert result.exit_code != 0
+    assert "exceeds 32 bytes" in result.output
+    assert "could not reach" not in result.output  # refused before connecting
+
+
+def test_upload_bad_timeout_is_a_clean_error(tmp_path):
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    f = tmp_path / "f.ats"
+    f.write_bytes(b"x")
+    result = CliRunner().invoke(
+        main,
+        ["upload", str(f), "--def", str(def_json), "--port", "1",
+         "--timeout", "soon"],
+    )
+    assert result.exit_code != 0
+
+
+def test_upload_connection_refused_is_a_clean_error(tmp_path):
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    f = tmp_path / "f.ats"
+    f.write_bytes(b"x")
+    result = CliRunner().invoke(
+        main,
+        ["upload", str(f), "--def", str(def_json), "--port", "1"],
+    )
+    assert result.exit_code != 0
+    assert "could not reach" in result.output
+
+
+async def test_upload_without_receipt_contract_is_honest(tmp_path):
+    """A vehicle with no FILE_RECEIPT packet still stores the file, and the
+    verb says the transfer is unconfirmed instead of claiming success."""
+    from xtce_sim.fileservice import FileService, FileStore
+
+    simdef = SimDefinition.from_xtce(
+        [EXAMPLES / "my_vehicle/my_vehicle_commands.xml", Path(TLM)]
+    )
+    def_json = tmp_path / "cmd_tlm.json"
+    def_json.write_text(format_json(simdef))
+    service = FileService(FileStore(tmp_path / "files"), simdef)
+    server = SimServer(
+        simdef, host="127.0.0.1", port=0, beacon_interval=10.0, file_service=service
+    )
+    await server.start()
+    try:
+        f = tmp_path / "f.ats"
+        f.write_bytes(b"content")
+        result = await asyncio.to_thread(
+            CliRunner().invoke,
+            main,
+            ["upload", str(f), "--def", str(def_json), "--port", str(server.bound_port)],
+        )
+        assert result.exit_code == 0, result.output
+        assert "not confirmed" in result.output
+        # The file still landed; only the confirmation channel is missing.
+        for _ in range(100):
+            if (tmp_path / "files/f.ats").exists():
+                break
+            await asyncio.sleep(0.01)
+        assert (tmp_path / "files/f.ats").read_bytes() == b"content"
+    finally:
+        await server.stop()

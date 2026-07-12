@@ -687,7 +687,7 @@
 
 
       <!-- FILE_RECEIPT Packet (APID 0x15 = 21) -->
-      <xtce:SequenceContainer name="FILE_RECEIPT" shortDescription="SFTP file transfer receipt telemetry">
+      <xtce:SequenceContainer name="FILE_RECEIPT" shortDescription="File transfer receipt telemetry">
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="FR_FILENAME" />
           <xtce:ParameterRefEntry parameterRef="FR_FILE_SIZE" />
@@ -981,7 +981,7 @@
         </xtce:EnumerationList>
       </xtce:EnumeratedArgumentType>
 
-      <!-- SFTP filename argument (32 bytes) -->
+      <!-- Filename argument (32 bytes) -->
       <xtce:StringArgumentType name="FilenameArgType">
         <xtce:StringDataEncoding>
           <xtce:SizeInBits>
@@ -1643,7 +1643,7 @@
       </xtce:MetaCommand>
 
 
-      <!-- ===== SFTP Commands (opcodes 0x60-0x6F) ===== -->
+      <!-- ===== File Management Commands (opcodes 0x60-0x6F) ===== -->
 
       <!-- FILE_LIST: Request listing of onboard files -->
       <xtce:MetaCommand name="FILE_LIST" shortDescription="Request listing of files in onboard storage">
