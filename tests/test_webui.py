@@ -87,6 +87,18 @@ def test_telemetry_message_enum_label(simdef):
     assert msg["fields"]["ADCS_MODE"]["label"] == "NADIR"
 
 
+def test_telemetry_message_string_field_renders_text(simdef):
+    """A string field's engineering value is its text; the raw view keeps
+    hex. Surfaced by FILE_RECEIPT — the first packet to downlink a real
+    string — which the console showed as a hex blob."""
+    packet_def = simdef.packet_by_name("FILE_RECEIPT")
+    packet = _tlm_packet(packet_def, {"FR_FILENAME": b"plan.ats"})
+    msg = telemetry_message(simdef, packet)
+    name = msg["fields"]["FR_FILENAME"]
+    assert name["eu"] == "plan.ats"
+    assert name["raw"].startswith("706c616e2e617473")  # hex, NUL-padded
+
+
 def test_telemetry_message_runt_and_unknown_apid(simdef):
     assert telemetry_message(simdef, b"\x00\x01") is None
     header = ccsds.CCSDSHeader(

@@ -657,34 +657,25 @@ async def test_uplink_without_file_service_is_dropped_not_fatal(imaging):
         await server.stop()
 
 
-async def test_beacon_carries_true_storage_numbers(imaging, tmp_path):
-    """Between events the FILE_RECEIPT beacon shows real storage truth (the
-    file service owns the packet), not all-zero fields."""
-    server = _file_server(imaging, tmp_path, beacon_interval=0.05)
-    server.file_service.store.write("f", b"1234")
+async def test_receipt_packet_is_never_beaconed(imaging, tmp_path):
+    """FILE_RECEIPT is event telemetry: the beacon skips it, so the last
+    event stays on every console instead of being erased a second later
+    (and stale verdicts are never repeated at the ground)."""
+    server = _file_server(imaging, tmp_path, beacon_interval=0.02)
     await server.start()
     try:
         reader, _writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
         receipt_def = imaging.packet_by_name("FILE_RECEIPT")
+        seen: set[int] = set()
         buffer = b""
-        for _ in range(400):
+        # Several full beacon cycles: every packet APID shows up except 0x15.
+        while len(seen) < len(imaging.packets) - 1:
             buffer += await asyncio.wait_for(reader.read(4096), timeout=2.0)
             packets, buffer = ccsds.deframe(buffer)
-            beacon = next(
-                (p for p in packets
-                 if ccsds.CCSDSHeader.unpack(p[:6]).apid == receipt_def.apid),
-                None,
-            )
-            if beacon is not None:
-                break
-        assert beacon is not None
-        values = codec.unpack_telemetry(receipt_def, beacon[6:])
-        assert values["FR_FILENAME"].rstrip(b"\x00") == b""  # storage-status view
-        assert values["FR_STORAGE_USED"] == 4
-        assert values["FR_STORAGE_AVAILABLE"] > 0
+            seen.update(ccsds.CCSDSHeader.unpack(p[:6]).apid for p in packets)
+            assert receipt_def.apid not in seen
     finally:
         await server.stop()
-
 
 async def test_upload_verdict_survives_interfering_file_list(imaging, tmp_path):
     """THE correlation attack from review: while a replacement upload is in
