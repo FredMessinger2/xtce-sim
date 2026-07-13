@@ -23,9 +23,11 @@ SUN_AHEAD = (1.0, 0.0, 0.0)  # body-frame sun, far from a +z boresight
 
 
 def test_gaussian_is_deterministic():
-    assert gaussian(42, 7) == gaussian(42, 7)
-    assert gaussian(42, 7) != gaussian(42, 8)
-    assert gaussian(42, 7) != gaussian(43, 7)
+    first = gaussian(42, 7)
+    second = gaussian(42, 7)
+    assert first == second
+    assert first != gaussian(42, 8)
+    assert first != gaussian(43, 7)
 
 
 def test_gaussian_statistics():

@@ -88,8 +88,9 @@ def test_singular_matrix_raises():
     singular = ((1.0, 2.0, 3.0), (2.0, 4.0, 6.0), (0.0, 1.0, 1.0))
     with pytest.raises(ValueError, match="singular"):
         al.m_inverse(singular)
+    zero = al.m_diag(0.0, 0.0, 0.0)
     with pytest.raises(ValueError, match="singular"):
-        al.m_inverse(al.m_diag(0.0, 0.0, 0.0))
+        al.m_inverse(zero)
 
 
 def test_inverse_of_tiny_well_conditioned_matrix():

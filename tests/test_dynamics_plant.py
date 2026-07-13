@@ -48,26 +48,21 @@ def test_asymmetric_inertia_rejected():
 
 
 def test_non_positive_definite_inertia_rejected():
+    indefinite = al.m_diag(12.0, -1.0, 9.0)
     with pytest.raises(ValueError, match="positive-definite"):
-        Plant(inertia=al.m_diag(12.0, -1.0, 9.0), wheels=())
+        Plant(inertia=indefinite, wheels=())
 
 
 def test_bad_wheel_parameters_rejected():
+    zero_inertia = WheelParams((0, 0, 1), inertia=0.0, max_torque=1, max_speed=1)
     with pytest.raises(ValueError, match="wheel 0.*positive"):
-        Plant(
-            inertia=INERTIA,
-            wheels=(WheelParams((0, 0, 1), inertia=0.0, max_torque=1, max_speed=1),),
-        )
+        Plant(inertia=INERTIA, wheels=(zero_inertia,))
+    zero_axis = WheelParams((0, 0, 0), inertia=1, max_torque=1, max_speed=1)
     with pytest.raises(ValueError, match="wheel 0.*axis"):
-        Plant(
-            inertia=INERTIA,
-            wheels=(WheelParams((0, 0, 0), inertia=1, max_torque=1, max_speed=1),),
-        )
+        Plant(inertia=INERTIA, wheels=(zero_axis,))
+    negative_friction = WheelParams((0, 0, 1), inertia=1, max_torque=1, max_speed=1, friction=-0.1)
     with pytest.raises(ValueError, match="wheel 0.*friction"):
-        Plant(
-            inertia=INERTIA,
-            wheels=(WheelParams((0, 0, 1), inertia=1, max_torque=1, max_speed=1, friction=-0.1),),
-        )
+        Plant(inertia=INERTIA, wheels=(negative_friction,))
 
 
 def test_wheel_axis_is_normalized():
@@ -79,11 +74,12 @@ def test_wheel_axis_is_normalized():
 
 
 def test_wheel_momentum_length_mismatch_rejected():
+    short_momentum = PlantState(wheel_momentum=(0.0, 0.0))
     with pytest.raises(ValueError, match="wheel_momentum length"):
         Plant(
             inertia=INERTIA,
             wheels=(WHEEL_Z,),
-            state=PlantState(wheel_momentum=(0.0, 0.0)),
+            state=short_momentum,
         )
 
 
