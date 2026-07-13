@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from xtce_sim import ccsds, client, codec
+from xtce_sim import ccsds, client, codec, fileservice
 from xtce_sim.definition import CommandDef, ParamInfo, SimDefinition
 
 _STRING_TYPES = ("string", "bytes")
@@ -267,12 +267,15 @@ def check_telemetry(
 ) -> TelemetryHealth:
     """Read telemetry for up to *timeout* seconds and confirm each packet decodes.
 
-    Returns early once one full beacon cycle (every known APID) has been seen.
-    A connection failure is reported in ``TelemetryHealth.error`` rather than
-    raised, so the caller can still report the send results.
+    Returns early once one full beacon cycle has been seen. Event-only
+    packets (FILE_RECEIPT — see fileservice.event_only_apids) are excluded
+    from that wait: they arrive only when something happens, and a healthy
+    idle vehicle never sends one. A connection failure is reported in
+    ``TelemetryHealth.error`` rather than raised, so the caller can still
+    report the send results.
     """
     health = TelemetryHealth()
-    want = {p.apid for p in simdef.packets}
+    want = {p.apid for p in simdef.packets} - fileservice.event_only_apids(simdef)
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as exc:

@@ -543,3 +543,36 @@ def test_nonfinite_bound_definition_degrades_to_problem_not_traceback():
     plan, problems = build_send_plan([cmd], reject_probes=2)
     assert problems and problems[0][0] == "INF"
     assert all(validate for _c, _l, _a, validate in plan)  # no probe emitted
+
+
+async def test_check_telemetry_does_not_wait_for_event_only_packets():
+    """FILE_RECEIPT never beacons (event telemetry), so a healthy idle
+    vehicle must satisfy the verify pass within one beacon cycle instead of
+    burning the whole timeout waiting for an event that never comes."""
+    import time as _time
+
+    from xtce_sim.fileservice import FileService, FileStore
+
+    simdef = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        service = FileService(FileStore(Path(tmp) / "files"), simdef)
+        server = SimServer(
+            simdef, host="127.0.0.1", port=0, beacon_interval=0.05, file_service=service
+        )
+        await server.start()
+        try:
+            t0 = _time.monotonic()
+            health = await asyncio.to_thread(
+                check_telemetry, "127.0.0.1", server.bound_port, simdef, timeout=5.0
+            )
+            elapsed = _time.monotonic() - t0
+            assert health.error is None
+            assert health.decode_failures == 0
+            # Early exit on the first full beacon cycle, not the 5 s timeout.
+            assert elapsed < 3.0, f"verify burned {elapsed:.1f}s waiting for an event"
+            receipt_apid = simdef.packet_by_name("FILE_RECEIPT").apid
+            assert receipt_apid not in health.apids
+        finally:
+            await server.stop()

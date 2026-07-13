@@ -63,8 +63,8 @@ def _json_safe(value):
     """
     if isinstance(value, float) and not math.isfinite(value):
         return None
-    if isinstance(value, bytes):
-        return value.hex()
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).hex()
     return value
 
 
