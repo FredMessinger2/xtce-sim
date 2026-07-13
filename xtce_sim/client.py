@@ -74,13 +74,20 @@ class UploadError(Exception):
 
 
 def _confirmable(receipt_def: Optional[PacketDef]) -> bool:
-    """Whether this packet can carry a verdict the client can read: without
-    the name and status fields there is nothing to correlate on, and the
-    honest answer is "unconfirmed", not a guess."""
+    """Whether this packet can carry a verdict the client can read: the
+    matcher correlates on every one of these fields, so a packet missing any
+    of them gets the honest "unconfirmed" answer, not a guess (and not a
+    guaranteed timeout from receipts that can never match)."""
     if receipt_def is None:
         return False
     names = {f.name for f in receipt_def.fields}
-    return {"FR_FILENAME", "FR_TRANSFER_STATUS", "FR_FILE_RECEIVED_COUNT"} <= names
+    return {
+        "FR_FILENAME",
+        "FR_FILE_SIZE",
+        "FR_CHECKSUM",
+        "FR_TRANSFER_STATUS",
+        "FR_FILE_RECEIVED_COUNT",
+    } <= names
 
 
 def upload_file(
@@ -147,9 +154,16 @@ class _ReceiptMatcher:
     triple, and accepts SUCCESS only once the count has advanced past the
     value observed on this transfer's own IN_PROGRESS receipt (a FILE_LIST
     of an identical, already-stored copy repeats the triple but not the
-    bump). A FAILED receipt bearing the triple is taken as the refusal; in
-    the one ambiguous corner — a second ground uploading the identical file
-    at the same moment — that errs toward reporting failure, never success.
+    bump). A FAILED receipt bearing the triple is taken as the refusal; for
+    a second ground uploading the identical file at the same moment, that
+    errs toward reporting failure rather than success. One corner is weaker:
+    a ZERO-BYTE upload declares (name, 0, 0), the same shape FILE_DELETE
+    receipts carry, so a concurrent delete of that name can be misread as
+    this transfer's verdict. Real flight protocols close this with a
+    transaction id (CFDP); this receipt contract has no such field, so the
+    residue is documented instead — it needs an empty file, a same-name
+    delete from another ground, and (for a false SUCCESS) an interleaved
+    landing plus our own landing then failing, all in one receipt window.
     """
 
     def __init__(self, receipt_def: PacketDef, filename: str, size: int, crc: int):

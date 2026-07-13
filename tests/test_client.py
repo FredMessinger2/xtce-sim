@@ -232,9 +232,12 @@ def test_confirmable_requires_the_correlation_fields(imaging):
 
     assert client._confirmable(imaging.packet_by_name("FILE_RECEIPT"))
     assert not client._confirmable(None)
-    degraded = PacketDef(
-        name="FILE_RECEIPT",
-        apid=0x15,
-        fields=[FieldInfo("FR_FILENAME", 256, "string")],
-    )
-    assert not client._confirmable(degraded)
+    # The matcher correlates on all five fields; a packet carrying only some
+    # of them must downgrade to "unconfirmed", not wait out a guaranteed
+    # timeout on receipts that can never match.
+    partial = [
+        FieldInfo("FR_FILENAME", 256, "string"),
+        FieldInfo("FR_TRANSFER_STATUS", 8, "uint8"),
+        FieldInfo("FR_FILE_RECEIVED_COUNT", 32, "uint32"),
+    ]
+    assert not client._confirmable(PacketDef(name="FILE_RECEIPT", apid=0x15, fields=partial))
