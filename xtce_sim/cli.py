@@ -520,8 +520,9 @@ def upload(
     if receipt is None:
         click.echo(
             click.style(
-                "sent — this vehicle downlinks no FILE_RECEIPT, so the "
-                "transfer is not confirmed",
+                "sent — this vehicle downlinks no FILE_RECEIPT the ground "
+                "can correlate (missing packet or fields), so the transfer "
+                "is not confirmed",
                 fg="yellow",
             )
         )
