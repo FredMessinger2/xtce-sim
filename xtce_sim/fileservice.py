@@ -22,7 +22,10 @@ Honesty rules, stated plainly:
   commanded, which is what the ground correlates on — and the log line
   carries the measured values that refused it.
 - A receipt with an empty FR_FILENAME is a *storage-status view* (the answer
-  to FILE_STATUS, and the beacon's resting value), not a transfer event.
+  to FILE_STATUS), not a transfer event.
+- FILE_RECEIPT is event telemetry: it downlinks when something happens and
+  is never beaconed (the server skips it), so the last event stays on every
+  console until the next one, exactly as a latched HK page would.
 - FR_FILE_RECEIVED_COUNT counts files landed since this boot; storage used /
   available are measured from disk every time, so they stay true even across
   restarts of a persistent store.
@@ -268,14 +271,6 @@ class FileService:
         if self._receipt is None:
             return []
         return [self._receipt_values(filename, size, crc, status)]
-
-    def beacon_values(self, packet: PacketDef) -> dict:
-        """The receipt packet's resting value for the periodic beacon: a
-        storage-status view (empty filename), so the downlinked numbers are
-        true between events instead of all-zero."""
-        if self._receipt is None or packet.apid != self._receipt.apid:
-            return {}
-        return self._receipt_values("", 0, 0, "SUCCESS")
 
     # -- uplink --------------------------------------------------------------------
 

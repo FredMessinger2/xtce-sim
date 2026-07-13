@@ -379,16 +379,14 @@ def test_vehicle_without_receipt_packet_still_stores(tmp_path):
     assert service.handle_command("FILE_LIST", {}) == []
 
 
-def test_beacon_values_show_storage_truth(service, store, simdef):
+def test_file_status_is_the_on_demand_storage_view(service, store):
+    """FILE_RECEIPT is event telemetry (never beaconed — see the server
+    test); storage truth between events is answered on demand."""
     store.write("f", b"1234")
-    packet_def = simdef.packet_by_name("FILE_RECEIPT")
-    values = service.beacon_values(packet_def)
-    assert values["FR_FILENAME"] == b""
-    assert values["FR_STORAGE_USED"] == 4
-    assert values["FR_STORAGE_AVAILABLE"] == store.quota - 4
-    # Other packets are not the file service's to write.
-    other = next(p for p in simdef.packets if p.apid != packet_def.apid)
-    assert service.beacon_values(other) == {}
+    receipts = service.handle_command("FILE_STATUS", {})
+    assert receipts[0]["FR_FILENAME"] == b""
+    assert receipts[0]["FR_STORAGE_USED"] == 4
+    assert receipts[0]["FR_STORAGE_AVAILABLE"] == store.quota - 4
 
 
 def test_store_quota_bounded_by_the_receipt_fields(tmp_path):

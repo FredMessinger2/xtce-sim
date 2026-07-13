@@ -693,3 +693,12 @@ async def test_upload_without_receipt_contract_is_honest(tmp_path):
         assert (tmp_path / "files/f.ats").read_bytes() == b"content"
     finally:
         await server.stop()
+
+
+def test_display_value_renders_string_fields_as_text():
+    """monitor shows a string field as text (--raw keeps the wire bytes)."""
+    from xtce_sim.definition import FieldInfo
+
+    field = FieldInfo("FR_FILENAME", 256, "string")
+    assert cli._display_value(field, b"plan.ats\x00\x00") == "plan.ats"
+    assert cli._display_value(field, b"plan.ats\x00\x00", raw=True) == b"plan.ats\x00\x00"

@@ -120,7 +120,12 @@ def _field_values(field: FieldInfo, raw) -> dict:
     """raw counts + engineering value + enum label for one decoded field."""
     out: dict = {"raw": _json_safe(raw)}
     eu = raw
-    if (
+    if field.python_type == "string" and isinstance(raw, (bytes, bytearray)):
+        # A string field's engineering value is its text (NUL padding
+        # stripped); the raw view keeps the hex. Without this the console
+        # shows a filename as a hex blob.
+        eu = bytes(raw).split(b"\x00", 1)[0].decode("utf-8", "replace")
+    elif (
         field.calibrator is not None
         and isinstance(raw, (int, float))
         and not isinstance(raw, bool)

@@ -593,6 +593,9 @@ def _display_value(field, value, raw: bool = False):
         label = next((k for k, v in field.enumerations.items() if v == value), None)
         if label is not None:
             return label
+    if not raw and field.python_type == "string" and isinstance(value, (bytes, bytearray)):
+        # Text is the engineering view of a string field; --raw keeps bytes.
+        return bytes(value).split(b"\x00", 1)[0].decode("utf-8", "replace")
     if (
         not raw
         and field.calibrator is not None

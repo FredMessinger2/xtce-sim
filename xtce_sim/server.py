@@ -223,12 +223,7 @@ class SimServer:
         overlay = (
             self.behavior_engine.values_for(packet_def) if self.behavior_engine else {}
         )
-        # The file service owns its receipt packet outright (single-writer):
-        # between events the beacon shows true storage numbers, not zeros.
-        fileview = (
-            self.file_service.beacon_values(packet_def) if self.file_service else {}
-        )
-        merged = {**base, **overlay, **fileview}
+        merged = {**base, **overlay}
         return merged or None
 
     def _enqueue(self, conn: _ClientConn, data: bytes) -> None:
@@ -260,16 +255,35 @@ class SimServer:
                 except Exception:
                     self.logger.exception("behavior tick failed")
             if self._clients:
-                for packet_def in self.simdef.packets:
-                    # One packet failing (e.g. a bad telemetry_source value)
-                    # must not kill the whole beacon loop.
-                    try:
-                        self.send_packet(packet_def.apid)
-                    except Exception:
-                        self.logger.exception(
-                            "beacon: failed to send APID 0x%X", packet_def.apid
-                        )
+                self._beacon_packets()
             await asyncio.sleep(self.beacon_interval)
+
+    def _beacon_packets(self) -> None:
+        """One beacon pass over every periodically-downlinked packet."""
+        for packet_def in self.simdef.packets:
+            if self._event_only(packet_def):
+                continue
+            # One packet failing (e.g. a bad telemetry_source value)
+            # must not kill the whole beacon loop.
+            try:
+                self.send_packet(packet_def.apid)
+            except Exception:
+                self.logger.exception(
+                    "beacon: failed to send APID 0x%X", packet_def.apid
+                )
+
+    def _event_only(self, packet_def) -> bool:
+        """Whether this packet downlinks on events rather than the beacon.
+
+        The FILE_RECEIPT packet is the file service's event report: beaconing
+        it would erase the last event from every console a second after it
+        happened, and repeat stale verdicts at any ground still listening —
+        real flight software downlinks file receipts on event and answers
+        storage queries on demand (FILE_STATUS)."""
+        return (
+            self.file_service is not None
+            and packet_def.apid == self.file_service.receipt_apid
+        )
 
     async def _client_writer(self, conn: _ClientConn) -> None:
         """Drain one client's outbound queue, one write at a time."""
