@@ -45,36 +45,41 @@ def test_command_string_exact_fit_passes():
 
 
 def test_command_string_oversized_rejected():
+    cmd = _cmd("string", 32)
     with pytest.raises(ValueError, match=r"P: value is 5 bytes.*field holds 4"):
-        codec.encode_command(_cmd("string", 32), {"P": "ABCDE"})
+        codec.encode_command(cmd, {"P": "ABCDE"})
 
 
 def test_command_multibyte_counts_encoded_bytes():
+    cmd = _cmd("string", 32)
     # "café" is 4 characters but 5 UTF-8 bytes — must be rejected by bytes.
     with pytest.raises(ValueError, match="5 bytes"):
-        codec.encode_command(_cmd("string", 32), {"P": "café"})
+        codec.encode_command(cmd, {"P": "café"})
     # 3 chars / 4 bytes fits a 4-byte field.
     assert codec.encode_command(_cmd("string", 32), {"P": "caé"}) == "caé".encode()
 
 
 def test_command_binary_oversized_rejected():
+    cmd = _cmd("bytes", 16)
     with pytest.raises(ValueError, match="field holds 2"):
-        codec.encode_command(_cmd("bytes", 16), {"P": b"\x01\x02\x03"})
+        codec.encode_command(cmd, {"P": b"\x01\x02\x03"})
 
 
 def test_command_zero_size_field_rejects_nonempty():
     # A 0-bit (variable-length placeholder) field holds nothing; empty is the
     # only value that fits — anything else must not silently vanish.
-    assert codec.encode_command(_cmd("string", 0), {"P": ""}) == b""
+    cmd = _cmd("string", 0)
+    assert codec.encode_command(cmd, {"P": ""}) == b""
     with pytest.raises(ValueError, match="field holds 0"):
-        codec.encode_command(_cmd("string", 0), {"P": "X"})
+        codec.encode_command(cmd, {"P": "X"})
 
 
 def test_command_wrong_type_for_string_field_is_value_error():
     # A non-str/bytes value must raise a catchable ValueError (the CLI and
     # exerciser catch ValueError), not leak a TypeError from len().
+    cmd = _cmd("string", 32)
     with pytest.raises(ValueError, match="expected str or bytes, got int"):
-        codec.encode_command(_cmd("string", 32), {"P": 5})
+        codec.encode_command(cmd, {"P": 5})
 
 
 def test_decode_command_stays_liberal():

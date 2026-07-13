@@ -11,8 +11,10 @@ def _record(msg, level=logging.INFO):
 
 
 def test_instance_color_is_deterministic():
-    assert logs.instance_color("sat-a") == logs.instance_color("sat-a")
-    assert logs.instance_color("sat-a") in logs._PALETTE
+    first = logs.instance_color("sat-a")
+    second = logs.instance_color("sat-a")
+    assert first == second
+    assert first in logs._PALETTE
 
 
 def test_colors_spread_across_whole_palette():

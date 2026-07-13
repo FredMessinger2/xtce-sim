@@ -39,8 +39,9 @@ def test_deframe_handles_partial_and_multiple():
 def test_deframe_rejects_bad_crc():
     wire = bytearray(ccsds.frame(ccsds.build_telemetry_packet(1, b"data")))
     wire[-1] ^= 0xFF  # corrupt the CRC
+    corrupted = bytes(wire)
     with pytest.raises(ccsds.FrameError):
-        ccsds.deframe(bytes(wire))
+        ccsds.deframe(corrupted)
 
 
 def test_parse_command_packet():
@@ -180,8 +181,9 @@ def test_parse_file_uplink_rejects_malformed():
         bytes([ccsds.FILE_START, 2]) + b"\xff\xfe" + b"\x00" * 8,  # bad UTF-8
     ]
     for payload in cases:
+        packet = uplink(payload)
         with pytest.raises(ValueError):
-            ccsds.parse_file_uplink(uplink(payload))
+            ccsds.parse_file_uplink(packet)
 
 
 def test_reserved_apids_cover_both_protocol_packets():

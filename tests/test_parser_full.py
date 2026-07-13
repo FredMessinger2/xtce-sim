@@ -230,7 +230,7 @@ def test_command_inheritance_and_opcode(defn):
     # Command + argument ancillary data parsed (command-level values are
     # semicolon-merged; per-argument values are kept as-is).
     assert "ops_note" in do_thing.ancillary_data
-    assert "crew=blue;shift=day" == do_thing.ancillary_data["ops_note"]
+    assert do_thing.ancillary_data["ops_note"] == "crew=blue;shift=day"
     dur = next(a for a in do_thing.arguments if a.name == "Duration")
     assert dur.ancillary_data["db_key"] == "Counter"
 
