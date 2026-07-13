@@ -80,6 +80,17 @@ _STATUS_VALUES = {"SUCCESS": 0, "FAILED": 1, "IN_PROGRESS": 2}
 _PART_SUFFIX = ".part"
 
 
+def event_only_apids(simdef: SimDefinition) -> set[int]:
+    """APIDs that downlink on events rather than in the periodic beacon.
+
+    The single source of truth for who treats FILE_RECEIPT as event
+    telemetry: the server's beacon skips these, and ground-side health
+    checks must not wait for them (nothing arrives while nothing happens).
+    """
+    receipt = simdef.packet_by_name("FILE_RECEIPT")
+    return {receipt.apid} if receipt is not None else set()
+
+
 def name_problem(name: str) -> Optional[str]:
     """Why ``name`` is not a legal store filename, or None if it is.
 
