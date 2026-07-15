@@ -68,6 +68,6 @@ It also carries two file-level jobs:
 
 ### Used by
 
-Twelve test modules, including `test_behavior.py` (the three-wheel model
+Eleven test modules, including `test_behavior.py` (the three-wheel model
 fixtures `mv_simdef`/`mv_engine`), `test_generate.py` (merge equivalence),
 `test_fileservice.py` and `test_cli.py` (the no-receipt contract).

@@ -242,10 +242,10 @@ xtce-sim exercise --id sat-a --port 5000
 ```
 
 ```text
-Exercising 61 command(s) on 127.0.0.1:5000 ...
-Commands: sent 158/158 OK
-Telemetry: 18 packet(s), 18 APID(s), 0 decode failure(s)
-  sample: HOUSEKEEPING: HK_TIMESTAMP=1735689602, HK_SYSTEM_STATUS=0, HK_COLLECTION_MODE=0
+Exercising 40 command(s) on 127.0.0.1:5000 ...
+Commands: sent 82/82 OK
+Telemetry: 35 packet(s), 12 APID(s), 0 decode failure(s)
+  sample: ADCS_STATUS: ADCS_TIMESTAMP=0, ADCS_MODE=3, ADCS_EST_STATE=0
 ```
 
 `--command NAME` limits the sweep (repeatable), `--dry-run` prints what would
@@ -447,15 +447,15 @@ each and watch it appear in that instance's color:
 
 ```bash
 xtce-sim send --id sat-a --port 5001 SET_POWER SubsystemId=1 PowerState=ON
-xtce-sim send --id sat-b --port 5002 START_COLLECTION Mode=BURST Duration=3600
-xtce-sim send --id sat-c --port 5003 RESET SubsystemId=2 ResetType=HARD
+xtce-sim send --id sat-b --port 5002 TAKE_IMAGE ImageCount=3
+xtce-sim send --id sat-c --port 5003 RESET SubsystemId=2 ResetMode=HARD
 ```
 
 ```
-08:49:01 [sat-a] listening on 127.0.0.1:5001 — 61 command(s), 18 packet(s)
-08:49:01 [sat-b] listening on 127.0.0.1:5002 — 61 command(s), 18 packet(s)
-08:49:04 [sat-a] command 0x10 SET_POWER args={'SubsystemId': 1, 'PowerState': 'ON'}
-08:49:05 [sat-b] command 0x20 START_COLLECTION args={'Mode': 'BURST', 'Duration': 3600}
+07:03:30 [sat-a] listening on 127.0.0.1:5001 — 40 command(s), 12 packet(s)
+07:03:30 [sat-b] listening on 127.0.0.1:5002 — 40 command(s), 12 packet(s)
+07:03:34 [sat-a] command 0x10 SET_POWER args={'SubsystemId': 1, 'PowerState': 'ON'}
+07:03:35 [sat-b] command 0x33 TAKE_IMAGE args={'ImageCount': 3}
 ```
 
 Watch one instance's telemetry live, then stop the fleet:
