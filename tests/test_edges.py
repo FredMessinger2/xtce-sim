@@ -12,12 +12,13 @@ from xtce_sim.definition import CommandDef, ParamInfo, SimDefinition
 from xtce_sim.server import SimServer
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+DATA = Path(__file__).resolve().parent / "data"
 
 
 @pytest.fixture(scope="module")
 def simdef():
     return SimDefinition.from_xtce(
-        [EXAMPLES / "my_vehicle/my_vehicle_commands.xml", EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml"]
+        [DATA / "my_vehicle/my_vehicle_commands.xml", DATA / "my_vehicle/my_vehicle_telemetry.xml"]
     )
 
 

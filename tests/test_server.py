@@ -15,12 +15,13 @@ from xtce_sim.fileservice import FileService, FileStore
 from xtce_sim.server import SimServer, _ClientConn
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+DATA = Path(__file__).resolve().parent / "data"
 
 
 @pytest.fixture(scope="module")
 def simdef() -> SimDefinition:
     return SimDefinition.from_xtce(
-        [EXAMPLES / "my_vehicle/my_vehicle_commands.xml", EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml"]
+        [DATA / "my_vehicle/my_vehicle_commands.xml", DATA / "my_vehicle/my_vehicle_telemetry.xml"]
     )
 
 

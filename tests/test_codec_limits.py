@@ -17,6 +17,7 @@ from xtce_sim.cli import main
 from xtce_sim.definition import CommandDef, FieldInfo, PacketDef, ParamInfo
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+DATA = Path(__file__).resolve().parent / "data"
 
 
 def _cmd(python_type: str, size_bits: int) -> CommandDef:
@@ -119,7 +120,7 @@ def test_send_oversized_filename_is_clean_error():
     # the CLI turns it into a one-line error instead of a traceback.
     result = CliRunner().invoke(
         main,
-        ["send", "--def", str(EXAMPLES / "my_vehicle/my_vehicle.xml"), "--port", "1",
+        ["send", "--def", str(DATA / "my_vehicle/my_vehicle.xml"), "--port", "1",
          "FILE_DOWNLOAD", f"Filename={'x' * 70}"],  # 70 bytes into 64
     )
     assert result.exit_code != 0

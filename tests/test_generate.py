@@ -14,9 +14,10 @@ from xtce_sim.definition import SimDefinition
 from xtce_sim.generate import fields_to_struct_format, format_json, format_text
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-CMD_XML = EXAMPLES / "my_vehicle/my_vehicle_commands.xml"
-TLM_XML = EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml"
-COMBINED_XTCE = EXAMPLES / "my_vehicle/my_vehicle.xml"
+DATA = Path(__file__).resolve().parent / "data"
+CMD_XML = DATA / "my_vehicle/my_vehicle_commands.xml"
+TLM_XML = DATA / "my_vehicle/my_vehicle_telemetry.xml"
+COMBINED_XTCE = DATA / "my_vehicle/my_vehicle.xml"
 IMAGING_SAT_XTCE = EXAMPLES / "imaging_sat/imaging_sat.xml"
 
 
@@ -122,8 +123,8 @@ def test_example_binary_fields_have_real_sizes():
 
 
 def test_combined_example_matches_split_pair(simdef: SimDefinition):
-    """examples/my_vehicle.xml (single combined file) must stay equivalent to
-    the split command/telemetry pair — it's the headline example."""
+    """my_vehicle.xml (single combined file) must stay equivalent to the split
+    command/telemetry pair — that pair is what covers multi-file merge."""
     combined = SimDefinition.from_xtce(COMBINED_XTCE)
     assert combined.space_system_name == "MyVehicle"
     assert [(c.name, c.opcode) for c in combined.commands] == [
@@ -201,7 +202,7 @@ def test_cli_generate_writes_files(tmp_path):
 
 
 def test_polynomial_calibrator_carried_into_field():
-    d = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    d = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
     hk = d.packet_by_name("HOUSEKEEPING")
     volts = next(f for f in hk.fields if f.name == "HK_BATTERY_VOLTAGE")
     assert volts.calibrator is not None
@@ -212,7 +213,7 @@ def test_polynomial_calibrator_carried_into_field():
 
 
 def test_spline_calibrator_parsed_and_applied():
-    d = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    d = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
     hk = d.packet_by_name("HOUSEKEEPING")
     therm = next(f for f in hk.fields if f.name == "HK_TEMP_THERMISTOR")
     cal = therm.calibrator
@@ -225,7 +226,7 @@ def test_spline_calibrator_parsed_and_applied():
 
 
 def test_calibrator_round_trips_through_json():
-    d = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    d = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
     d2 = SimDefinition.from_dict(json.loads(format_json(d)))
     hk2 = d2.packet_by_name("HOUSEKEEPING")
     volts = next(f for f in hk2.fields if f.name == "HK_BATTERY_VOLTAGE")
@@ -238,7 +239,7 @@ def test_calibrator_round_trips_through_json():
 
 
 def test_text_report_marks_calibrated_fields():
-    d = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    d = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
     text = format_text(d)
     assert "cal=poly(1 terms)" in text
     assert "cal=spline(5 pts)" in text
@@ -247,7 +248,7 @@ def test_text_report_marks_calibrated_fields():
 def test_spline_no_longer_reported_ignored():
     from click.testing import CliRunner as _Runner
 
-    result = _Runner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle/my_vehicle.xml")])
+    result = _Runner().invoke(main, ["inspect", str(DATA / "my_vehicle/my_vehicle.xml")])
     assert result.exit_code == 0
     assert "SplineCalibrator" not in result.output  # consumed, not ignored
 
@@ -256,7 +257,7 @@ def test_negative_polynomial_exponent_rejected(tmp_path):
     # A negative exponent would make raw=0 undefined (ZeroDivisionError in
     # the monitor); the parser drops the term with a warning, mirroring the
     # XTCE schema's non-negative requirement.
-    xml = (EXAMPLES / "my_vehicle/my_vehicle.xml").read_text().replace(
+    xml = (DATA / "my_vehicle/my_vehicle.xml").read_text().replace(
         '<xtce:Term coefficient="0.125" exponent="1" />',
         '<xtce:Term coefficient="0.125" exponent="-1" />',
         1,

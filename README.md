@@ -3,7 +3,7 @@
 **Run a CCSDS satellite simulator straight from an XTCE file.**
 
 ```bash
-xtce-sim run my_vehicle/my_vehicle.xml --id sat-a --port 5000
+xtce-sim run imaging_sat/imaging_sat.xml --id sat-a --port 5000
 ```
 
 `xtce-sim` parses an [XTCE](https://www.omg.org/spec/XTCE/) command/telemetry
@@ -27,9 +27,9 @@ in, each a length-prefixed CCSDS packet with a CRC.
 
 ```mermaid
 flowchart TD
-    XTCE["satellite directory — my_vehicle/<br/>XTCE file(s): opcodes, APIDs, fields<br/>behavior .toml files beside them"]
+    XTCE["satellite directory — imaging_sat/<br/>XTCE file(s): opcodes, APIDs, fields<br/>behavior .toml files beside them"]
     BEH["behavior TOML (optional)<br/>thermal.toml · imager.toml · …<br/>command effects · ramps · signals"]
-    SIM["SimServer<br/>SimDefinition (in memory)<br/>61 commands · 18 telemetry packets"]
+    SIM["SimServer<br/>SimDefinition (in memory)<br/>40 commands · 12 telemetry packets"]
     JSON["runs/&lt;id&gt;/cmd_tlm.json<br/>shared command / telemetry dictionary"]
     PORT{{"CCSDS over TCP — one bidirectional port :5000<br/>2-byte length + CCSDS packet + CRC-16"}}
     MON["xtce-sim monitor<br/>decode telemetry"]
@@ -98,7 +98,7 @@ xtce-sim seq shift <file.ats> --start-in 30s       # re-base an ATS to start soo
 
 ```bash
 # Terminal 1 — serve the bundled example satellite
-xtce-sim run examples/my_vehicle/my_vehicle.xml --id sat-a --port 5000 --live
+xtce-sim run examples/imaging_sat/imaging_sat.xml --id sat-a --port 5000 --live
 
 # Terminal 2 — watch telemetry stream in, decoded by field name
 xtce-sim monitor --id sat-a --port 5000
@@ -107,31 +107,24 @@ xtce-sim monitor --id sat-a --port 5000
 xtce-sim send --id sat-a --port 5000 SET_POWER SubsystemId=3 PowerState=ON
 ```
 
-Command and telemetry can live in **one** XTCE file (as above) or in **several**
-— pass them all and they are merged. The same satellite is also provided split
-into separate files, which load exactly the same way:
-
-```bash
-xtce-sim run examples/my_vehicle/my_vehicle_commands.xml examples/my_vehicle/my_vehicle_telemetry.xml \
-  --id sat-a --port 5000
-```
-
-Either way, the directory's behavior file
-([`examples/my_vehicle/adcs.toml`](examples/my_vehicle/adcs.toml)) is
-discovered automatically, so this satellite's ADCS telemetry is live physics
-from the first beacon — a three-wheel variant of the model described in
-[Physics models](#physics-models-the-adcs-flies) below.
-
-A second, richer example ships as
-[`examples/imaging_sat/imaging_sat.xml`](examples/imaging_sat/imaging_sat.xml) — an Earth-observation
+The bundled example is
+[`examples/imaging_sat/`](examples/imaging_sat) — an Earth-observation
 satellite with imaging, thermal, a full ADCS (attitude determination and
 control: quaternion attitude, four-wheel pyramid, star tracker/sun/mag
-sensors — raw counts with calibrators throughout), file-transfer, and
-ATS/RTS sequencing. Its
-directory also holds per-subsystem behavior files
-([`examples/imaging_sat/`](examples/imaging_sat)),
-so its commands actually change its telemetry — see
-[Behavior](#behavior-making-commands-change-telemetry) below.
+sensors — raw counts with calibrators throughout), file transfer, and
+ATS/RTS sequencing. The per-subsystem behavior files beside its XTCE are
+discovered automatically, so its commands actually change its telemetry and
+its ADCS flies real physics from the first beacon — see
+[Behavior](#behavior-making-commands-change-telemetry) and
+[Physics models](#physics-models-the-adcs-flies) below.
+
+Command and telemetry can live in **one** XTCE file (as above) or in
+**several** — pass them all and they are merged, since some vendors ship
+command and telemetry databases separately:
+
+```bash
+xtce-sim run sat_commands.xml sat_telemetry.xml --id sat-a --port 5000
+```
 
 ### Inspecting a definition
 
@@ -325,7 +318,7 @@ output stays greppable. Best paired with `--packet NAME` to focus one packet
 **`dashboard`** — a full-screen view, one row per APID, refreshing in place.
 
 ```
-xtce-sim monitor · my_vehicle · 127.0.0.1:5000     packets 1,284
+xtce-sim monitor · imaging_sat · 127.0.0.1:5000     packets 1,284
 ──────────────────────────────────────────────────────────────────
 0x01 HOUSEKEEPING   seq 4      TIMESTAMP=1735689614 s  SYSTEM_STATUS=NOMINAL  COLLECTION_MODE=BURST  CMD_RECV_COUNT=28  CMD_REJECT_COUNT=28  +18
 0x02 EVENTS         seq 4      TIMESTAMP=1735689614 s  SEVERITY=INFO  EVENT_ID=79  MESSAGE=''
@@ -391,14 +384,14 @@ is its renderer).
 ### Live telemetry
 
 Telemetry values come from up to three layers. With no options the sim beacons
-zeros for every field no behavior file claims (both bundled satellites carry
-behavior files that fly their ADCS fields from boot, options or not). Add
+zeros for every field no behavior file claims (the bundled satellite carries
+behavior files that fly its ADCS fields from boot, options or not). Add
 `--live` to `run` and it beacons changing synthetic values instead —
 counters climb, temperatures and voltages drift, wheel speeds wobble — so
 `monitor` shows moving data:
 
 ```bash
-xtce-sim run my_vehicle/my_vehicle.xml --id sat-a --port 5000 --live
+xtce-sim run imaging_sat/imaging_sat.xml --id sat-a --port 5000 --live
 ```
 
 ```
@@ -431,8 +424,8 @@ Run several instances at once — replicas of one satellite or entirely differen
 ones — each its own process with its own `--id` and `--port`:
 
 ```bash
-xtce-sim run my_vehicle/my_vehicle.xml --id sat-a --port 5001 &
-xtce-sim run my_vehicle/my_vehicle.xml --id sat-b --port 5002 &
+xtce-sim run imaging_sat/imaging_sat.xml --id sat-a --port 5001 &
+xtce-sim run imaging_sat/imaging_sat.xml --id sat-b --port 5002 &
 xtce-sim run other_sat.xml  --id probe --port 5003 &
 ```
 
@@ -443,7 +436,7 @@ color). Control it with `--color auto|always|never`.
 Try it with the bundled example satellite — three replicas in one terminal:
 
 ```bash
-V=examples/my_vehicle/my_vehicle.xml
+V=examples/imaging_sat/imaging_sat.xml
 xtce-sim run $V --id sat-a --port 5001 --color always &
 xtce-sim run $V --id sat-b --port 5002 --color always &
 xtce-sim run $V --id sat-c --port 5003 --color always &
@@ -620,12 +613,17 @@ momentum through the magnetorquers while the hold loop keeps pointing —
 delivered motor torque; speeds read back in RPM, rates in deg/s, the field in
 µT — the XTCE's units, converted from the model's SI internals.
 
-The same model flies `my_vehicle` as a three-wheel variant
-([`examples/my_vehicle/adcs.toml`](examples/my_vehicle/adcs.toml)) whose ICD
-is a deliberate subset: six of the eleven command roles, fewer telemetry
-fields, and a mode enumeration without TARGET_TRACK — validation checks the
-mode binding against the modes *that vehicle can actually reach* through its
-wired commands, so a leaner ICD is a correct configuration, not an error.
+Nothing about the model is specific to this satellite. A second vehicle —
+kept as a test fixture rather than an example
+([`tests/data/my_vehicle/`](tests/data/my_vehicle)) — flies the same model as
+a **three-wheel** variant whose ICD is a deliberate subset: three orthogonal
+wheels instead of the four-wheel pyramid, six of the eleven command roles,
+fewer telemetry fields, and a mode enumeration without TARGET_TRACK (whose
+STANDBY is a different raw value). Validation checks the mode binding against
+the modes *that vehicle can actually reach* through its wired commands, so a
+leaner ICD is a correct configuration, not an error. That fixture is how the
+suite proves the engine is driven by the XTCE rather than built around any one
+satellite.
 
 Ownership is validated at load: a field bound under `[outputs]` belongs to
 the model, and any `[_initial]` seed or command-table effect that targets it

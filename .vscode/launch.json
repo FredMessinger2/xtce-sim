@@ -2,22 +2,17 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Server: run example (--live)",
+      "name": "Sim: imaging_sat",
       "type": "debugpy",
       "request": "launch",
       "module": "xtce_sim.cli",
-      "args": ["run", "examples/my_vehicle.xml", "--id", "sat-a", "--port", "5000", "--live", "--interval", "5"],
+      "args": [
+        "run", "examples/imaging_sat/imaging_sat.xml",
+        "--id", "sat-a", "--port", "5000"
+      ],
       "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Server: run imaging_sat (--live)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "xtce_sim.cli",
-      "args": ["run", "examples/imaging_sat.xml", "--id", "img", "--port", "5001", "--live", "--interval", "5"],
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
     },
     {
       "name": "Monitor: sat-a",
@@ -25,6 +20,15 @@
       "request": "launch",
       "module": "xtce_sim.cli",
       "args": ["monitor", "--id", "sat-a", "--port", "5000"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "UI: sat-a",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "xtce_sim.cli",
+      "args": ["ui", "--id", "sat-a", "--port", "5000", "--http-port", "8080"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}"
     },
@@ -41,11 +45,27 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Upload: a sequence file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "xtce_sim.cli",
+      "args": [
+        "upload", "${input:uploadFile}",
+        "--id", "sat-a", "--port", "5000",
+        "--timeout", "10m"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Debug: parse XTCE (generate)",
       "type": "debugpy",
       "request": "launch",
       "module": "xtce_sim.cli",
-      "args": ["generate", "examples/my_vehicle.xml", "--out", "runs/debug"],
+      "args": [
+        "generate", "examples/imaging_sat/imaging_sat.xml",
+        "--out", "runs/debug"
+      ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "justMyCode": true
@@ -58,6 +78,14 @@
       "args": ["${file}", "-v"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "uploadFile",
+      "type": "promptString",
+      "description": "File to upload to the vehicle's store",
+      "default": "/tmp/plan.ats"
     }
   ]
 }

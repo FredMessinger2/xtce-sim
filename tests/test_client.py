@@ -14,7 +14,8 @@ from xtce_sim.generate import to_dict
 from xtce_sim.server import SimServer
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-XTCE = [EXAMPLES / "my_vehicle/my_vehicle_commands.xml", EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml"]
+DATA = Path(__file__).resolve().parent / "data"
+XTCE = [DATA / "my_vehicle/my_vehicle_commands.xml", DATA / "my_vehicle/my_vehicle_telemetry.xml"]
 
 
 @pytest.fixture(scope="module")

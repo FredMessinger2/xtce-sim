@@ -14,6 +14,7 @@ from xtce_sim.definition import SimDefinition
 from xtce_sim.fileservice import FileService, FileStore, name_problem
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+DATA = Path(__file__).resolve().parent / "data"
 
 
 @pytest.fixture(scope="module")
@@ -366,8 +367,8 @@ def test_vehicle_without_receipt_packet_still_stores(tmp_path):
     """my_vehicle declares no FILE_RECEIPT: uploads land, receipts are log-only."""
     simdef = SimDefinition.from_xtce(
         [
-            EXAMPLES / "my_vehicle/my_vehicle_commands.xml",
-            EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml",
+            DATA / "my_vehicle/my_vehicle_commands.xml",
+            DATA / "my_vehicle/my_vehicle_telemetry.xml",
         ]
     )
     store = FileStore(tmp_path / "files")

@@ -24,7 +24,7 @@
     {
       "label": "run server (example)",
       "type": "shell",
-      "command": "uv run xtce-sim run examples/my_vehicle.xml --id sat-a --port 5000 --live",
+      "command": "uv run xtce-sim run examples/imaging_sat/imaging_sat.xml --id sat-a --port 5000",
       "isBackground": true,
       "problemMatcher": []
     }
