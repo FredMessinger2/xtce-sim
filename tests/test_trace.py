@@ -17,6 +17,7 @@ from xtce_sim.generate import build_sim_definition
 from xtce_sim.parser import XTCEParser
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+DATA = Path(__file__).resolve().parent / "data"
 FIXTURE = Path(__file__).resolve().parent / "data" / "full_features.xml"
 NS = 'xmlns:xtce="http://www.omg.org/spec/XTCE/20250214"'
 
@@ -178,12 +179,15 @@ def test_inspect_surfaces_unread_elements(tmp_path):
     assert "VerifierSet" in result.output and "not read by this parser" in result.output
 
 
-def test_inspect_bundled_examples_have_no_unread_elements():
-    # Milestone worth pinning: every element in the shipped examples is now
-    # actually read. If an example gains an unsupported element, this fails
-    # and the gap gets a decision instead of silence.
-    for sat in ("imaging_sat/imaging_sat.xml", "my_vehicle/my_vehicle.xml"):
-        result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / sat)])
+def test_inspect_bundled_vehicles_have_no_unread_elements():
+    # Milestone worth pinning: every element in the shipped example AND in
+    # the fixture vehicle is actually read. If either gains an unsupported
+    # element, this fails and the gap gets a decision instead of silence.
+    for xml in (
+        EXAMPLES / "imaging_sat/imaging_sat.xml",
+        DATA / "my_vehicle/my_vehicle.xml",
+    ):
+        result = CliRunner().invoke(main, ["inspect", str(xml)])
         assert result.exit_code == 0, result.output
         assert "not read by this parser" not in result.output, result.output
 
@@ -199,7 +203,7 @@ def test_inspect_narrates_significance():
 
 
 def test_inspect_narrates_and_exits_zero():
-    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle/my_vehicle.xml")])
+    result = CliRunner().invoke(main, ["inspect", str(DATA / "my_vehicle/my_vehicle.xml")])
     assert result.exit_code == 0, result.output
     assert "parsing" in result.output
     assert "~ RAW_CMD: no opcode in the XTCE — synthetic" in result.output
@@ -248,11 +252,11 @@ def test_inspect_bad_file_is_clean_error(tmp_path):
 def test_generate_verbose_traces_and_quiet_without(tmp_path):
     out = str(tmp_path / "gen")
     quiet = CliRunner().invoke(
-        main, ["generate", str(EXAMPLES / "my_vehicle/my_vehicle.xml"), "--out", out]
+        main, ["generate", str(DATA / "my_vehicle/my_vehicle.xml"), "--out", out]
     )
     assert quiet.exit_code == 0 and "parsing" not in quiet.output
     traced = CliRunner().invoke(
-        main, ["generate", str(EXAMPLES / "my_vehicle/my_vehicle.xml"), "--out", out, "-v"]
+        main, ["generate", str(DATA / "my_vehicle/my_vehicle.xml"), "--out", out, "-v"]
     )
     assert traced.exit_code == 0 and "parsing" in traced.output
     assert "synthetic" in traced.output  # RAW_CMD inference reaches the console

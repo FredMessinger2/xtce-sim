@@ -24,6 +24,7 @@ from xtce_sim.cli import main
 from xtce_sim.definition import SimDefinition
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+DATA = Path(__file__).resolve().parent / "data"
 IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
 
 
@@ -71,12 +72,12 @@ def test_shipped_imaging_sidecar_validates(simdef):
 
 def test_sidecar_discovery(tmp_path):
     assert sidecar_path([IMAGING]) == EXAMPLES / "imaging_sat"
-    assert sidecar_path([EXAMPLES / "my_vehicle/my_vehicle.xml"]) == EXAMPLES / "my_vehicle"
+    assert sidecar_path([DATA / "my_vehicle/my_vehicle.xml"]) == DATA / "my_vehicle"
     # A directory with no .toml beside the XTCE discovers nothing.
     import shutil
 
     bare = tmp_path / "my_vehicle.xml"
-    shutil.copy(EXAMPLES / "my_vehicle/my_vehicle.xml", bare)
+    shutil.copy(DATA / "my_vehicle/my_vehicle.xml", bare)
     assert sidecar_path([bare]) is None
 
 
@@ -288,14 +289,14 @@ def test_inspect_without_sidecar_unchanged(tmp_path):
     import shutil
 
     bare = tmp_path / "my_vehicle.xml"
-    shutil.copy(EXAMPLES / "my_vehicle/my_vehicle.xml", bare)
+    shutil.copy(DATA / "my_vehicle/my_vehicle.xml", bare)
     result = CliRunner().invoke(main, ["inspect", str(bare)])
     assert result.exit_code == 0, result.output
     assert "Behavior (" not in result.output
 
 
 def test_inspect_my_vehicle_narrates_its_model():
-    result = CliRunner().invoke(main, ["inspect", str(EXAMPLES / "my_vehicle/my_vehicle.xml")])
+    result = CliRunner().invoke(main, ["inspect", str(DATA / "my_vehicle/my_vehicle.xml")])
     assert result.exit_code == 0, result.output
     assert "model adcs: rigid-body ADCS (3 wheels" in result.output
 
@@ -1671,27 +1672,32 @@ def test_templated_effect_cannot_teleport_a_model_wheel_speed(tmp_path, simdef, 
     assert abs(_eu(engine, "ADCS_WHEEL1_SPEED")) < 1.0
 
 
-# ---- my_vehicle 3-wheel model (shipped my_vehicle/adcs.toml) -----------------
+# ---- my_vehicle 3-wheel model (tests/data/my_vehicle/adcs.toml) --------------
 #
 # The same physics stack, configured for a subset ICD: three orthogonal
 # wheels, six of the eleven command roles, and a mode enum that
 # legitimately omits TARGET_TRACK (no track command) with STANDBY at a
 # different raw value than the ImagingSat's.
+#
+# This vehicle is a FIXTURE, not an example (see tests/data/README.md): it is
+# the only thing proving the model is driven by the XTCE rather than built
+# around imaging_sat. If it ever stops earning that, delete it — but do not
+# quietly let it rot.
 
 
 @pytest.fixture(scope="module")
 def mv_simdef() -> SimDefinition:
     return SimDefinition.from_xtce(
         [
-            EXAMPLES / "my_vehicle/my_vehicle_commands.xml",
-            EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml",
+            DATA / "my_vehicle/my_vehicle_commands.xml",
+            DATA / "my_vehicle/my_vehicle_telemetry.xml",
         ]
     )
 
 
 @pytest.fixture()
 def mv_engine(mv_simdef):
-    spec = load_behavior(EXAMPLES / "my_vehicle", mv_simdef)
+    spec = load_behavior(DATA / "my_vehicle", mv_simdef)
     return behavior.BehaviorEngine(spec, mv_simdef)
 
 

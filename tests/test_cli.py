@@ -13,13 +13,14 @@ from xtce_sim.generate import format_json
 from xtce_sim.server import SimServer
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-CMD = str(EXAMPLES / "my_vehicle/my_vehicle_commands.xml")
-TLM = str(EXAMPLES / "my_vehicle/my_vehicle_telemetry.xml")
+DATA = Path(__file__).resolve().parent / "data"
+CMD = str(DATA / "my_vehicle/my_vehicle_commands.xml")
+TLM = str(DATA / "my_vehicle/my_vehicle_telemetry.xml")
 
 
 @pytest.fixture(scope="module")
 def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce([EXAMPLES / "my_vehicle/my_vehicle_commands.xml", TLM])
+    return SimDefinition.from_xtce([DATA / "my_vehicle/my_vehicle_commands.xml", TLM])
 
 
 # ---------------------------------------------------------------- generate ----
@@ -341,7 +342,7 @@ def _hk_packet_bytes(simdef):
 
 
 def test_decode_shows_engineering_units_by_default():
-    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    simdef = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
     packet, hk = _hk_packet_bytes(simdef)
     _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {})
     rows = dict((name, value) for name, value, _ in meta)
@@ -351,7 +352,7 @@ def test_decode_shows_engineering_units_by_default():
 
 
 def test_decode_raw_shows_wire_counts():
-    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    simdef = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
     packet, hk = _hk_packet_bytes(simdef)
     _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {}, raw=True)
     rows = dict((name, value) for name, value, _ in meta)
@@ -376,7 +377,7 @@ def test_display_value_enum_label_beats_calibrator():
 def test_raw_view_drops_units_on_calibrated_fields():
     # Counts are unitless; "60 V" would be a lie. Uncalibrated fields keep
     # their units in both views.
-    simdef = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    simdef = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
     packet, hk = _hk_packet_bytes(simdef)
     _, _, _, meta, _ = cli._decode_packet(packet, simdef, set(), {}, raw=True)
     units = {name: unit for name, _, unit in meta}
@@ -391,7 +392,7 @@ def test_run_artifacts_live_with_the_satellite(tmp_path):
     # runs/<id>/ goes in the satellite's directory, not the CWD.
     sat = tmp_path / "bird"
     sat.mkdir()
-    xml = EXAMPLES / "my_vehicle/my_vehicle.xml"
+    xml = DATA / "my_vehicle/my_vehicle.xml"
     (sat / "bird.xml").write_text(xml.read_text())
     runner = CliRunner()
     result = runner.invoke(main, ["generate", str(sat / "bird.xml")])
@@ -403,10 +404,10 @@ def test_id_resolves_into_satellite_directories(tmp_path, monkeypatch):
     # A client run from a parent directory finds the satellite's dump.
     sat = tmp_path / "bird"
     sat.mkdir()
-    (EXAMPLES / "my_vehicle/my_vehicle.xml").read_text()  # ensure exists
+    (DATA / "my_vehicle/my_vehicle.xml").read_text()  # ensure exists
     dump = sat / "runs" / "sat-x"
     dump.mkdir(parents=True)
-    src = SimDefinition.from_xtce(EXAMPLES / "my_vehicle/my_vehicle.xml")
+    src = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
     dump.joinpath("cmd_tlm.json").write_text(format_json(src))
     monkeypatch.chdir(tmp_path)
     d = cli._load_definition("sat-x", None)
@@ -418,7 +419,7 @@ def test_no_behavior_serves_interface_only(tmp_path):
     # skips discovery entirely.
     sat = tmp_path / "bird"
     sat.mkdir()
-    (sat / "bird.xml").write_text((EXAMPLES / "my_vehicle/my_vehicle.xml").read_text())
+    (sat / "bird.xml").write_text((DATA / "my_vehicle/my_vehicle.xml").read_text())
     (sat / "notes.toml").write_text("[project]\nname = 'not behavior'\n")
     runner = CliRunner()
     fails = runner.invoke(main, ["inspect", str(sat / "bird.xml")])
@@ -666,7 +667,7 @@ async def test_upload_without_receipt_contract_is_honest(tmp_path):
     from xtce_sim.fileservice import FileService, FileStore
 
     simdef = SimDefinition.from_xtce(
-        [EXAMPLES / "my_vehicle/my_vehicle_commands.xml", Path(TLM)]
+        [DATA / "my_vehicle/my_vehicle_commands.xml", Path(TLM)]
     )
     def_json = tmp_path / "cmd_tlm.json"
     def_json.write_text(format_json(simdef))

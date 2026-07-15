@@ -28,8 +28,46 @@ restriction criteria, and command-inheritance / ancillary-data tests.
 
 ### Why it stays unrealistic
 
-The realistic, runnable examples live in `examples/` (`my_vehicle.xml`,
-`imaging_sat.xml`) — those are for demos and the `run`/`monitor`/`exercise`
-commands. This fixture's only job is coverage: keeping it dense and diverse
-means adding a parser feature here is enough to test it, without touching the
-demo files. If you add a parser capability, extend this file to cover it.
+The realistic, runnable example lives in `examples/imaging_sat/` — that one is
+for demos and the `run`/`monitor`/`exercise` commands. This fixture's only job
+is coverage: keeping it dense and diverse means adding a parser feature here is
+enough to test it, without touching the demo files. If you add a parser
+capability, extend this file to cover it.
+
+## `my_vehicle/`
+
+A complete second satellite, `MyVehicle` — 61 commands, 18 telemetry packets.
+It lived in `examples/` until 2026-07-15 and was moved here because two
+example vehicles competed for attention and drifted (a stale `launch.json`
+pointed at paths that no longer existed). It is a **fixture**, not an example:
+nothing in the README, the VSCode configs, or the docs points at it, and it is
+not shipped.
+
+It stays because it is the only thing proving this simulator is XTCE-*driven*
+rather than built around `imaging_sat`. Three properties do that work, and no
+single-vehicle repo can:
+
+- **A different ADCS shape** — three orthogonal wheels against imaging_sat's
+  four-wheel pyramid, wired through `adcs.toml`.
+- **A subset ICD** — six of the eleven ADCS command roles, and a mode
+  enumeration with no TARGET_TRACK. Proves a leaner ICD is a valid
+  configuration rather than a validation error.
+- **A different enum encoding** — its `ADCS_MODE` STANDBY is raw 4 where
+  imaging_sat's is 5. A wire-value shortcut anywhere in the stack would be
+  wrong on exactly one of the two vehicles, and this is what catches it.
+
+It also carries two file-level jobs:
+
+- **`my_vehicle_commands.xml` + `my_vehicle_telemetry.xml`** are the same
+  satellite split in two, covering multi-file merge (`run a.xml b.xml`).
+  `my_vehicle.xml` is the combined equivalent, and
+  `test_combined_example_matches_split_pair` guards that they stay identical.
+- It declares `FILE_LIST`/`FILE_DELETE` but **no `FILE_RECEIPT` packet**,
+  which is what pins the file service's log-only-receipt path and the CLI's
+  honest "not confirmed" message for a vehicle that cannot report transfers.
+
+### Used by
+
+Twelve test modules, including `test_behavior.py` (the three-wheel model
+fixtures `mv_simdef`/`mv_engine`), `test_generate.py` (merge equivalence),
+`test_fileservice.py` and `test_cli.py` (the no-receipt contract).

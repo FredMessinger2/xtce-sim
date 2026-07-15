@@ -1,36 +1,17 @@
-# Example satellites
+# Example satellite
 
 A satellite is a **directory**: its XTCE interface file(s) and its
 per-subsystem behavior `.toml` files live together, and `run` writes its
 artifacts to `<satellite dir>/runs/<id>/`. The definitions are the author's
 own; no vendor or proprietary data.
 
-## `my_vehicle/` — the primary example
+There is deliberately **one** example. A second vehicle exists — a three-wheel
+variant with a subset ICD, which is how the suite proves the engine is driven
+by the XTCE rather than built around one satellite — but it lives in
+[`tests/data/my_vehicle/`](../tests/data/my_vehicle) as a test fixture, not
+here. Two competing examples only drift apart.
 
-A small synthetic vehicle, `MyVehicle` — 61 commands, 18 telemetry packets,
-with polynomial and spline calibrators on its sensor fields (raw counts on
-the wire, engineering units on the monitor), and a three-wheel ADCS.
-No behavior files yet.
-
-- **`my_vehicle.xml`** — one XTCE file with both commands and telemetry:
-
-  ```bash
-  xtce-sim run examples/my_vehicle/my_vehicle.xml --id sat-a --port 5000 --live
-  ```
-
-- **`my_vehicle_commands.xml`** + **`my_vehicle_telemetry.xml`** — the *same*
-  satellite split into separate command and telemetry files, demonstrating
-  multi-file loading (some vendors ship command and telemetry separately):
-
-  ```bash
-  xtce-sim run examples/my_vehicle/my_vehicle_commands.xml \
-    examples/my_vehicle/my_vehicle_telemetry.xml --id sat-a --port 5000
-  ```
-
-Both forms build an identical simulator — a test
-(`test_combined_example_matches_split_pair`) guards that they stay in sync.
-
-## `imaging_sat/` — the full-featured example
+## `imaging_sat/` — the example
 
 An Earth-observation satellite, `ImagingSat` — 40 commands, 12 telemetry
 packets, and per-subsystem behavior files that make it act:
