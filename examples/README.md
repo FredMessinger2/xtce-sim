@@ -24,12 +24,14 @@ packets, and per-subsystem behavior files that make it act:
   event-log entries with immediate emission.
 - **`power.toml`** — solar/battery ambient signals.
 - **`system.toml`** — mode-change acknowledgments.
-- **`adcs.toml`** — attitude-control boot state (identity quaternion,
-  STANDBY mode, sensor validity), instant mode acknowledgment, and
-  setpoint reflections: slew, wheel-speed, and magnetorquer commands
-  mirror their commanded values into telemetry immediately. These are
-  placeholders, not dynamics — a slew *jumps* the quaternion — until the
-  dynamics arc replaces them.
+- **`adcs.toml`** — a real rigid-body dynamics model: plant, sensors,
+  estimator, controller, and mode machine, advanced every beacon tick in
+  fixed physics substeps (four-wheel pyramid, 500 km @ 51.6°, driving 41
+  telemetry fields from 11 commands). Commands are *inputs* to the model —
+  a slew rotates the body through the wheel motors rather than teleporting
+  the quaternion, and DETUMBLE bleeds momentum through the magnetorquers.
+  The fields bound under `[outputs]` are what the avionics *believe*:
+  attitude and rates come from the star-tracker/gyro estimator, not truth.
 - **`set_all_fields.sh`** — a scripted sweep that sets every
   command-settable field to a distinctive value, one send per second
   (`PORT=`/`PAUSE=` to override), for watching on the monitor or web
