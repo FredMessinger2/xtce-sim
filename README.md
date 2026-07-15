@@ -3,7 +3,7 @@
 **Run a CCSDS satellite simulator straight from an XTCE file.**
 
 ```bash
-xtce-sim run imaging_sat/imaging_sat.xml --id sat-a --port 5000
+xtce-sim run examples/imaging_sat/imaging_sat.xml --id sat-a --port 5000
 ```
 
 `xtce-sim` parses an [XTCE](https://www.omg.org/spec/XTCE/) command/telemetry
@@ -144,7 +144,7 @@ significance: 11 command(s) declare non-normal criticality (2 vital, 9 critical)
 built ImagingSat: 40 dispatchable command(s), 12 telemetry packet(s)
 
 Behavior (examples/imaging_sat):
-  initial values: 26 field(s)
+  initial values: 5 field(s)
     ...
   boot signals: 8
     THM_PANEL_PLUS_X oscillates (sine) around 10.0 amplitude 25.0, period 5400.0s ±noise(0.5)
@@ -290,9 +290,9 @@ sidecar for moving data — with neither, the beacon is zeros).
 first few fields; add `--fields` for all.
 
 ```
-16:57:13.841  0x01 HOUSEKEEPING     seq 0      TIMESTAMP=1735689608 s  SYSTEM_STATUS=INIT  COLLECTION_MODE=NORMAL  CMD_RECV_COUNT=16  +19 more
-16:57:13.842  0x02 EVENTS           seq 0      TIMESTAMP=1735689608 s  SEVERITY=INFO  EVENT_ID=89  MESSAGE=''
-16:57:13.842  0x03 SCIENCE          seq 0      TIMESTAMP=1735689608 s  SEQUENCE_NUM=16  CHANNEL_1=88.8945  CHANNEL_2=88.8945  +3 more
+07:25:25.338  0x10 HOUSEKEEPING     seq 0      TIMESTAMP=1735689604 s  SYSTEM_MODE=STANDBY  CMD_RECV_COUNT=8  CMD_REJECT_COUNT=8  +10 more
+07:25:25.339  0x11 IMAGER_STATUS    seq 0      TIMESTAMP=1735689604 s  STATE=IDLE  EXPOSURE_MS=75  GAIN=75  +6 more
+07:25:25.339  0x12 POWER_STATUS     seq 0      TIMESTAMP=1735689604 s  SOLAR_VOLTAGE=16.014 V  SOLAR_CURRENT=0.968 A  BATTERY_VOLTAGE=23.864 V  +7 more
 ```
 
 **`table`** — a boxed, per-packet table of every field with value and unit. On
@@ -301,30 +301,47 @@ output stays greppable. Best paired with `--packet NAME` to focus one packet
 (unfiltered, each arriving packet repaints over the last).
 
 ```
-┌ HOUSEKEEPING · APID 0x01 · seq 2 · 16:57:16.847
-│ HK_TIMESTAMP         1735689611  s
-│ HK_SYSTEM_STATUS     NOMINAL
-│ HK_COLLECTION_MODE   BURST
-│ HK_CMD_RECV_COUNT    22
-│ HK_BATTERY_VOLTAGE   8  V
-│ HK_SOLAR_CURRENT     1  A
-│ HK_TEMP_BOARD        24  degC
-│ HK_WHEEL_SPEED_1     1696  RPM
+┌ HOUSEKEEPING · APID 0x10 · seq 1 · 07:25:26.340
+│ HK_TIMESTAMP            1735689605  s
+│ HK_SYSTEM_MODE          STANDBY
+│ HK_CMD_RECV_COUNT       10
+│ HK_CMD_REJECT_COUNT     10
+│ HK_LAST_CMD_OPCODE      80
+│ HK_UPTIME               10
+│ HK_ERROR_COUNT          10
+│ HK_BUS_VOLTAGE          7.536  V
+│ HK_BUS_CURRENT          0.99  A
+│ HK_BATTERY_SOC          80
+│ HK_BOARD_TEMP           22.99  degC
+│ HK_ISSUED_TIMESTAMP     1.73569e+09  s
+│ HK_RECEIVED_TIMESTAMP   1.73569e+09  s
+│ HK_GENERATED_TIMESTAMP  1.73569e+09  s
 └─────────────────────────────────────────────────
 ```
 
-*(trimmed — the live table lists every field in the packet, all 23 here)*
+*(every field in the packet — all 14 of HOUSEKEEPING's, here in full)*
 
 **`dashboard`** — a full-screen view, one row per APID, refreshing in place.
 
 ```
-xtce-sim monitor · imaging_sat · 127.0.0.1:5000     packets 1,284
+xtce-sim monitor · sat-a · 127.0.0.1:5000     packets 11
 ──────────────────────────────────────────────────────────────────
-0x01 HOUSEKEEPING   seq 4      TIMESTAMP=1735689614 s  SYSTEM_STATUS=NOMINAL  COLLECTION_MODE=BURST  CMD_RECV_COUNT=28  CMD_REJECT_COUNT=28  +18
-0x02 EVENTS         seq 4      TIMESTAMP=1735689614 s  SEVERITY=INFO  EVENT_ID=79  MESSAGE=''
-0x03 SCIENCE        seq 4      TIMESTAMP=1735689614 s  SEQUENCE_NUM=28  CHANNEL_1=78.8261  CHANNEL_2=78.8261  CHANNEL_3=78.8261  +2
-0x05 DIAGNOSTIC     seq 4      TEST_TYPE=2  RESULT=PASS  DURATION_MS=79  ERROR_CODE=1  DETAILS=''
+0x10 HOUSEKEEPING   seq 0      TIMESTAMP=1735689605 s  SYSTEM_MODE=STANDBY  CMD_RECV_COUNT=10  CMD_REJECT_COUNT=10  LAST_CMD_OPCODE=80  +9
+0x11 IMAGER_STATUS  seq 0      TIMESTAMP=1735689605 s  STATE=IDLE  EXPOSURE_MS=80  GAIN=80  BAND1_AVG=79.6482  +5
+0x12 POWER_STATUS   seq 0      TIMESTAMP=1735689605 s  SOLAR_VOLTAGE=16.171 V  SOLAR_CURRENT=0.99 A  BATTERY_VOLTAGE=24.178 V  BATTERY_CURRENT=0.99 A  +6
+0x13 THERMAL_STATUS seq 0      TIMESTAMP=1735689605 s  PANEL_PLUS_X=9.81 degC  PANEL_MINUS_X=10.18 degC  PANEL_PLUS_Y=35.33 degC  PANEL_MINUS_Y=-14.55 degC  +7
+0x14 EVENT_LOG      seq 0      TIMESTAMP=1735689605 s  SEVERITY=1  SUBSYSTEM=80  EVENT_ID=80  MESSAGE=
+0x16 ATS_STATUS     seq 0      TIMESTAMP=1735689605 s  SEQ_ID=10  SEQ_NAME=  STATE=LOADED  CMD_TOTAL=10  +5
+0x17 RTS_STATUS     seq 0      TIMESTAMP=1735689605 s  SEQ_ID=10  SEQ_NAME=  STATE=LOADED  CMD_TOTAL=10  +5
+0x18 ADCS_STATUS    seq 0      TIMESTAMP=1735689605 s  MODE=STANDBY  EST_STATE=CONVERGING  POINTING_ERR=0 deg  MOMENTUM_TOTAL=0 Nms  +3
+0x19 ADCS_ATTITUDE  seq 0      ATT_TIMESTAMP=1735689605 s  ATT_QUAT_Q1=-9.15555e-05  ATT_QUAT_Q2=3.05185e-05  ATT_QUAT_Q3=3.05185e-05  ATT_QUAT_Q4=1  +6
+0x1A ADCS_WHEELS    seq 0      WHL_TIMESTAMP=1735689605 s  WHEEL1_SPEED=0 RPM  WHEEL2_SPEED=0 RPM  WHEEL3_SPEED=0 RPM  WHEEL4_SPEED=0 RPM  +8
+0x1B ADCS_SENSORS   seq 0      SNS_TIMESTAMP=1735689605 s  ST_QUAT_Q1=-9.15555e-05  ST_QUAT_Q2=3.05185e-05  ST_QUAT_Q3=3.05185e-05  ST_QUAT_Q4=1  +8
 ```
+
+*(the instance label is the `--id`. `0x15 FILE_RECEIPT` is absent by design:
+file receipts are event telemetry — they downlink when a transfer or a
+FILE_\* command happens, and never on the beacon.)*
 
 Filter to specific packets with `--packet NAME` (repeatable).
 
@@ -391,12 +408,12 @@ counters climb, temperatures and voltages drift, wheel speeds wobble — so
 `monitor` shows moving data:
 
 ```bash
-xtce-sim run imaging_sat/imaging_sat.xml --id sat-a --port 5000 --live
+xtce-sim run examples/imaging_sat/imaging_sat.xml --id sat-a --port 5000 --live
 ```
 
 ```
-16:57:13.841  0x01 HOUSEKEEPING     seq 0      TIMESTAMP=1735689608 s  SYSTEM_STATUS=INIT  COLLECTION_MODE=NORMAL  CMD_RECV_COUNT=16  +19 more
-16:57:14.844  0x01 HOUSEKEEPING     seq 1      TIMESTAMP=1735689609 s  SYSTEM_STATUS=NOMINAL  COLLECTION_MODE=BURST  CMD_RECV_COUNT=18  +19 more
+07:28:40.080  0x10 HOUSEKEEPING     seq 0      TIMESTAMP=1735689604 s  SYSTEM_MODE=STANDBY  CMD_RECV_COUNT=8  CMD_REJECT_COUNT=8  +10 more
+07:28:41.081  0x10 HOUSEKEEPING     seq 1      TIMESTAMP=1735689605 s  SYSTEM_MODE=STANDBY  CMD_RECV_COUNT=10  CMD_REJECT_COUNT=10  +10 more
 ```
 
 `--live` heuristics choose plausible engineering values ("about 8 volts") — a
@@ -424,8 +441,8 @@ Run several instances at once — replicas of one satellite or entirely differen
 ones — each its own process with its own `--id` and `--port`:
 
 ```bash
-xtce-sim run imaging_sat/imaging_sat.xml --id sat-a --port 5001 &
-xtce-sim run imaging_sat/imaging_sat.xml --id sat-b --port 5002 &
+xtce-sim run examples/imaging_sat/imaging_sat.xml --id sat-a --port 5001 &
+xtce-sim run examples/imaging_sat/imaging_sat.xml --id sat-b --port 5002 &
 xtce-sim run other_sat.xml  --id probe --port 5003 &
 ```
 
