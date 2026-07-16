@@ -553,3 +553,39 @@ async def test_ws_refuses_foreign_origins(simdef):
                 assert hello["type"] == "definition"  # own origin passes
     finally:
         await runner.cleanup()
+
+
+async def test_host_guard_refuses_rebound_names(simdef):
+    """DNS rebinding arrives with a foreign name in the Host header; the
+    middleware refuses it for the page AND the WebSocket, while the
+    loopback aliases the console is legitimately browsed at all pass."""
+    import socket as socketlib
+
+    from xtce_sim.webui import _host_guard
+
+    bridge = Bridge(simdef, "127.0.0.1", 1)
+    # run_ui knows its port up front; the test picks a free one the same way.
+    with socketlib.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    app = web.Application(middlewares=[_host_guard("127.0.0.1", port)])
+    app.router.add_get("/", bridge.handle_index)
+    app.router.add_get("/ws", bridge.handle_ws)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", port)
+    await site.start()
+    try:
+        async with ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/", headers={"Host": f"evil.example:{port}"}
+            ) as resp:
+                assert resp.status == 403  # the rebound name is refused
+            async with session.get(
+                f"http://127.0.0.1:{port}/", headers={"Host": f"localhost:{port}"}
+            ) as resp:
+                assert resp.status == 200  # loopback aliases pass
+            async with session.get(f"http://127.0.0.1:{port}/") as resp:
+                assert resp.status == 200
+    finally:
+        await runner.cleanup()

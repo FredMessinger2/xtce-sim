@@ -357,7 +357,10 @@ function parseLine(text) {
 function canonicalCommand(typed) {
   // Names match case-insensitively but always resolve to (and transmit
   // as) the ICD's exact spelling — the console must not assume a vehicle
-  // shouts its command names in uppercase.
+  // shouts its command names in uppercase. An exact match wins first, so
+  // an ICD with names differing only by case sends what was typed.
+  const exact = commandsByName.get(typed);
+  if (exact) return exact;
   const up = typed.toUpperCase();
   for (const [name, cmd] of commandsByName) {
     if (name.toUpperCase() === up) return cmd;
@@ -503,6 +506,9 @@ function moveSuggSelection(step) {
   const n = suggMatches.length;
   suggSel = (suggSel + step + n) % n;
   renderSugg();
+  // The list scrolls past its max-height: keep the selection visible.
+  const sel = sugg.querySelector(".sel");
+  if (sel) sel.scrollIntoView({ block: "nearest" });
 }
 
 function recallHistory(step) {

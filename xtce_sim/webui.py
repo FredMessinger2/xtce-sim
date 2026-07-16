@@ -467,20 +467,45 @@ def _origin_allowed(request: web.Request) -> bool:
     """Whether a WS handshake's Origin is this console's own page.
 
     Absent Origin (non-browser client) is allowed; a present one must name
-    exactly the host:port the request was addressed to.
+    exactly the host:port the request was addressed to. yarl parses both
+    sides, so IPv6 literals and default ports compare correctly. This gate
+    handles ordinary cross-origin pages; the Host gate in ``run_ui`` is
+    what defeats DNS rebinding (where Origin and Host agree by design).
     """
     origin = request.headers.get("Origin")
     if origin is None:
         return True
     try:
         parsed = URL(origin)
-        origin_host = parsed.host or ""
-        origin_port = parsed.explicit_port or (443 if parsed.scheme == "https" else 80)
     except ValueError:
         return False
-    host, _, port_text = request.host.partition(":")
-    port = int(port_text) if port_text else 80
-    return origin_host == host and origin_port == port
+    return parsed.host == request.url.host and parsed.port == request.url.port
+
+
+def _host_guard(http_host: str, http_port: int):
+    """Middleware refusing requests addressed to a host we never served.
+
+    DNS rebinding hands the operator's browser a foreign name that
+    RESOLVES to this loopback bridge; every such request arrives with the
+    foreign name in its Host header. Refusing unexpected Hosts closes the
+    hole at the door — page and WebSocket both. A loopback bind accepts
+    its loopback aliases; an explicit wide bind (0.0.0.0/::) is a stated
+    choice to serve any interface, so only the port is enforced there.
+    """
+    loopback = {"127.0.0.1", "::1", "localhost"}
+    any_host = http_host in ("0.0.0.0", "::")
+    allowed = loopback | {http_host} if http_host in loopback else {http_host}
+
+    @web.middleware
+    async def guard(request: web.Request, handler):
+        if request.url.port != http_port or (
+            not any_host and request.url.host not in allowed
+        ):
+            log.warning("refused request addressed to %r", request.host)
+            raise web.HTTPForbidden(text="unexpected Host")
+        return await handler(request)
+
+    return guard
 
 
 async def run_ui(
@@ -492,7 +517,7 @@ async def run_ui(
 ) -> None:
     """Serve the console page and bridge sim telemetry to it until cancelled."""
     bridge = Bridge(simdef, sim_host, sim_port)
-    app = web.Application()
+    app = web.Application(middlewares=[_host_guard(http_host, http_port)])
     app.router.add_get("/", bridge.handle_index)
     app.router.add_get("/ws", bridge.handle_ws)
 
