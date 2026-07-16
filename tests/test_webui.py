@@ -381,6 +381,9 @@ class _WireTap:
     async def drain(self) -> None:
         pass
 
+    def is_closing(self) -> bool:
+        return False
+
 
 async def test_uplink_refuses_before_the_wire(simdef):
     bridge = Bridge(simdef, "127.0.0.1", 1)
@@ -479,3 +482,74 @@ async def test_page_send_end_to_end(simdef):
         await asyncio.gather(downlink, return_exceptions=True)
         await runner.cleanup()
         await server.stop()
+
+
+async def test_uplink_refuses_json_shaped_garbage(simdef):
+    # JSON can deliver null/arrays/objects where the codec expects numbers;
+    # every one must cost a refusal, never the socket (TypeError included).
+    bridge = Bridge(simdef, "127.0.0.1", 1)
+    tap = _WireTap()
+    bridge._sim_writer = tap
+    for bad in (None, [1, 2], {"nested": 1}):
+        ok, error = await bridge.uplink("SET_ATTITUDE_TARGET", {"Q1": bad})
+        assert not ok, f"{bad!r} must refuse"
+    assert tap.data == b""
+
+
+async def test_handle_send_falsy_args_is_refused_not_defaulted(simdef):
+    # args=[] must NOT become "send with every argument zero".
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=30.0)
+    await server.start()
+    bridge = Bridge(simdef, "127.0.0.1", server.bound_port)
+    runner, http_port = await _start_bridge(bridge)
+    downlink = asyncio.create_task(bridge.downlink_loop())
+    try:
+        async with ClientSession() as session:
+            async with session.ws_connect(f"http://127.0.0.1:{http_port}/ws") as ws:
+                await ws.send_str(json.dumps(
+                    {"type": "send", "id": 9, "name": "SET_POWER", "args": []}
+                ))
+                for _ in range(50):
+                    msg = json.loads((await ws.receive(timeout=5)).data)
+                    if msg["type"] == "send_result":
+                        break
+                assert not msg["ok"]
+                assert "NAME=VALUE" in msg["error"]
+    finally:
+        downlink.cancel()
+        await asyncio.gather(downlink, return_exceptions=True)
+        await runner.cleanup()
+        await server.stop()
+
+
+async def test_ws_refuses_foreign_origins(simdef):
+    """Browsers do not enforce same-origin on WebSockets — the bridge must.
+
+    A page from any other origin (an internet site open in the operator's
+    browser) is refused; the console's own origin and non-browser clients
+    (no Origin header) pass.
+    """
+    bridge = Bridge(simdef, "127.0.0.1", 1)
+    runner, http_port = await _start_bridge(bridge)
+    try:
+        async with ClientSession() as session:
+            for origin in ("http://evil.example", f"http://127.0.0.1:{http_port + 1}"):
+                async with session.get(
+                    f"http://127.0.0.1:{http_port}/ws",
+                    headers={
+                        "Origin": origin,
+                        "Connection": "Upgrade",
+                        "Upgrade": "websocket",
+                        "Sec-WebSocket-Version": "13",
+                        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+                    },
+                ) as resp:
+                    assert resp.status == 403, origin
+            async with session.ws_connect(
+                f"http://127.0.0.1:{http_port}/ws",
+                origin=f"http://127.0.0.1:{http_port}",
+            ) as ws:
+                hello = json.loads((await ws.receive(timeout=5)).data)
+                assert hello["type"] == "definition"  # own origin passes
+    finally:
+        await runner.cleanup()

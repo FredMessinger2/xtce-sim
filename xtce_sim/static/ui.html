@@ -53,9 +53,14 @@
   #split.v #entry { border-top: 1px solid var(--border); padding-top: 6px; }
   #split.h #cmdpane { flex-direction: row; }
   #split.h #entry {
-    order: -1; flex: 0 0 320px; min-width: 0;
+    order: -1; flex: 0 1 320px; min-width: 200px;
     border-right: 1px solid var(--border); padding-right: 8px; margin-right: 8px;
+    overflow-y: auto;
   }
+  /* In the wide-strip layout the input stays put at the top and the
+     suggestion list opens BELOW it; in the tall-column layout the input
+     is at the pane's bottom and the list opens above (DOM order). */
+  #split.h #sugg { order: 3; }
   #entry { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 4px; }
   #cmdline {
     background: var(--panel); color: var(--text);
@@ -68,7 +73,8 @@
   #sugg { display: none; }
   #sugg.open {
     display: block; background: var(--panel);
-    border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    border: 1px solid var(--border); border-radius: 6px;
+    max-height: 9.6em; overflow-y: auto;
   }
   #sugg div { padding: 3px 10px; cursor: pointer; white-space: nowrap; }
   #sugg div .d { color: var(--dim); margin-left: 10px; font-size: 11px; }
@@ -140,7 +146,7 @@
     <div id="cmdscroll"><div id="cmdlog"><div class="empty" id="cmdempty">No commands yet — sends appear here as the vehicle echoes them.</div></div></div>
     <div id="entry">
       <div id="sugg"></div>
-      <input id="cmdline" aria-label="Command entry" placeholder="COMMAND NAME=VALUE …" autocomplete="off" spellcheck="false" disabled>
+      <input id="cmdline" aria-label="Command entry" placeholder="waiting for the definition…" autocomplete="off" spellcheck="false" disabled>
       <div id="hint">waiting for the definition…</div>
     </div>
   </div>
@@ -338,7 +344,6 @@ function paramSignature(cmd) {
 function parseLine(text) {
   const tokens = text.trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return null;
-  const name = tokens[0].toUpperCase();
   const args = {};
   const bad = [];
   for (const tok of tokens.slice(1)) {
@@ -346,7 +351,18 @@ function parseLine(text) {
     if (eq <= 0) { bad.push(tok); continue; }
     args[tok.slice(0, eq)] = tok.slice(eq + 1);
   }
-  return { name, args, bad };
+  return { name: tokens[0], args, bad };
+}
+
+function canonicalCommand(typed) {
+  // Names match case-insensitively but always resolve to (and transmit
+  // as) the ICD's exact spelling — the console must not assume a vehicle
+  // shouts its command names in uppercase.
+  const up = typed.toUpperCase();
+  for (const [name, cmd] of commandsByName) {
+    if (name.toUpperCase() === up) return cmd;
+  }
+  return null;
 }
 
 function currentMatches(prefix) {
@@ -354,8 +370,9 @@ function currentMatches(prefix) {
   const starts = [];
   const contains = [];
   for (const name of commandsByName.keys()) {
-    if (name.startsWith(up)) starts.push(name);
-    else if (name.includes(up)) contains.push(name);
+    const canon = name.toUpperCase();
+    if (canon.startsWith(up)) starts.push(name);
+    else if (canon.includes(up)) contains.push(name);
   }
   return starts.concat(contains).slice(0, 8);
 }
@@ -390,6 +407,7 @@ function renderSugg() {
 }
 
 function completeTo(name) {
+  if (pendingConfirm) cancelConfirm();  // programmatic edits disarm too
   cmdline.value = name + " ";
   closeSugg();
   refreshHint();
@@ -399,7 +417,7 @@ function completeTo(name) {
 function refreshHint() {
   const parsed = parseLine(cmdline.value);
   if (!parsed) { setHint("type a command — Tab completes, Enter sends"); return; }
-  const cmd = commandsByName.get(parsed.name);
+  const cmd = canonicalCommand(parsed.name);
   if (cmd) {
     setHint(paramSignature(cmd));
   } else {
@@ -417,6 +435,7 @@ function transmit(name, args, text) {
   sendSeq += 1;
   ws.send(JSON.stringify({ type: "send", id: sendSeq, name, args }));
   sentHistory.push(text);
+  if (sentHistory.length > 100) sentHistory.shift();
   histPos = -1;
   cmdline.value = "";
   refreshHint();
@@ -424,9 +443,13 @@ function transmit(name, args, text) {
 
 function trySend() {
   const text = cmdline.value;
+  // An armed confirm fires ONLY against the exact line it was armed on:
+  // any divergence (history recall, completion, anything that changed the
+  // box) disarms, and this Enter re-evaluates what is actually shown.
+  if (pendingConfirm && pendingConfirm.text !== text) cancelConfirm();
   const parsed = parseLine(text);
   if (!parsed) return;
-  const cmd = commandsByName.get(parsed.name);
+  const cmd = canonicalCommand(parsed.name);
   if (!cmd) {
     setHint("unknown command " + parsed.name + " — Tab completes a name", "err");
     return;
@@ -485,6 +508,7 @@ function moveSuggSelection(step) {
 function recallHistory(step) {
   // Shell-style: ArrowUp walks back through sent lines, ArrowDown forward
   // and finally back to an empty line. Returns whether the key was used.
+  if (pendingConfirm) cancelConfirm();  // programmatic edits disarm too
   if (!sentHistory.length) return false;
   if (step < 0) {
     histPos = histPos === -1 ? sentHistory.length - 1 : Math.max(0, histPos - 1);
@@ -593,6 +617,7 @@ function buildPanels(def) {
     }
   }
   cmdline.disabled = false;
+  cmdline.placeholder = "COMMAND NAME=VALUE …";
   cancelConfirm();
   const eventOnly = new Set(def.event_only || []);
   grid.textContent = "";
