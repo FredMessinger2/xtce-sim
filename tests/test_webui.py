@@ -356,3 +356,126 @@ def test_command_message_rejected_status(simdef):
     msg = command_message(simdef, ccsds.build_command_echo(cmd_packet, ccsds.ECHO_REJECTED))
     assert msg["status"] == "rejected"
     assert msg["args"]["WheelId"] == 7  # the offending value is visible
+
+
+# ---------------------------------------------------------------------------
+# Command entry: the page's uplink through the bridge
+# ---------------------------------------------------------------------------
+
+
+def test_definition_message_carries_event_only_apids(simdef):
+    msg = definition_message(simdef)
+    receipt = simdef.packet_by_name("FILE_RECEIPT")
+    assert msg["event_only"] == [receipt.apid]
+
+
+class _WireTap:
+    """A fake StreamWriter collecting what the bridge uplinks."""
+
+    def __init__(self):
+        self.data = b""
+
+    def write(self, data: bytes) -> None:
+        self.data += data
+
+    async def drain(self) -> None:
+        pass
+
+
+async def test_uplink_refuses_before_the_wire(simdef):
+    bridge = Bridge(simdef, "127.0.0.1", 1)
+    tap = _WireTap()
+    bridge._sim_writer = tap
+
+    ok, error = await bridge.uplink("NO_SUCH_COMMAND", {})
+    assert not ok and "unknown command" in error
+
+    ok, error = await bridge.uplink("HEATER_ON", {"HeaterId": "9"})
+    assert not ok and "ValidRange" in error
+
+    ok, error = await bridge.uplink("HEATER_ON", {"Typo": "1"})
+    assert not ok and "unknown argument" in error
+
+    ok, error = await bridge.uplink("HEATER_ON", "not-a-dict")
+    assert not ok and "NAME=VALUE" in error
+
+    assert tap.data == b""  # every refusal above: NOTHING was transmitted
+
+
+async def test_uplink_refuses_when_the_link_is_down(simdef):
+    bridge = Bridge(simdef, "127.0.0.1", 1)  # never connected
+    ok, error = await bridge.uplink("NOOP", {})
+    assert not ok and "link is down" in error
+
+
+async def test_uplink_transmits_a_wire_identical_command(simdef):
+    # The bridge builds through the same ccsds owner as client.send_command,
+    # so what leaves here is byte-identical to a CLI send.
+    bridge = Bridge(simdef, "127.0.0.1", 1)
+    tap = _WireTap()
+    bridge._sim_writer = tap
+    ok, detail = await bridge.uplink("HEATER_ON", {"HeaterId": "1"})
+    assert ok, detail
+    packets, rest = ccsds.deframe(tap.data)
+    assert rest == b"" and len(packets) == 1
+    command = simdef.command_by_name("HEATER_ON")
+    expected = ccsds.build_command_packet(
+        command.opcode, codec.encode_command(command, {"HeaterId": "1"})
+    )
+    assert packets[0] == expected
+
+
+async def test_page_send_end_to_end(simdef):
+    """A browser send travels: WS -> bridge -> sim -> executes -> echo -> WS."""
+    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=30.0)
+    await server.start()
+    bridge = Bridge(simdef, "127.0.0.1", server.bound_port)
+    runner, http_port = await _start_bridge(bridge)
+    downlink = asyncio.create_task(bridge.downlink_loop())
+    try:
+        async with ClientSession() as session:
+            async with session.ws_connect(f"http://127.0.0.1:{http_port}/ws") as ws:
+
+                async def next_of(wanted_type):
+                    for _ in range(50):
+                        msg = json.loads((await ws.receive(timeout=5)).data)
+                        if msg["type"] == wanted_type:
+                            return msg
+                    raise AssertionError(f"no {wanted_type} message arrived")
+
+                await next_of("definition")
+                # Wait for the bridge's sim link before commanding.
+                for _ in range(100):
+                    if bridge.link_up:
+                        break
+                    await asyncio.sleep(0.02)
+
+                # Garbage inbound must not kill the socket.
+                await ws.send_str("this is not json")
+                await ws.send_str(json.dumps(["not", "a", "dict"]))
+
+                await ws.send_str(json.dumps({
+                    "type": "send", "id": 1,
+                    "name": "SET_POWER",
+                    "args": {"SubsystemId": "3", "PowerState": "ON"},
+                }))
+                result = await next_of("send_result")
+                assert result == {"type": "send_result", "id": 1, "name": "SET_POWER", "ok": True}
+                echo = await next_of("command")
+                assert echo["name"] == "SET_POWER"
+                assert echo["status"] == "executed"
+                assert echo["args"]["PowerState"] == "ON"
+
+                # A ground refusal answers the asker and never reaches the sim.
+                await ws.send_str(json.dumps({
+                    "type": "send", "id": 2,
+                    "name": "HEATER_ON", "args": {"HeaterId": "9"},
+                }))
+                refused = await next_of("send_result")
+                assert refused["id"] == 2 and not refused["ok"]
+                assert "ValidRange" in refused["error"]
+    finally:
+        downlink.cancel()
+        await asyncio.gather(downlink, return_exceptions=True)
+        await runner.cleanup()
+        await server.stop()

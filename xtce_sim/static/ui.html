@@ -42,8 +42,41 @@
   #split { flex: 1; display: flex; min-height: 0; }
   #split.h { flex-direction: column; }
   #split.v { flex-direction: row; }
-  #cmdpane { overflow: auto; min-height: 0; min-width: 0; flex: none; }
+  #cmdpane { display: flex; overflow: hidden; min-height: 0; min-width: 0; flex: none; }
+  #cmdscroll { overflow: auto; min-height: 0; min-width: 0; flex: 1; }
   #tlmpane { overflow: auto; min-height: 0; min-width: 0; flex: 1; }
+
+  /* The command entry rides the command pane and fits its shape:
+     .v (pane is a tall left column)  -> entry UNDER the log, full width;
+     .h (pane is a wide top strip)    -> entry LEFT of the log, a column. */
+  #split.v #cmdpane { flex-direction: column; }
+  #split.v #entry { border-top: 1px solid var(--border); padding-top: 6px; }
+  #split.h #cmdpane { flex-direction: row; }
+  #split.h #entry {
+    order: -1; flex: 0 0 320px; min-width: 0;
+    border-right: 1px solid var(--border); padding-right: 8px; margin-right: 8px;
+  }
+  #entry { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 4px; }
+  #cmdline {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 10px; font: inherit; width: 100%;
+  }
+  #cmdline:focus { outline: none; border-color: var(--accent); }
+  #cmdline:disabled { opacity: 0.5; }
+  #entry.confirm #cmdline { border-color: var(--bad); }
+  #sugg { display: none; }
+  #sugg.open {
+    display: block; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  }
+  #sugg div { padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+  #sugg div .d { color: var(--dim); margin-left: 10px; font-size: 11px; }
+  #sugg div.sel, #sugg div:hover { background: #ffffff12; }
+  #hint { color: var(--dim); min-height: 1.3em; padding: 0 4px; white-space: normal; }
+  #hint.err { color: var(--bad); }
+  #hint.confirm { color: var(--bad); font-weight: 600; }
+  #hint.confirm.vital { color: var(--breathe); }
   #bar { flex: none; background: var(--border); border-radius: 3px; touch-action: none; }
   #bar:hover, #bar.dragging { background: var(--accent); }
   #split.h > #bar { height: 6px; margin: 4px 0; cursor: row-resize; }
@@ -75,6 +108,11 @@
     border-radius: 8px; overflow: hidden;
   }
   .panel.stale { opacity: 0.55; }
+  .panel h2 .event {
+    flex: none; font-size: 10px; font-weight: 600;
+    padding: 0 6px; border-radius: 4px; align-self: center;
+    border: 1px solid var(--dim); color: var(--dim);
+  }
   .panel h2 {
     font-size: 13px; font-weight: 600; color: var(--accent);
     padding: 8px 12px; border-bottom: 1px solid var(--border);
@@ -98,7 +136,14 @@
   <button id="orient" title="Flip the split between horizontal and vertical">split ⇵</button>
 </header>
 <div id="split" class="h">
-  <div id="cmdpane"><div id="cmdlog"><div class="empty" id="cmdempty">No commands yet — sends appear here as the vehicle echoes them.</div></div></div>
+  <div id="cmdpane">
+    <div id="cmdscroll"><div id="cmdlog"><div class="empty" id="cmdempty">No commands yet — sends appear here as the vehicle echoes them.</div></div></div>
+    <div id="entry">
+      <div id="sugg"></div>
+      <input id="cmdline" aria-label="Command entry" placeholder="COMMAND NAME=VALUE …" autocomplete="off" spellcheck="false" disabled>
+      <div id="hint">waiting for the definition…</div>
+    </div>
+  </div>
   <div id="bar"></div>
   <div id="tlmpane"><div id="grid"><div class="empty">Waiting for the definition…</div></div></div>
 </div>
@@ -116,6 +161,7 @@ const CMDLOG_MAX = 500;     // oldest lines drop off past this
 const grid = document.getElementById("grid");
 const cmdlog = document.getElementById("cmdlog");
 const cmdpane = document.getElementById("cmdpane");
+const cmdscroll = document.getElementById("cmdscroll");
 
 document.getElementById("toggle").addEventListener("click", () => {
   showRaw = !showRaw;
@@ -194,7 +240,7 @@ function logCommand(msg) {
   // Stick to the bottom only if the user is already there; someone reading
   // history up the scrollback must not be yanked down by new traffic.
   const pinned =
-    cmdpane.scrollTop + cmdpane.clientHeight >= cmdpane.scrollHeight - 8;
+    cmdscroll.scrollTop + cmdscroll.clientHeight >= cmdscroll.scrollHeight - 8;
 
   const line = document.createElement("div");
   line.className = msg.status === "executed" ? "cmd" : "cmd bad";
@@ -235,7 +281,7 @@ function logCommand(msg) {
     cmdlog.firstElementChild.remove();
     if (cmdlog.firstElementChild) cmdlog.firstElementChild.remove();
   }
-  if (pinned) cmdpane.scrollTop = cmdpane.scrollHeight;
+  if (pinned) cmdscroll.scrollTop = cmdscroll.scrollHeight;
 }
 
 function logSeparator(text) {
@@ -248,8 +294,251 @@ function logSeparator(text) {
   line.className = "cmd sep";
   line.textContent = text;
   cmdlog.appendChild(line);
-  cmdpane.scrollTop = cmdpane.scrollHeight;
+  cmdscroll.scrollTop = cmdscroll.scrollHeight;
 }
+
+// ---- command entry ----------------------------------------------------------
+//
+// One line, shell-style: COMMAND NAME=VALUE NAME=VALUE. The name
+// autocompletes from the definition; a command the ICD marks hazardous
+// takes a confirm step (the declared reason shown) before transmitting.
+// The bridge is the ground authority — it re-validates everything — but
+// the page pre-checks the name so typos never leave the keyboard.
+
+const cmdline = document.getElementById("cmdline");
+const sugg = document.getElementById("sugg");
+const hint = document.getElementById("hint");
+const entry = document.getElementById("entry");
+const commandsByName = new Map();  // canonical name -> command definition
+let ws = null;                     // the live bridge socket (set in connect)
+let sendSeq = 0;                   // send_result correlation ids
+let suggMatches = [];              // suggestion names currently offered
+let suggSel = -1;                  // highlighted suggestion index
+let pendingConfirm = null;         // {name, args, text} awaiting the second Enter
+const sentHistory = [];            // sent lines, newest last
+let histPos = -1;                  // -1 = not browsing
+
+function setHint(text, cls) {
+  hint.textContent = text;
+  hint.className = cls || "";
+}
+
+function paramSignature(cmd) {
+  if (!cmd.params.length) return cmd.name + " takes no arguments";
+  return cmd.params.map((p) => {
+    if (p.enumerations) return p.name + "=" + Object.keys(p.enumerations).join("|");
+    let range = "";
+    if (p.min != null || p.max != null) {
+      range = " (" + (p.min ?? "…") + ".." + (p.max ?? "…") + ")";
+    }
+    return p.name + "=<" + p.type + ">" + range + (p.unit ? " " + p.unit : "");
+  }).join("  ");
+}
+
+function parseLine(text) {
+  const tokens = text.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return null;
+  const name = tokens[0].toUpperCase();
+  const args = {};
+  const bad = [];
+  for (const tok of tokens.slice(1)) {
+    const eq = tok.indexOf("=");
+    if (eq <= 0) { bad.push(tok); continue; }
+    args[tok.slice(0, eq)] = tok.slice(eq + 1);
+  }
+  return { name, args, bad };
+}
+
+function currentMatches(prefix) {
+  const up = prefix.toUpperCase();
+  const starts = [];
+  const contains = [];
+  for (const name of commandsByName.keys()) {
+    if (name.startsWith(up)) starts.push(name);
+    else if (name.includes(up)) contains.push(name);
+  }
+  return starts.concat(contains).slice(0, 8);
+}
+
+function closeSugg() {
+  suggMatches = [];
+  suggSel = -1;
+  sugg.className = "";
+  sugg.textContent = "";
+}
+
+function renderSugg() {
+  sugg.textContent = "";
+  for (const [i, name] of suggMatches.entries()) {
+    const row = document.createElement("div");
+    if (i === suggSel) row.className = "sel";
+    row.textContent = name;
+    const cmd = commandsByName.get(name);
+    if (cmd.description) {
+      const d = document.createElement("span");
+      d.className = "d";
+      d.textContent = cmd.description;
+      row.appendChild(d);
+    }
+    row.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();  // keep focus in the input
+      completeTo(name);
+    });
+    sugg.appendChild(row);
+  }
+  sugg.className = suggMatches.length ? "open" : "";
+}
+
+function completeTo(name) {
+  cmdline.value = name + " ";
+  closeSugg();
+  refreshHint();
+  cmdline.focus();
+}
+
+function refreshHint() {
+  const parsed = parseLine(cmdline.value);
+  if (!parsed) { setHint("type a command — Tab completes, Enter sends"); return; }
+  const cmd = commandsByName.get(parsed.name);
+  if (cmd) {
+    setHint(paramSignature(cmd));
+  } else {
+    setHint("");
+  }
+}
+
+function cancelConfirm() {
+  pendingConfirm = null;
+  entry.className = "";
+  refreshHint();
+}
+
+function transmit(name, args, text) {
+  sendSeq += 1;
+  ws.send(JSON.stringify({ type: "send", id: sendSeq, name, args }));
+  sentHistory.push(text);
+  histPos = -1;
+  cmdline.value = "";
+  refreshHint();
+}
+
+function trySend() {
+  const text = cmdline.value;
+  const parsed = parseLine(text);
+  if (!parsed) return;
+  const cmd = commandsByName.get(parsed.name);
+  if (!cmd) {
+    setHint("unknown command " + parsed.name + " — Tab completes a name", "err");
+    return;
+  }
+  if (parsed.bad.length) {
+    setHint("arguments are NAME=VALUE pairs — cannot read: " + parsed.bad.join(" "), "err");
+    return;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setHint("bridge connection is down — nothing was transmitted", "err");
+    return;
+  }
+  const sig = sigByName.get(cmd.name);
+  if (sig && !pendingConfirm) {
+    // The ICD says this one is hazardous: show the level and its declared
+    // reason, and require one more Enter. Esc backs out.
+    pendingConfirm = { name: cmd.name, args: parsed.args, text };
+    entry.className = "confirm";
+    const vital = !(sig.level === "critical" || sig.level === "forbidden");
+    setHint(
+      sig.level.toUpperCase() + (sig.reason ? ": " + sig.reason : "") +
+      " — Enter to transmit, Esc to cancel",
+      "confirm" + (vital ? " vital" : "")
+    );
+    return;
+  }
+  const send = pendingConfirm || { name: cmd.name, args: parsed.args, text };
+  cancelConfirm();
+  transmit(send.name, send.args, send.text);
+}
+
+function onSendResult(msg) {
+  if (msg.ok) return;  // the command echo tells the success story
+  setHint(msg.error, "err");
+  // The refusal also goes on the record: a ground refusal is part of the
+  // session's command history, styled like any failed command. The time
+  // matches the bridge's local-time format (logCommand slices [11:]).
+  const d = new Date();
+  const p = (n, w) => String(n).padStart(w || 2, "0");
+  logCommand({
+    time: "0000-00-00T" + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" +
+      p(d.getSeconds()) + "." + p(d.getMilliseconds(), 3),
+    name: msg.name || "(unknown)",
+    status: "refused by ground",
+    args: null,
+    raw: null,
+  });
+}
+
+function moveSuggSelection(step) {
+  const n = suggMatches.length;
+  suggSel = (suggSel + step + n) % n;
+  renderSugg();
+}
+
+function recallHistory(step) {
+  // Shell-style: ArrowUp walks back through sent lines, ArrowDown forward
+  // and finally back to an empty line. Returns whether the key was used.
+  if (!sentHistory.length) return false;
+  if (step < 0) {
+    histPos = histPos === -1 ? sentHistory.length - 1 : Math.max(0, histPos - 1);
+  } else {
+    if (histPos === -1) return false;
+    histPos = histPos + 1 >= sentHistory.length ? -1 : histPos + 1;
+  }
+  cmdline.value = histPos === -1 ? "" : sentHistory[histPos];
+  refreshHint();
+  return true;
+}
+
+function entryKey(ev) {
+  // Returns whether the key was consumed (caller preventDefaults).
+  const open = suggMatches.length > 0;
+  switch (ev.key) {
+    case "Escape":
+      if (pendingConfirm) { cancelConfirm(); return true; }
+      if (open) { closeSugg(); return true; }
+      return false;
+    case "ArrowDown":
+      if (open) { moveSuggSelection(1); return true; }
+      return recallHistory(1);
+    case "ArrowUp":
+      if (open) { moveSuggSelection(-1); return true; }
+      return recallHistory(-1);
+    case "Tab":
+      if (open) { completeTo(suggMatches[Math.max(suggSel, 0)]); return true; }
+      return false;
+    case "Enter":
+      if (open && suggSel >= 0) { completeTo(suggMatches[suggSel]); return true; }
+      trySend();
+      return true;
+    default:
+      return false;
+  }
+}
+
+cmdline.addEventListener("input", () => {
+  if (pendingConfirm) cancelConfirm();  // editing invalidates the armed send
+  const text = cmdline.value;
+  if (!text.includes(" ") && text.trim()) {
+    suggSel = -1;
+    suggMatches = currentMatches(text.trim());
+    renderSugg();
+  } else {
+    closeSugg();
+  }
+  refreshHint();
+});
+
+cmdline.addEventListener("keydown", (ev) => {
+  if (entryKey(ev)) ev.preventDefault();
+});
 
 // ---- telemetry panels ------------------------------------------------------
 
@@ -296,23 +585,39 @@ function buildPanels(def) {
   panels.clear();
   latest.clear();
   sigByName.clear();
+  commandsByName.clear();
   for (const c of def.commands || []) {
+    commandsByName.set(c.name, c);
     if (c.significance && c.significance !== "normal") {
       sigByName.set(c.name, { level: c.significance, reason: c.significance_reason });
     }
   }
+  cmdline.disabled = false;
+  cancelConfirm();
+  const eventOnly = new Set(def.event_only || []);
   grid.textContent = "";
   document.getElementById("system").textContent = def.system + " · xtce-sim console";
   document.title = def.system + " · xtce-sim console";
   for (const p of def.packets) {
+    const isEvent = eventOnly.has(p.apid);
     const panel = document.createElement("div");
-    panel.className = "panel stale";
+    // Event-driven packets are QUIET by design: they are born undimmed
+    // and never go stale — the latched last event stays readable.
+    panel.className = isEvent ? "panel" : "panel stale";
     const h2 = document.createElement("h2");
     const nameEl = document.createElement("span");
     nameEl.textContent = p.name;
+    if (isEvent) {
+      const badge = document.createElement("span");
+      badge.className = "event";
+      badge.textContent = "EVENT";
+      badge.title = "Downlinks when something happens, never on the beacon — quiet is normal.";
+      h2.appendChild(badge);
+    }
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.textContent = "APID 0x" + p.apid.toString(16).toUpperCase() + " · no data";
+    meta.textContent = "APID 0x" + p.apid.toString(16).toUpperCase() +
+      (isEvent ? " · no events yet" : " · no data");
     h2.append(nameEl, meta);
     const table = document.createElement("table");
     const cells = new Map();
@@ -327,7 +632,7 @@ function buildPanels(def) {
     }
     panel.append(h2, table);
     grid.appendChild(panel);
-    panels.set(p.apid, { panel, meta, cells, lastSeen: 0 });
+    panels.set(p.apid, { panel, meta, cells, lastSeen: 0, isEvent });
   }
 }
 
@@ -355,11 +660,13 @@ function render(msg, isArrival) {
 }
 
 // Dim panels whose packets stopped arriving (>5 s without an update).
+// Event-driven packets are exempt: they downlink when something happens,
+// so quiet is their normal state, not staleness.
 setInterval(() => {
   const now = Date.now();
-  for (const entry of panels.values()) {
-    if (entry.lastSeen && now - entry.lastSeen > 5000) {
-      entry.panel.classList.add("stale");
+  for (const p of panels.values()) {
+    if (!p.isEvent && p.lastSeen && now - p.lastSeen > 5000) {
+      p.panel.classList.add("stale");
     }
   }
 }, 1000);
@@ -373,7 +680,7 @@ function setLink(up, text) {
 }
 
 function connect() {
-  const ws = new WebSocket(
+  ws = new WebSocket(
     (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws"
   );
   ws.onmessage = (ev) => {
@@ -387,6 +694,8 @@ function connect() {
       render(msg, true);
     } else if (msg.type === "command") {
       logCommand(msg);
+    } else if (msg.type === "send_result") {
+      onSendResult(msg);
     } else if (msg.type === "link") {
       setLink(msg.up, msg.up ? "sim link up" : "sim link down");
     }

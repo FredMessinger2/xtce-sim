@@ -13,9 +13,11 @@ Message protocol (bridge -> browser):
 
   {"type": "definition", ...}   once, on connect — every packet's name,
                                 APID, and field list (units, enum labels,
-                                whether a calibrator applies), plus the
-                                command table, so the page builds itself
-                                from the definition instead of hardcoding.
+                                whether a calibrator applies), the command
+                                table, and the event-only APIDs (packets
+                                that downlink on events, never on the
+                                beacon), so the page builds itself from
+                                the definition instead of hardcoding.
   {"type": "telemetry", ...}    one per decoded packet: name, APID,
                                 sequence count, bridge arrival time, and
                                 per-field raw counts + engineering value
@@ -27,6 +29,24 @@ Message protocol (bridge -> browser):
   {"type": "link", "up": ...}   whenever the bridge's connection to the
                                 sim comes up or drops (it retries forever).
 
+Message protocol (browser -> bridge):
+
+  {"type": "send", "id": N, "name": CMD, "args": {K: V, ...}}
+                                one command to uplink. The bridge is the
+                                ground station: it validates and encodes
+                                exactly as ``xtce-sim send`` does, and a
+                                command that fails ground validation is
+                                REFUSED here — answered with a
+                                {"type": "send_result", "id": N, "ok":
+                                false, "error": ...} to the asking browser
+                                only, and never transmitted. A command
+                                that encodes cleanly is framed onto the
+                                bridge's live sim connection; its outcome
+                                arrives as the command echo every console
+                                sees, so an accepted send gets its
+                                send_result (ok: true) AND a command
+                                message.
+
 The browser page itself is served at ``/`` from ``static/ui.html``.
 """
 
@@ -36,12 +56,13 @@ import asyncio
 import json
 import logging
 import math
+import struct
 from datetime import datetime
 from importlib import resources
 
 from aiohttp import WSMsgType, web
 
-from xtce_sim import ccsds, codec
+from xtce_sim import ccsds, codec, fileservice
 from xtce_sim.definition import FieldInfo, SimDefinition
 
 log = logging.getLogger("xtce_sim.webui")
@@ -113,6 +134,10 @@ def definition_message(simdef: SimDefinition) -> dict:
             }
             for c in simdef.commands
         ],
+        # Packets that downlink on events rather than the beacon (the file
+        # service's receipt, today): quiet is NORMAL for these, and the
+        # page must not dim their last event as stale.
+        "event_only": sorted(fileservice.event_only_apids(simdef)),
     }
 
 
@@ -236,6 +261,10 @@ class Bridge:
         # ws -> (queue, writer task)
         self.clients: dict[web.WebSocketResponse, tuple[asyncio.Queue, asyncio.Task]] = {}
         self.link_up = False
+        # The live uplink half of the sim connection (None while down):
+        # commands from the page go up the SAME link telemetry comes down,
+        # exactly as a real ground station holds one bidirectional link.
+        self._sim_writer: asyncio.StreamWriter | None = None
 
     # -- broadcast ----------------------------------------------------------
 
@@ -284,6 +313,7 @@ class Bridge:
                 continue
             log.info("downlink up: %s:%d", self.sim_host, self.sim_port)
             self.link_up = True
+            self._sim_writer = writer
             self._broadcast({"type": "link", "up": True})
             try:
                 await self._read_stream(reader)
@@ -292,6 +322,7 @@ class Bridge:
             finally:
                 # Only the close belongs in finally: a broadcast or sleep here
                 # would run to completion on cancellation and hang Ctrl-C.
+                self._sim_writer = None
                 writer.close()
             self.link_up = False
             self._broadcast({"type": "link", "up": False})
@@ -319,6 +350,54 @@ class Bridge:
                 return command_message(self.simdef, packet)
         return telemetry_message(self.simdef, packet)
 
+    # -- uplink to the sim ----------------------------------------------------
+
+    async def uplink(self, name, args) -> tuple[bool, str]:
+        """Validate, encode, and transmit one command; (ok, message).
+
+        The ground does not trust the page: the command must exist, every
+        argument must coerce and encode, and declared ValidRanges are
+        enforced — the same strict-uplink stance as ``xtce-sim send``. A
+        refusal here never touches the wire.
+        """
+        command = self.simdef.command_by_name(str(name))
+        if command is None:
+            return False, f"unknown command {name!r}"
+        if not isinstance(args, dict):
+            return False, "args must be an object of NAME=VALUE pairs"
+        try:
+            payload = codec.encode_command(command, args)
+        except (ValueError, struct.error) as exc:
+            return False, str(exc)
+        writer = self._sim_writer
+        if writer is None:
+            return False, "sim link is down — nothing was transmitted"
+        try:
+            writer.write(ccsds.frame(ccsds.build_command_packet(command.opcode, payload)))
+            await writer.drain()
+        except OSError as exc:
+            return False, f"sim link failed mid-send: {exc}"
+        return True, "transmitted"
+
+    async def _handle_send(self, ws: web.WebSocketResponse, msg: dict) -> None:
+        """One page-originated command; the verdict goes to the asker only."""
+        ok, detail = await self.uplink(msg.get("name"), msg.get("args") or {})
+        reply: dict = {
+            "type": "send_result",
+            "id": msg.get("id"),
+            "name": str(msg.get("name")),
+            "ok": ok,
+        }
+        if not ok:
+            reply["error"] = detail
+            log.warning("refused page command %r: %s", msg.get("name"), detail)
+        entry = self.clients.get(ws)
+        if entry is not None:
+            try:
+                entry[0].put_nowait(json.dumps(reply))
+            except asyncio.QueueFull:
+                pass  # the stalled-client rule already governs this browser
+
     # -- HTTP / WebSocket handlers -------------------------------------------
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
@@ -335,7 +414,16 @@ class Bridge:
             async for msg in ws:
                 if msg.type == WSMsgType.ERROR:
                     break
-                # Uplink from the page is phase 2; ignore inbound for now.
+                if msg.type != WSMsgType.TEXT:
+                    continue
+                # Inbound is untrusted text off a socket: malformed JSON or
+                # an unknown shape is ignored, never fatal to the console.
+                try:
+                    inbound = json.loads(msg.data)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(inbound, dict) and inbound.get("type") == "send":
+                    await self._handle_send(ws, inbound)
         finally:
             self.clients.pop(ws, None)
             task.cancel()
