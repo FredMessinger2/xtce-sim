@@ -142,22 +142,39 @@ class SequenceService:
                     ", ".join(unmapped),
                 )
             for field in packet.fields:
-                needed = _LABEL_SETS.get(field.name.removeprefix(prefix).lower())
-                if needed is None or not field.enumerations:
-                    continue
-                missing = sorted(needed - set(field.enumerations))
-                if missing:
-                    # A state the wire cannot express downlinks as the field
-                    # default (0) — say so HERE, where the ICD author looks,
-                    # not in a runtime log after the first failed LOAD.
-                    self._logger.warning(
-                        "%s.%s: enumeration is missing label(s) %s — those "
-                        "states cannot be downlinked and will read as the "
-                        "default value",
-                        name,
-                        field.name,
-                        ", ".join(missing),
-                    )
+                self._report_enum_coverage(name, prefix, field)
+
+    def _report_enum_coverage(self, packet_name: str, prefix: str, field) -> None:
+        """Warn when a state-bearing field cannot express every state.
+
+        A state the wire cannot express downlinks as the field default (0)
+        or not at all — said HERE, where the ICD author looks, not in a
+        runtime log after the first failed LOAD.
+        """
+        needed = _LABEL_SETS.get(field.name.removeprefix(prefix).lower())
+        if needed is None:
+            return
+        if not field.enumerations:
+            # Worst configuration: the field exists but declares no
+            # enumeration, so NO state is expressible and the field will
+            # be skipped at every emission.
+            self._logger.warning(
+                "%s.%s: field is not an enumeration — the sequencer's states "
+                "cannot be downlinked in it (declare %s)",
+                packet_name,
+                field.name,
+                ", ".join(sorted(needed)),
+            )
+            return
+        missing = sorted(needed - set(field.enumerations))
+        if missing:
+            self._logger.warning(
+                "%s.%s: enumeration is missing label(s) %s — those states "
+                "cannot be downlinked and will read as the default value",
+                packet_name,
+                field.name,
+                ", ".join(missing),
+            )
 
     def bind_executor(self, execute: Executor) -> None:
         """Install the dispatch path fired commands travel (server-owned)."""
@@ -309,21 +326,42 @@ class SequenceService:
             if key not in status:
                 continue
             value = status[key]
-            if field.enumerations and isinstance(value, str):
-                wire = field.enumerations.get(value)
-                if wire is None:
-                    self._warn_once(
-                        field.name,
-                        value,
-                        f"{field.name}: enumeration declares no label {value!r} — "
-                        "skipping the field this pass",
-                    )
+            if isinstance(value, str):
+                value = self._wire_label(field, value)
+                if value is None:
                     continue
-                value = wire
-            elif isinstance(value, str):
-                value = value.encode("utf-8")
             values[field.name] = value
         return values
+
+    def _wire_label(self, field, value: str):
+        """A string status value in the field's wire form, or None to skip.
+
+        Labels map through the field's own enumeration; text goes to bytes
+        for string fields. A field that can express neither (a label bound
+        for a bare integer field, an enumeration missing this label) is
+        skipped with a warning — the packet must pack, whatever the ICD
+        declared, and ``_report_declaration`` already named the gap at
+        construction.
+        """
+        if field.enumerations:
+            wire = field.enumerations.get(value)
+            if wire is None:
+                self._warn_once(
+                    field.name,
+                    value,
+                    f"{field.name}: enumeration declares no label {value!r} — "
+                    "skipping the field this pass",
+                )
+            return wire
+        if field.python_type in ("string", "bytes"):
+            return value.encode("utf-8")
+        self._warn_once(
+            field.name,
+            value,
+            f"{field.name}: cannot express {value!r} in a non-enumerated "
+            f"{field.python_type} field — skipping the field this pass",
+        )
+        return None
 
     def _warn_once(self, field_name: str, detail: str, message: str) -> None:
         key = (field_name, detail)
