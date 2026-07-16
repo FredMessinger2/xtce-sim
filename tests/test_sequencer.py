@@ -35,12 +35,21 @@ class Recorder:
         self.result = True
         self.raise_on = None
 
-    def __call__(self, name, args):
+    async def __call__(self, name, args):
         if self.raise_on == len(self.calls):
             self.calls.append((name, args))
             raise RuntimeError("executor blew up")
         self.calls.append((name, args))
         return self.result
+
+
+def _executor(fn):
+    """Wrap a sync callable as the async executor the Sequencer expects."""
+
+    async def run(name, args):
+        return fn(name, args)
+
+    return run
 
 
 @pytest.fixture()
@@ -70,34 +79,34 @@ def test_state_and_result_enums_match_the_xtce_contract():
 # ATS firing
 
 
-def test_ats_fires_each_entry_when_due(seq, rec):
+async def test_ats_fires_each_entry_when_due(seq, rec):
     assert seq.load(_ats())[0]
     assert seq.start("ats", T0 - 10)[0]
-    assert seq.tick(T0 - 1) == []  # nothing due yet
-    fired = seq.tick(T0)  # entry at exactly T0 is due at T0
+    assert await seq.tick(T0 - 1) == []  # nothing due yet
+    fired = await seq.tick(T0)  # entry at exactly T0 is due at T0
     assert [f.command for f in fired] == ["IMAGER_ON"]
-    assert seq.tick(T0 + 59) == []
-    assert len(seq.tick(T0 + 60)) == 1
-    assert len(seq.tick(T0 + 1000)) == 1  # the last one, late but only once
+    assert await seq.tick(T0 + 59) == []
+    assert len(await seq.tick(T0 + 60)) == 1
+    assert len(await seq.tick(T0 + 1000)) == 1  # the last one, late but only once
     assert seq.status("ats", T0 + 1000)["state"] == "COMPLETE"
-    assert seq.tick(T0 + 2000) == []  # complete sequences stay quiet
+    assert await seq.tick(T0 + 2000) == []  # complete sequences stay quiet
 
 
-def test_multiple_due_entries_fire_in_order_in_one_tick(seq, rec):
+async def test_multiple_due_entries_fire_in_order_in_one_tick(seq, rec):
     seq.load(_ats(offsets=(0, 1, 2)))
     seq.start("ats", T0 - 10)
-    fired = seq.tick(T0 + 100)  # all three overdue at once
+    fired = await seq.tick(T0 + 100)  # all three overdue at once
     assert len(fired) == 3
     assert [c for c, _ in rec.calls] == ["IMAGER_ON"] * 3
     assert seq.status("ats", T0 + 100)["state"] == "COMPLETE"
 
 
-def test_ats_and_rts_interleave_by_deadline(seq, rec):
+async def test_ats_and_rts_interleave_by_deadline(seq, rec):
     seq.load(_ats(offsets=(10, 20), command="IMAGER_ON"))
     seq.load(_rts(delays=(5, 40)))
     seq.start("ats", T0)
     seq.start("rts", T0)  # deadlines land at +5 rts, +10 ats, +20 ats, +40 rts
-    fired = seq.tick(T0 + 60)
+    fired = await seq.tick(T0 + 60)
     assert [(f.kind, f.command) for f in fired] == [
         ("rts", "HEATER_OFF"),
         ("ats", "IMAGER_ON"),
@@ -106,11 +115,11 @@ def test_ats_and_rts_interleave_by_deadline(seq, rec):
     ]
 
 
-def test_late_ats_start_skips_past_entries(seq, rec):
+async def test_late_ats_start_skips_past_entries(seq, rec):
     seq.load(_ats(offsets=(0, 60, 120)))
     ok, msg = seq.start("ats", T0 + 61)  # first two already past
     assert ok and "skipped" not in msg  # skips are logged, not chatty
-    fired = seq.tick(T0 + 120)
+    fired = await seq.tick(T0 + 120)
     assert len(fired) == 1  # ONLY the future entry; no burst of stale commands
     status = seq.status("ats", T0 + 120)
     assert status["cmd_skipped"] == 2
@@ -119,7 +128,7 @@ def test_late_ats_start_skips_past_entries(seq, rec):
     assert status["state"] == "COMPLETE"
 
 
-def test_all_past_ats_start_is_refused(seq, rec):
+async def test_all_past_ats_start_is_refused(seq, rec):
     seq.load(_ats(offsets=(0, 60)))
     ok, msg = seq.start("ats", T0 + 1000)
     assert not ok
@@ -127,97 +136,156 @@ def test_all_past_ats_start_is_refused(seq, rec):
     status = seq.status("ats", T0 + 1000)
     assert status["state"] == "LOADED"  # the plan is intact, just stale
     assert status["cmd_skipped"] == 0
-    assert seq.tick(T0 + 2000) == []
-
-
-def test_ats_pause_skips_entries_missed_during_the_pause(seq, rec):
-    seq.load(_ats(offsets=(0, 60, 120)))
-    seq.start("ats", T0 - 1)
-    seq.tick(T0)  # first fires
-    assert seq.stop("ats", T0 + 1)[0]
-    assert seq.tick(T0 + 60) == []  # stopped: nothing fires
-    ok, msg = seq.start("ats", T0 + 90)  # resume after the +60 entry's time
-    assert ok and "resumed" in msg
-    fired = seq.tick(T0 + 120)
-    assert len(fired) == 1  # +120 fires; +60 was skipped, not burst
-    status = seq.status("ats", T0 + 120)
-    assert status["cmd_skipped"] == 1
-    assert status["cmd_executed"] == 2
+    assert await seq.tick(T0 + 2000) == []
 
 
 # ---------------------------------------------------------------------------
-# RTS: the pause freezes the sequence clock
+# STOP: halt, plan stays loaded, run it again from the top
 
 
-def test_rts_delays_are_based_at_start_not_load(seq, rec):
-    seq.load(_rts(delays=(0, 5)))
-    seq.tick(T0 + 1000)  # loaded but not started: nothing fires
-    assert rec.calls == []
-    seq.start("rts", T0 + 2000)
-    assert len(seq.tick(T0 + 2000)) == 1  # +0 due at start instant
-    assert seq.tick(T0 + 2004) == []
-    assert len(seq.tick(T0 + 2005)) == 1
-
-
-def test_rts_pause_and_resume_do_not_burst(seq, rec):
+async def test_stop_returns_the_slot_to_as_loaded(seq, rec):
     seq.load(_rts(delays=(0, 10, 20)))
     seq.start("rts", T0)
-    seq.tick(T0)  # +0 fires
-    seq.stop("rts", T0 + 5)  # paused 5 s into the sequence
-    assert seq.tick(T0 + 300) == []  # a long pause; nothing fires
-    seq.start("rts", T0 + 300)  # resume: sequence clock continues from 5 s
-    assert seq.tick(T0 + 300) == []  # +10 is still 5 s away
-    assert len(seq.tick(T0 + 305)) == 1  # +10 fires 10 s of SEQUENCE time in
-    assert len(seq.tick(T0 + 315)) == 1  # +20 likewise
-    assert seq.status("rts", T0 + 315)["state"] == "COMPLETE"
+    await seq.tick(T0)  # +0 fires
+    ok, msg = seq.stop("rts")
+    assert ok and "remains loaded" in msg
+    status = seq.status("rts", T0 + 5)
+    assert status["state"] == "LOADED"
+    assert status["seq_name"] == "safe.rts"  # the plan is still on board
+    assert status["cmd_executed"] == 0  # exactly the state a fresh LOAD leaves
+    assert status["cmd_remaining"] == 3
+    assert status["elapsed_sec"] == 0
+    assert status["last_cmd_result"] == "PENDING"
+    assert await seq.tick(T0 + 300) == []  # stopped: nothing fires
 
 
-def test_rts_elapsed_freezes_while_stopped(seq, rec):
-    seq.load(_rts(delays=(0, 100)))
+async def test_start_after_stop_runs_from_the_top(seq, rec):
+    seq.load(_rts(delays=(0, 10)))
     seq.start("rts", T0)
-    assert seq.status("rts", T0 + 7)["elapsed_sec"] == 7
-    seq.stop("rts", T0 + 7)
-    assert seq.status("rts", T0 + 500)["elapsed_sec"] == 7  # frozen, not reset
-    seq.start("rts", T0 + 500)
-    assert seq.status("rts", T0 + 503)["elapsed_sec"] == 10
+    await seq.tick(T0)  # +0 fires
+    seq.stop("rts")
+    seq.start("rts", T0 + 300)  # a fresh run, re-based at the new START
+    assert len(await seq.tick(T0 + 300)) == 1  # +0 fires again, from the top
+    assert await seq.tick(T0 + 305) == []
+    assert len(await seq.tick(T0 + 310)) == 1  # +10, ten seconds after START
+    assert seq.status("rts", T0 + 310)["state"] == "COMPLETE"
+
+
+async def test_stopped_ats_restarts_with_the_skip_rule(seq, rec):
+    seq.load(_ats(offsets=(0, 60, 120)))
+    seq.start("ats", T0 - 1)
+    await seq.tick(T0)  # first fires
+    assert seq.stop("ats")[0]
+    assert await seq.tick(T0 + 60) == []  # stopped: nothing fires
+    ok, msg = seq.start("ats", T0 + 90)  # restart after the +60 entry's time
+    assert ok and "started" in msg
+    fired = await seq.tick(T0 + 120)
+    assert len(fired) == 1  # +120 fires; +0 and +60 were skipped, not burst
+    status = seq.status("ats", T0 + 120)
+    assert status["cmd_skipped"] == 2
+    assert status["cmd_executed"] == 1
+
+
+async def test_start_from_complete_reruns_the_plan(seq, rec):
+    seq.load(_rts(delays=(0, 5)))
+    seq.start("rts", T0)
+    await seq.tick(T0 + 5)
+    assert seq.status("rts", T0 + 5)["state"] == "COMPLETE"
+    ok, msg = seq.start("rts", T0 + 100)  # no reload needed: START = from the top
+    assert ok
+    assert len(await seq.tick(T0 + 100)) == 1
+    assert seq.status("rts", T0 + 100)["cmd_executed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# RTS timing
+
+
+async def test_rts_delays_are_based_at_start_not_load(seq, rec):
+    seq.load(_rts(delays=(0, 5)))
+    await seq.tick(T0 + 1000)  # loaded but not started: nothing fires
+    assert rec.calls == []
+    seq.start("rts", T0 + 2000)
+    assert len(await seq.tick(T0 + 2000)) == 1  # +0 due at start instant
+    assert await seq.tick(T0 + 2004) == []
+    assert len(await seq.tick(T0 + 2005)) == 1
+
+
+# ---------------------------------------------------------------------------
+# ERROR: the state a failed LOAD reaches
+
+
+async def test_load_failed_lands_the_slot_in_error(seq, rec):
+    ok, msg = seq.load_failed("ats", "broken.ats", "line 3: unknown command 'TYPO'")
+    assert ok and "broken.ats" in msg
+    status = seq.status("ats", T0)
+    assert status["state"] == "ERROR"
+    assert status["seq_name"] == "broken.ats"  # WHAT failed stays visible
+    assert status["seq_id"] == 0  # no active sequence
+    assert status["cmd_total"] == 0
+    assert await seq.tick(T0 + 100) == []  # ERROR fires nothing
+
+
+async def test_load_failed_replaces_a_loaded_plan_but_not_a_running_one(seq, rec):
+    seq.load(_ats())
+    assert seq.load_failed("ats", "bad.ats", "unreadable")[0]
+    assert seq.status("ats", T0)["state"] == "ERROR"
+    # But a RUNNING plan survives a bad load attempt untouched.
+    seq.load(_ats())
+    seq.start("ats", T0 - 1)
+    ok, msg = seq.load_failed("ats", "bad.ats", "unreadable")
+    assert not ok and "RUNNING" in msg
+    assert seq.status("ats", T0)["state"] == "RUNNING"
+
+
+async def test_error_recovers_via_load_or_abort(seq, rec):
+    seq.load_failed("rts", "bad.rts", "unreadable")
+    assert not seq.start("rts", T0)[0]  # nothing usable to start
+    assert seq.load(_rts())[0]  # a good LOAD clears the error
+    assert seq.status("rts", T0)["state"] == "LOADED"
+    seq.load_failed("rts", "bad.rts", "unreadable")
+    seq.abort("rts")  # so does ABORT
+    status = seq.status("rts", T0)
+    assert status["state"] == "IDLE"
+    assert status["seq_name"] == ""
 
 
 # ---------------------------------------------------------------------------
 # Failures
 
 
-def test_executor_false_records_failed_and_continues(seq, rec):
+async def test_executor_false_records_failed_and_continues(seq, rec):
     rec.result = False
     seq.load(_ats(offsets=(0, 1)))
     seq.start("ats", T0 - 1)
-    fired = seq.tick(T0 + 10)
+    fired = await seq.tick(T0 + 10)
     assert [f.success for f in fired] == [False, False]
     status = seq.status("ats", T0 + 10)
     assert status["last_cmd_result"] == "FAILED"
     assert status["state"] == "COMPLETE"  # one failure does not strand the rest
 
 
-def test_executor_exception_records_failed_and_continues(seq, rec):
+async def test_executor_exception_records_failed_and_continues(seq, rec):
     rec.raise_on = 0
     seq.load(_ats(offsets=(0, 1)))
     seq.start("ats", T0 - 1)
-    fired = seq.tick(T0 + 10)
+    fired = await seq.tick(T0 + 10)
     assert [f.success for f in fired] == [False, True]
     assert seq.status("ats", T0 + 10)["cmd_executed"] == 2
 
 
-def test_executor_cannot_mutate_the_plan(seq):
-    polluter = Sequencer(lambda name, args: args.update(HeaterId="99") or True)
+async def test_executor_cannot_mutate_the_plan(seq):
+    polluter = Sequencer(_executor(lambda name, args: args.update(HeaterId="99") or True))
     polluter.load(_rts(delays=(0,)))
     polluter.start("rts", T0)
-    polluter.tick(T0)
-    polluter.stop("rts", T0 + 1)
-    # Rewinding and re-running must present the original arguments.
+    await polluter.tick(T0)
+    polluter.stop("rts")
+    # Re-running must present the original arguments.
     seen = []
-    replay = Sequencer(lambda name, args: seen.append(dict(args)) or True)
+    replay = Sequencer(_executor(lambda name, args: seen.append(dict(args)) or True))
     replay.load(_rts(delays=(0,)))
     replay.start("rts", T0)
-    replay.tick(T0)
+    await replay.tick(T0)
     assert seen == [{"HeaterId": "1"}]
 
 
@@ -225,10 +293,10 @@ def test_executor_cannot_mutate_the_plan(seq):
 # Transitions
 
 
-def test_illegal_transitions_are_refused(seq, rec):
+async def test_illegal_transitions_are_refused(seq, rec):
     ok, msg = seq.start("ats", T0)
     assert not ok and "IDLE" in msg
-    ok, msg = seq.stop("ats", T0)
+    ok, msg = seq.stop("ats")
     assert not ok and "not RUNNING" in msg
     seq.load(_ats())
     seq.start("ats", T0 - 1)
@@ -236,27 +304,23 @@ def test_illegal_transitions_are_refused(seq, rec):
     assert not ok and "RUNNING" in msg
     ok, msg = seq.start("ats", T0)  # start a running sequence
     assert not ok
-    seq.tick(T0 + 1000)  # runs to COMPLETE
-    ok, msg = seq.start("ats", T0 + 1001)  # rerun requires a fresh LOAD
-    assert not ok and "COMPLETE" in msg
-    assert seq.load(_ats())[0]  # reload from COMPLETE is fine
 
 
-def test_abort_discards_from_any_state(seq, rec):
+async def test_abort_discards_from_any_state(seq, rec):
     assert seq.abort("ats")[0]  # aborting nothing is not an error
     seq.load(_ats())
     seq.start("ats", T0 - 1)
-    seq.tick(T0)
+    await seq.tick(T0)
     assert seq.abort("ats")[0]
     status = seq.status("ats", T0)
     assert status["state"] == "IDLE"
     assert status["seq_name"] == ""
     assert status["cmd_total"] == 0
     assert status["last_cmd_result"] == "PENDING"
-    assert seq.tick(T0 + 1000) == []
+    assert await seq.tick(T0 + 1000) == []
 
 
-def test_slots_are_independent(seq, rec):
+async def test_slots_are_independent(seq, rec):
     seq.load(_ats())
     seq.load(_rts())
     seq.start("ats", T0 - 1)
@@ -270,7 +334,7 @@ def test_slots_are_independent(seq, rec):
 # Status contents
 
 
-def test_status_reflects_the_full_lifecycle(seq, rec):
+async def test_status_reflects_the_full_lifecycle(seq, rec):
     idle = seq.status("ats", T0)
     assert idle["seq_id"] == 0 and idle["state"] == "IDLE"
     seq.load(_ats(offsets=(0, 60)))
@@ -280,14 +344,14 @@ def test_status_reflects_the_full_lifecycle(seq, rec):
     assert loaded["cmd_total"] == 2
     assert loaded["next_cmd_time"] == int(T0)  # visible before START
     seq.start("ats", T0 - 100)
-    seq.tick(T0)
+    await seq.tick(T0)
     running = seq.status("ats", T0)
     assert running["cmd_executed"] == 1
     assert running["cmd_remaining"] == 1
     assert running["next_cmd_time"] == int(T0 + 60)
     assert running["last_cmd_name"] == "IMAGER_ON"
     assert running["last_cmd_result"] == "SUCCESS"
-    seq.tick(T0 + 60)
+    await seq.tick(T0 + 60)
     done = seq.status("ats", T0 + 60)
     assert done["state"] == "COMPLETE"
     assert done["next_cmd_time"] == 0
@@ -298,14 +362,14 @@ def test_status_reflects_the_full_lifecycle(seq, rec):
 # Reentrancy: sequences legitimately carry sequence-control commands
 
 
-def test_fired_command_may_restart_its_own_slot_without_corruption():
+async def test_fired_command_may_restart_its_own_slot_without_corruption():
     # The re-arming RTS pattern: the plan's last command aborts, reloads,
     # and restarts its own slot. The new run must begin at entry 0 with
     # clean counters — not inherit the old run's position.
     seqr = None
     launches = []
 
-    def executor(name, args):
+    async def executor(name, args):
         if name == "REARM":
             seqr.abort("rts")
             seqr.load(parse_rts("+50 PAYLOAD_GO\n+60 REARM\n", "loop.rts"))
@@ -316,56 +380,76 @@ def test_fired_command_may_restart_its_own_slot_without_corruption():
     seqr = Sequencer(executor)
     seqr.load(parse_rts("+0 PAYLOAD_GO\n+100 REARM\n", "loop.rts"))
     seqr.start("rts", T0)
-    seqr.tick(T0)
-    fired = seqr.tick(T0 + 100)  # REARM fires and re-arms the slot
+    await seqr.tick(T0)
+    fired = await seqr.tick(T0 + 100)  # REARM fires and re-arms the slot
     assert [f.command for f in fired] == ["REARM"]  # no burst, no double-fire
     status = seqr.status("rts", T0 + 100)
     assert status["state"] == "RUNNING"
     assert status["cmd_executed"] == 0  # the NEW run has fired nothing yet
     assert status["cmd_total"] == 2
-    assert len(seqr.tick(T0 + 150)) == 1  # new run's entry 0 fires on time
+    assert len(await seqr.tick(T0 + 150)) == 1  # new run's entry 0 fires on time
     assert launches == ["PAYLOAD_GO", "REARM", "PAYLOAD_GO"]
 
 
-def test_reentrant_tick_does_not_double_fire():
+async def test_reentrant_tick_does_not_double_fire():
     seqr = None
     fired_names = []
 
-    def executor(name, args):
+    async def executor(name, args):
         fired_names.append(name)
-        seqr.tick(T0 + 10)  # unit-4 dispatch may pump the loop mid-command
+        await seqr.tick(T0 + 10)  # unit-4 dispatch may pump the loop mid-command
         return True
 
     seqr = Sequencer(executor)
     seqr.load(parse_ats("2026-03-15T14:30:00Z ONLY_ONCE\n", "one.ats"))
     seqr.start("ats", T0 - 1)
-    seqr.tick(T0 + 10)
+    await seqr.tick(T0 + 10)
     assert fired_names == ["ONLY_ONCE"]
     assert seqr.status("ats", T0 + 10)["cmd_executed"] == 1
 
 
-def test_fired_command_aborting_its_own_slot_leaves_it_clean():
+async def test_fired_command_aborting_its_own_slot_leaves_it_clean():
     seqr = None
 
-    def executor(name, args):
+    async def executor(name, args):
         seqr.abort("ats")
         return True
 
     seqr = Sequencer(executor)
     seqr.load(_ats(offsets=(0, 60)))
     seqr.start("ats", T0 - 1)
-    seqr.tick(T0)
+    await seqr.tick(T0)
     status = seqr.status("ats", T0)
     assert status["state"] == "IDLE"
     assert status["cmd_executed"] == 0  # no execution history on an empty slot
     assert status["last_cmd_result"] == "PENDING"
-    assert seqr.tick(T0 + 100) == []
+    assert await seqr.tick(T0 + 100) == []
 
 
-def test_ats_command_may_start_the_rts_in_the_same_tick():
+async def test_fired_command_stopping_its_own_slot_leaves_it_as_loaded():
+    # STOP mid-fire: the entry that issued the STOP already ran, but its
+    # bookkeeping must not dirty the freshly-reset slot.
     seqr = None
 
-    def executor(name, args):
+    async def executor(name, args):
+        seqr.stop("ats")
+        return True
+
+    seqr = Sequencer(executor)
+    seqr.load(_ats(offsets=(0, 60)))
+    seqr.start("ats", T0 - 1)
+    await seqr.tick(T0)
+    status = seqr.status("ats", T0)
+    assert status["state"] == "LOADED"
+    assert status["cmd_executed"] == 0  # exactly as a fresh LOAD leaves it
+    assert status["last_cmd_result"] == "PENDING"
+    assert await seqr.tick(T0 + 100) == []
+
+
+async def test_ats_command_may_start_the_rts_in_the_same_tick():
+    seqr = None
+
+    async def executor(name, args):
         if name == "IMAGER_ON":
             seqr.load(parse_rts("+0 HEATER_OFF HeaterId=1\n", "safe.rts"))
             seqr.start("rts", T0)
@@ -374,7 +458,7 @@ def test_ats_command_may_start_the_rts_in_the_same_tick():
     seqr = Sequencer(executor)
     seqr.load(_ats(offsets=(0,)))
     seqr.start("ats", T0 - 1)
-    fired = seqr.tick(T0)
+    fired = await seqr.tick(T0)
     assert [(f.kind, f.command) for f in fired] == [
         ("ats", "IMAGER_ON"),
         ("rts", "HEATER_OFF"),  # joined this same tick's deadline merge
@@ -385,7 +469,7 @@ def test_ats_command_may_start_the_rts_in_the_same_tick():
 # Pins the first review round proved missing (mutation survivors)
 
 
-def test_ats_started_exactly_at_an_entry_time_keeps_it():
+async def test_ats_started_exactly_at_an_entry_time_keeps_it():
     # The skip rule is STRICT past (deadline < now): an entry due exactly
     # at the start instant is kept and fires on the next tick.
     rec = Recorder()
@@ -393,21 +477,21 @@ def test_ats_started_exactly_at_an_entry_time_keeps_it():
     seqr.load(_ats(offsets=(0, 60)))
     seqr.start("ats", T0)  # exactly the first entry's time
     assert seqr.status("ats", T0)["cmd_skipped"] == 0
-    assert len(seqr.tick(T0)) == 1
+    assert len(await seqr.tick(T0)) == 1
 
 
-def test_identical_deadlines_fire_ats_before_rts():
+async def test_identical_deadlines_fire_ats_before_rts():
     order = []
-    seqr = Sequencer(lambda name, args: order.append(name) or True)
+    seqr = Sequencer(_executor(lambda name, args: order.append(name) or True))
     seqr.load(_ats(offsets=(10,), command="FROM_ATS"))
     seqr.load(parse_rts("+10 FROM_RTS\n", "r.rts"))
     seqr.start("ats", T0)
     seqr.start("rts", T0)  # both deadlines land at exactly T0+10
-    seqr.tick(T0 + 10)
+    await seqr.tick(T0 + 10)
     assert order == ["FROM_ATS", "FROM_RTS"]
 
 
-def test_refused_start_leaves_next_cmd_time_untouched():
+async def test_refused_start_leaves_next_cmd_time_untouched():
     rec = Recorder()
     seqr = Sequencer(rec)
     seqr.load(_ats(offsets=(0, 60)))
@@ -420,24 +504,22 @@ def test_refused_start_leaves_next_cmd_time_untouched():
 # Elapsed honesty
 
 
-def test_elapsed_freezes_at_complete_and_stop_for_both_kinds():
+async def test_elapsed_holds_at_complete_and_resets_at_stop():
     rec = Recorder()
     seqr = Sequencer(rec)
     seqr.load(_rts(delays=(0, 10)))
     seqr.start("rts", T0)
-    seqr.tick(T0 + 10)  # completes at sequence-elapsed 10
+    await seqr.tick(T0 + 10)  # completes at sequence-elapsed 10
     assert seqr.status("rts", T0 + 10)["state"] == "COMPLETE"
-    assert seqr.status("rts", T0 + 500)["elapsed_sec"] == 10  # held, not reset
+    assert seqr.status("rts", T0 + 500)["elapsed_sec"] == 10  # held, not ticking
     seqr.load(_ats(offsets=(0, 60)))
     seqr.start("ats", T0)
-    seqr.tick(T0)
-    seqr.stop("ats", T0 + 30)
-    assert seqr.status("ats", T0 + 500)["elapsed_sec"] == 30  # ATS holds too
-    assert seqr.start("ats", T0 + 40)[0]  # resume retains the original base
-    assert seqr.status("ats", T0 + 45)["elapsed_sec"] == 45
+    await seqr.tick(T0)
+    seqr.stop("ats")
+    assert seqr.status("ats", T0 + 500)["elapsed_sec"] == 0  # as-loaded means zero
 
 
-def test_elapsed_never_goes_negative():
+async def test_elapsed_never_goes_negative():
     rec = Recorder()
     seqr = Sequencer(rec)
     seqr.load(_rts(delays=(0, 100)))
@@ -445,7 +527,7 @@ def test_elapsed_never_goes_negative():
     assert seqr.status("rts", T0 - 99)["elapsed_sec"] == 0  # clamped, not -99
 
 
-def test_loaded_rts_reports_no_next_cmd_time():
+async def test_loaded_rts_reports_no_next_cmd_time():
     # Before START an RTS has no base: its delays must not leak out as
     # January-1970 epochs.
     rec = Recorder()
@@ -454,17 +536,37 @@ def test_loaded_rts_reports_no_next_cmd_time():
     assert seqr.status("rts", T0)["next_cmd_time"] == 0
     seqr.start("rts", T0)
     assert seqr.status("rts", T0)["next_cmd_time"] == int(T0 + 30)
-    seqr.stop("rts", T0 + 5)
-    assert seqr.status("rts", T0 + 5)["next_cmd_time"] == 0  # base shifts at resume
+    seqr.stop("rts")
+    assert seqr.status("rts", T0 + 5)["next_cmd_time"] == 0  # delays re-base at START
 
 
-def test_load_over_a_half_run_plan_says_so():
+async def test_load_over_a_part_run_plan_says_so():
     rec = Recorder()
     seqr = Sequencer(rec)
     seqr.load(_ats(offsets=(0, 60)))
     seqr.start("ats", T0 - 1)
-    seqr.tick(T0)
-    seqr.stop("ats", T0 + 1)
+    await seqr.tick(T0 + 60)  # runs to COMPLETE with 2 executed
     ok, msg = seqr.load(_ats(offsets=(0, 60)))
     assert ok
-    assert "replacing plan.ats (1/2 executed)" in msg
+    assert "replacing plan.ats (2/2 executed)" in msg
+
+
+# ---------------------------------------------------------------------------
+# next_deadline: what the integration's waiter sleeps toward
+
+
+async def test_next_deadline_tracks_the_earliest_running_entry():
+    rec = Recorder()
+    seqr = Sequencer(rec)
+    assert seqr.next_deadline() is None  # nothing loaded
+    seqr.load(_ats(offsets=(60, 120)))
+    assert seqr.next_deadline() is None  # LOADED but not RUNNING: no due-times
+    seqr.start("ats", T0)
+    assert seqr.next_deadline() == T0 + 60
+    seqr.load(_rts(delays=(10,)))
+    seqr.start("rts", T0)
+    assert seqr.next_deadline() == T0 + 10  # the RTS entry is sooner
+    await seqr.tick(T0 + 10)  # RTS completes
+    assert seqr.next_deadline() == T0 + 60
+    seqr.stop("ats")
+    assert seqr.next_deadline() is None  # stopped: nothing is due anymore

@@ -169,6 +169,11 @@ class FileStore:
             existing = target.stat().st_size
         return size <= self.available() + existing
 
+    def read(self, name: str) -> bytes:
+        """The stored file's content. Raises FileNotFoundError if absent
+        (and ValueError on a name the jail refuses, like every accessor)."""
+        return self._path(name).read_bytes()
+
     def write(self, name: str, data: bytes) -> None:
         """Land ``data`` as ``name`` all-or-nothing: a crash mid-write must
         not leave a half file where a whole one is expected."""
@@ -449,7 +454,7 @@ class FileService:
         )
 
     def _cmd_delete(self, args: dict) -> list[dict]:
-        name = _decode_filename_arg(args.get("Filename"))
+        name = decode_filename_arg(args.get("Filename"))
         problem = name_problem(name) if name else "no Filename argument"
         if problem is not None:
             return self._event(name, 0, 0, "FAILED", f"delete refused: {problem}")
@@ -460,9 +465,10 @@ class FileService:
         return self._event(name, freed, 0, "SUCCESS", f"deleted ({freed} bytes freed)")
 
 
-def _decode_filename_arg(value) -> str:
+def decode_filename_arg(value) -> str:
     """A Filename command argument as text: string args arrive from the codec
-    as NUL-padded bytes; anything else is best-effort text."""
+    as NUL-padded bytes; anything else is best-effort text. Shared with the
+    sequence service, whose LOAD commands carry the same argument shape."""
     if isinstance(value, (bytes, bytearray)):
         return bytes(value).split(b"\x00", 1)[0].decode("utf-8", "replace")
     if value is None:

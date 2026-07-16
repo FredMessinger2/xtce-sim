@@ -17,12 +17,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import struct
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
 from xtce_sim import ccsds, codec
 from xtce_sim.definition import CommandDef, SimDefinition
 from xtce_sim.fileservice import FileService
+from xtce_sim.seqservice import SequenceCommandError, SequenceService, steady_view
 
 # A command handler receives the server, the decoded command, and its argument
 # values, and may send telemetry via the server. It returns nothing.
@@ -57,6 +59,7 @@ class SimServer:
         telemetry_source: Optional[Callable[[object], dict]] = None,
         behavior_engine: Optional[object] = None,
         file_service: Optional[FileService] = None,
+        sequence_service: Optional[SequenceService] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.simdef = simdef
@@ -80,6 +83,13 @@ class SimServer:
         # FILE_* commands, and owns the FILE_RECEIPT packet's beacon values
         # (single-writer, like a dynamics model owns its output fields).
         self.file_service = file_service
+        # Optional seqservice.SequenceService: claims the ATS/RTS commands
+        # and owns the two status packets' values (single-writer). Fired
+        # commands re-enter _dispatch as real packets via the executor bound
+        # here, so a sequence fire is byte-identical to a ground command.
+        self.sequence_service = sequence_service
+        if sequence_service is not None:
+            sequence_service.bind_executor(self._sequence_execute)
         self.logger = logger or logging.getLogger("xtce_sim")
         self._uplink_warned = False
 
@@ -87,6 +97,13 @@ class SimServer:
         self._seq = ccsds.SequenceCounter()
         self._server: Optional[asyncio.AbstractServer] = None
         self._beacon_task: Optional[asyncio.Task] = None
+        self._sequencer_task: Optional[asyncio.Task] = None
+        # Nudged whenever the sequencer's schedule may have changed (a
+        # LOAD/START/STOP/ABORT arrived), so the waiter recomputes its sleep.
+        self._seq_wake = asyncio.Event()
+        # Last steady view emitted per status APID — the change detector
+        # behind event-driven status downlinks.
+        self._seq_status_sent: dict[int, dict] = {}
 
     # ---- lifecycle ---------------------------------------------------------
 
@@ -111,6 +128,9 @@ class SimServer:
         self._beacon_task = asyncio.create_task(self._beacon_loop())
         # Surface an unexpected beacon death instead of losing it to GC.
         self._beacon_task.add_done_callback(self._on_beacon_done)
+        if self.sequence_service is not None:
+            self._sequencer_task = asyncio.create_task(self._sequence_loop())
+            self._sequencer_task.add_done_callback(self._on_sequencer_done)
         self.logger.info(
             "listening on %s:%d — %d command(s), %d packet(s)",
             self.host,
@@ -143,6 +163,10 @@ class SimServer:
             self._beacon_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._beacon_task
+        if self._sequencer_task:
+            self._sequencer_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._sequencer_task
         conns = list(self._clients.values())
         for conn in conns:
             if conn.task is not None:
@@ -166,6 +190,13 @@ class SimServer:
         exc = task.exception()
         if exc is not None:
             self.logger.error("beacon loop terminated unexpectedly: %r", exc)
+
+    def _on_sequencer_done(self, task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            self.logger.error("sequencer loop terminated unexpectedly: %r", exc)
 
     @property
     def client_count(self) -> int:
@@ -213,17 +244,24 @@ class SimServer:
                 self._enqueue(conn, wire)
 
     def _packet_values(self, packet_def) -> Optional[dict]:
-        """Field values for one packet: behavior overlay over synthetic base.
+        """Field values for one packet: service overlays over synthetic base.
 
         The synthetic layer (``--live`` values, or nothing) supplies defaults;
-        any field the behavior engine holds wins. Returns None when neither
-        layer has anything, so the packet packs as zeros exactly as before.
+        any field the behavior engine holds wins over it, and the sequence
+        service wins over both for the status fields it is the single writer
+        of. Returns None when no layer has anything, so the packet packs as
+        zeros exactly as before.
         """
         base = (self.telemetry_source(packet_def) if self.telemetry_source else {}) or {}
         overlay = (
             self.behavior_engine.values_for(packet_def) if self.behavior_engine else {}
         )
-        merged = {**base, **overlay}
+        seq = (
+            self.sequence_service.values_for(packet_def)
+            if self.sequence_service is not None
+            else {}
+        )
+        merged = {**base, **overlay, **seq}
         return merged or None
 
     def _enqueue(self, conn: _ClientConn, data: bytes) -> None:
@@ -406,18 +444,25 @@ class SimServer:
         except Exception:
             self.logger.exception("command echo failed")
 
-    async def _dispatch(self, packet: bytes) -> None:
+    async def _dispatch(self, packet: bytes) -> int:
+        """Validate and execute one command packet; returns the echo status.
+
+        Both entrances converge here — a client's uplink and the sequencer's
+        executor — so a sequence-fired command is validated, applied, and
+        echoed exactly like a ground one. The return value is how the
+        executor learns the verdict it reports back to the sequencer.
+        """
         opcode, payload = ccsds.parse_command_packet(packet)
         if opcode is None:
             self.logger.warning("received undecodable command packet (%d bytes)", len(packet))
             self._echo_command(packet, ccsds.ECHO_FAILED)
-            return
+            return ccsds.ECHO_FAILED
 
         command = self.simdef.command_by_opcode(opcode)
         if command is None:
             self.logger.warning("received unknown opcode 0x%02X", opcode)
             self._echo_command(packet, ccsds.ECHO_UNKNOWN_OPCODE)
-            return
+            return ccsds.ECHO_UNKNOWN_OPCODE
 
         # Decoding, behavior effects, and the (arbitrary) command handler all
         # run under one guard: a failure on one command must not tear down the
@@ -434,7 +479,7 @@ class SimServer:
                     "rejected 0x%02X %s: %s", opcode, command.name, "; ".join(violations)
                 )
                 self._echo_command(packet, ccsds.ECHO_REJECTED)
-                return
+                return ccsds.ECHO_REJECTED
             self.logger.info("command 0x%02X %s args=%s", opcode, command.name, args)
             if self.behavior_engine is not None:
                 applied = self.behavior_engine.apply_command(command, args)
@@ -456,13 +501,120 @@ class SimServer:
                 # File-management commands act on the real store; a raise
                 # lands in the guard below and echoes FAILED like any command.
                 self._send_file_receipts(self.file_service.handle_command(command.name, args))
+            if self.sequence_service is not None and self.sequence_service.handles(command.name):
+                # Sequence commands act on the sequencer; the waiter is
+                # nudged so it recomputes its sleep and downlinks the
+                # changed status packet.
+                verdict = self.sequence_service.handle_command(command.name, args)
+                self.logger.info("  sequence: %s", verdict)
+                self._seq_wake.set()
             if self.command_handler is not None:
                 await self.command_handler(self, command, args)
+        except SequenceCommandError as exc:
+            # An operational refusal (nothing loaded, missing file, bad
+            # plan), not a software fault: no traceback, but the slot state
+            # may have changed (a failed LOAD lands in ERROR) — wake the
+            # waiter so the console sees it.
+            self.logger.warning("refused %s: %s", command.name, exc)
+            self._seq_wake.set()
+            self._echo_command(packet, ccsds.ECHO_FAILED)
+            return ccsds.ECHO_FAILED
         except Exception:
             self.logger.exception("error handling command 0x%02X %s", opcode, command.name)
             self._echo_command(packet, ccsds.ECHO_FAILED)
-            return
+            return ccsds.ECHO_FAILED
         self._echo_command(packet, ccsds.ECHO_EXECUTED)
+        return ccsds.ECHO_EXECUTED
+
+    # ---- sequencing ----------------------------------------------------------
+
+    async def _sequence_execute(self, name: str, args: dict) -> bool:
+        """The sequencer's executor: encode the fired entry as a REAL command
+        packet and push it through ``_dispatch``, byte-identical to the same
+        command sent from the ground — range validation, behavior effects,
+        immediate emissions, and the command echo all happen exactly once,
+        exactly as they would for an uplink. Success is the echo verdict.
+        """
+        command = self.simdef.command_by_name(name)
+        if command is None:
+            # LOAD validated every entry against the definition, so this
+            # means the definition itself changed underneath a loaded plan.
+            self.logger.error("sequence fired %s, which this vehicle does not define", name)
+            return False
+        try:
+            payload = codec.encode_command(command, args)
+        except (ValueError, struct.error) as exc:
+            self.logger.error("sequence entry %s failed to encode: %s", name, exc)
+            return False
+        packet = (
+            ccsds.CCSDSHeader(packet_type=int(ccsds.PacketType.COMMAND), apid=1).pack()
+            + bytes([command.opcode])
+            + payload
+        )
+        return await self._dispatch(packet) == ccsds.ECHO_EXECUTED
+
+    async def _sequence_loop(self) -> None:
+        """The waiter: sleep until the sequencer's next deadline, fire, repeat.
+
+        Event-driven, not polled — with nothing RUNNING it sleeps until a
+        sequence command nudges ``_seq_wake``. While a deadline is pending
+        the sleep is capped (``_SEQ_SLEEP_CAP``) so a wall-clock jump under
+        a long sleep is noticed within a second: the sleep DURATION is
+        computed once at bedtime, but the deadline is judged against the
+        real clock on every pass.
+        """
+        service = self.sequence_service
+        while True:
+            try:
+                fired = await service.tick(service.clock())
+            except Exception:
+                # An executor fault is handled inside the sequencer; this
+                # catches bugs in the machinery itself. Don't spin hot on a
+                # persistent one — the deadline that triggered it is likely
+                # still due.
+                self.logger.exception("sequencer tick failed")
+                fired = []
+                await asyncio.sleep(_SEQ_SLEEP_CAP)
+            if fired:
+                self.logger.info(
+                    "sequencer fired %d command(s) this pass", len(fired)
+                )
+            self._emit_sequence_status()
+            deadline = service.next_deadline()
+            timeout = None
+            if deadline is not None:
+                timeout = max(0.0, min(deadline - service.clock(), _SEQ_SLEEP_CAP))
+            try:
+                await asyncio.wait_for(self._seq_wake.wait(), timeout)
+            except TimeoutError:
+                pass
+            self._seq_wake.clear()
+
+    def _emit_sequence_status(self) -> None:
+        """Downlink each status packet the moment its steady view changes.
+
+        The beacon re-sends these on its own schedule regardless; this is
+        the event edge — a LOAD, START, fire, completion, or failure shows
+        up on the console immediately instead of a beacon later. Guarded
+        per packet like the beacon: one bad packet must not stall the rest.
+        """
+        for apid in sorted(self.sequence_service.status_apids):
+            packet_def = self.simdef.packet_by_apid(apid)
+            values = self.sequence_service.values_for(packet_def)
+            steady = steady_view(values)
+            if self._seq_status_sent.get(apid) == steady:
+                continue
+            self._seq_status_sent[apid] = steady
+            try:
+                self.send_packet(apid, values)
+            except Exception:
+                self.logger.exception("sequence status: failed to send APID 0x%X", apid)
+
+
+#: While a sequence deadline is pending, never sleep longer than this — the
+#: re-check is what bounds how long an NTP step or suspend/resume can fool
+#: the waiter's precomputed sleep.
+_SEQ_SLEEP_CAP = 1.0
 
 
 def _is_file_uplink(packet: bytes) -> bool:

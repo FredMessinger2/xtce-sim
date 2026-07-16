@@ -226,9 +226,8 @@
           <xtce:Enumeration label="IDLE" value="0" />
           <xtce:Enumeration label="LOADED" value="1" />
           <xtce:Enumeration label="RUNNING" value="2" />
-          <xtce:Enumeration label="STOPPED" value="3" />
-          <xtce:Enumeration label="COMPLETE" value="4" />
-          <xtce:Enumeration label="ERROR" value="5" />
+          <xtce:Enumeration label="COMPLETE" value="3" />
+          <xtce:Enumeration label="ERROR" value="4" />
         </xtce:EnumerationList>
       </xtce:EnumeratedParameterType>
 
@@ -493,6 +492,7 @@
       <xtce:Parameter name="ATS_STATE" parameterTypeRef="SeqStateType" shortDescription="ATS execution state" />
       <xtce:Parameter name="ATS_CMD_TOTAL" parameterTypeRef="UInt16Type" shortDescription="Total commands in loaded ATS" />
       <xtce:Parameter name="ATS_CMD_EXECUTED" parameterTypeRef="UInt16Type" shortDescription="ATS commands executed so far" />
+      <xtce:Parameter name="ATS_CMD_SKIPPED" parameterTypeRef="UInt16Type" shortDescription="ATS commands skipped as already past" />
       <xtce:Parameter name="ATS_CMD_REMAINING" parameterTypeRef="UInt16Type" shortDescription="ATS commands remaining" />
       <xtce:Parameter name="ATS_NEXT_CMD_TIME" parameterTypeRef="UInt32Type" shortDescription="Timestamp of next ATS command" />
       <xtce:Parameter name="ATS_LAST_CMD_NAME" parameterTypeRef="SeqNameType" shortDescription="Last ATS command executed" />
@@ -505,6 +505,7 @@
       <xtce:Parameter name="RTS_STATE" parameterTypeRef="SeqStateType" shortDescription="RTS execution state" />
       <xtce:Parameter name="RTS_CMD_TOTAL" parameterTypeRef="UInt16Type" shortDescription="Total commands in loaded RTS" />
       <xtce:Parameter name="RTS_CMD_EXECUTED" parameterTypeRef="UInt16Type" shortDescription="RTS commands executed so far" />
+      <xtce:Parameter name="RTS_CMD_SKIPPED" parameterTypeRef="UInt16Type" shortDescription="RTS commands skipped as already past" />
       <xtce:Parameter name="RTS_CMD_REMAINING" parameterTypeRef="UInt16Type" shortDescription="RTS commands remaining" />
       <xtce:Parameter name="RTS_ELAPSED_SEC" parameterTypeRef="UInt32Type" shortDescription="Seconds since START_RTS" />
       <xtce:Parameter name="RTS_LAST_CMD_NAME" parameterTypeRef="SeqNameType" shortDescription="Last RTS command executed" />
@@ -717,6 +718,7 @@
           <xtce:ParameterRefEntry parameterRef="ATS_STATE" />
           <xtce:ParameterRefEntry parameterRef="ATS_CMD_TOTAL" />
           <xtce:ParameterRefEntry parameterRef="ATS_CMD_EXECUTED" />
+          <xtce:ParameterRefEntry parameterRef="ATS_CMD_SKIPPED" />
           <xtce:ParameterRefEntry parameterRef="ATS_CMD_REMAINING" />
           <xtce:ParameterRefEntry parameterRef="ATS_NEXT_CMD_TIME" />
           <xtce:ParameterRefEntry parameterRef="ATS_LAST_CMD_NAME" />
@@ -740,6 +742,7 @@
           <xtce:ParameterRefEntry parameterRef="RTS_STATE" />
           <xtce:ParameterRefEntry parameterRef="RTS_CMD_TOTAL" />
           <xtce:ParameterRefEntry parameterRef="RTS_CMD_EXECUTED" />
+          <xtce:ParameterRefEntry parameterRef="RTS_CMD_SKIPPED" />
           <xtce:ParameterRefEntry parameterRef="RTS_CMD_REMAINING" />
           <xtce:ParameterRefEntry parameterRef="RTS_ELAPSED_SEC" />
           <xtce:ParameterRefEntry parameterRef="RTS_LAST_CMD_NAME" />
@@ -991,9 +994,12 @@
         </xtce:StringDataEncoding>
       </xtce:StringArgumentType>
 
-      <!-- Sequence ID for ATS/RTS (identifies which loaded sequence to act on) -->
+      <!-- Sequence ID for ATS/RTS. This vehicle carries a single ATS slot and
+           a single RTS slot, so the only valid id is 1 — declared here so the
+           vehicle's own range validation rejects any other value. -->
       <xtce:IntegerArgumentType name="SeqIdArgType" signed="false">
         <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="1" /></xtce:ValidRangeSet>
       </xtce:IntegerArgumentType>
 
       <!-- 64-bit float seconds-since-epoch timestamp argument (LINK_VALIDATE).  (CMD_ACTIONS_300) -->
@@ -1737,8 +1743,8 @@
         <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Begins autonomous command execution" />
       </xtce:MetaCommand>
 
-      <!-- STOP_ATS: Halt ATS execution, retain position for resume -->
-      <xtce:MetaCommand name="STOP_ATS" shortDescription="Halt ATS execution, retain position">
+      <!-- STOP_ATS: Halt ATS execution; the plan stays loaded and START runs it again -->
+      <xtce:MetaCommand name="STOP_ATS" shortDescription="Halt ATS execution; plan stays loaded">
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xD7" />
@@ -1817,8 +1823,8 @@
         <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Begins autonomous command execution" />
       </xtce:MetaCommand>
 
-      <!-- STOP_RTS: Halt RTS execution, retain position for resume -->
-      <xtce:MetaCommand name="STOP_RTS" shortDescription="Halt RTS execution, retain position">
+      <!-- STOP_RTS: Halt RTS execution; the plan stays loaded and START runs it again -->
+      <xtce:MetaCommand name="STOP_RTS" shortDescription="Halt RTS execution; plan stays loaded">
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0xDB" />
