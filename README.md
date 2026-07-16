@@ -378,8 +378,13 @@ value breathes briefly, panels dim when their packets stop arriving, and a
 link dot tracks the sim connection — kill the sim and it goes red, restart
 and the bridge reconnects on its own. Because telemetry is *pushed*,
 immediate emissions (see below) appear the moment they happen, between
-beacon beats. `--http-port` moves the console off 8080; commanding from the
-browser is planned, not yet built.
+beacon beats. `--http-port` moves the console off 8080.
+
+Event-driven packets are the exception to the dimming rule: a packet that
+downlinks when something happens rather than on the beacon (`FILE_RECEIPT`,
+today) wears an **EVENT** badge and never dims — quiet is its normal state,
+and the latched last event stays readable instead of fading five seconds
+after every upload.
 
 **The command log.** The console is split in two — a command history and
 the telemetry grid — separated by a draggable splitter bar (the header's
@@ -406,6 +411,32 @@ command echo); this is the echo flavor. The echo APID is part of this
 simulator's link protocol — like the length-prefix framing — not part of
 any satellite's XTCE, and the terminal `monitor` skips it (the web console
 is its renderer).
+
+**Commanding from the browser.** The command pane carries an entry line —
+under the log when the pane is a tall column, left of it when the pane is a
+wide strip, following the *split* toggle. Type shell-style —
+`HEATER_ON HeaterId=1` — and Enter sends. The command name autocompletes
+from the definition (arrow keys and Tab, case-insensitive, resolving to the
+ICD's exact spelling), and once a name is complete the hint line shows its
+full argument signature straight from the XTCE: enum labels, declared
+ranges, units. ArrowUp recalls earlier sends.
+
+A command the ICD marks hazardous does not go on one Enter: the entry arms
+a confirm step showing the significance level and its declared reason —
+Enter again transmits, Esc cancels, and changing the line in any way
+disarms it.
+
+The bridge is the ground authority, and it does not trust the page: every
+send is validated and encoded exactly as `xtce-sim send` does, so an
+unknown name, a misspelled argument, or a value outside its declared range
+is **refused on the ground** — the reason appears under the entry line and
+in the log as `refused by ground`, and nothing touches the wire. A command
+that passes goes up the same TCP link telemetry rides down, and its outcome
+arrives the way every command's does: as the vehicle's echo, on every
+console watching. The bridge also refuses WebSocket connections from
+foreign web origins and requests addressed to unexpected hosts, so a random
+page open in your browser cannot command the vehicle through your loopback
+bridge.
 
 ### Live telemetry
 
