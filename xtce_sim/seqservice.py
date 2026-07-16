@@ -109,7 +109,7 @@ class SequenceService:
         self._logger = logger or logging.getLogger(__name__)
         self._saturation_warned: set[str] = set()
         self._execute: Optional[Executor] = None
-        self.sequencer = Sequencer(self._run_fired)
+        self.sequencer = Sequencer(self._run_fired, logger_=self._logger)
         self._packets = {
             kind: simdef.packet_by_name(name)
             for kind, name in _STATUS_PACKET_NAMES.items()
