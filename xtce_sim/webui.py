@@ -61,6 +61,7 @@ from datetime import datetime
 from importlib import resources
 
 from aiohttp import WSMsgType, web
+from yarl import URL
 
 from xtce_sim import ccsds, codec, fileservice
 from xtce_sim.definition import FieldInfo, SimDefinition
@@ -358,7 +359,10 @@ class Bridge:
         The ground does not trust the page: the command must exist, every
         argument must coerce and encode, and declared ValidRanges are
         enforced — the same strict-uplink stance as ``xtce-sim send``. A
-        refusal here never touches the wire.
+        refusal here never touches the wire. TypeError joins the catch
+        because JSON can deliver null/arrays/objects where the codec
+        expects a number, and one bad value must cost a refusal, not the
+        socket.
         """
         command = self.simdef.command_by_name(str(name))
         if command is None:
@@ -367,21 +371,32 @@ class Bridge:
             return False, "args must be an object of NAME=VALUE pairs"
         try:
             payload = codec.encode_command(command, args)
-        except (ValueError, struct.error) as exc:
+        except (ValueError, TypeError, OverflowError, struct.error) as exc:
             return False, str(exc)
         writer = self._sim_writer
-        if writer is None:
+        if writer is None or writer.is_closing():
             return False, "sim link is down — nothing was transmitted"
         try:
             writer.write(ccsds.frame(ccsds.build_command_packet(command.opcode, payload)))
             await writer.drain()
         except OSError as exc:
             return False, f"sim link failed mid-send: {exc}"
+        if writer.is_closing():
+            # The link died under the send: a closing transport discards
+            # writes without raising, so honesty requires saying the
+            # command may never have left the ground.
+            return False, "sim link dropped during the send — the command may not have left"
         return True, "transmitted"
 
     async def _handle_send(self, ws: web.WebSocketResponse, msg: dict) -> None:
         """One page-originated command; the verdict goes to the asker only."""
-        ok, detail = await self.uplink(msg.get("name"), msg.get("args") or {})
+        # Only an ABSENT args defaults to {}: a falsy non-dict ([], 0, "")
+        # is a malformed request and must reach uplink's refusal, not be
+        # silently promoted into "send with every argument zero".
+        args = msg.get("args")
+        if args is None:
+            args = {}
+        ok, detail = await self.uplink(msg.get("name"), args)
         reply: dict = {
             "type": "send_result",
             "id": msg.get("id"),
@@ -401,6 +416,17 @@ class Bridge:
     # -- HTTP / WebSocket handlers -------------------------------------------
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
+        if not _origin_allowed(request):
+            # Browsers do NOT enforce same-origin on WebSockets: without
+            # this check, any web page open in the operator's browser could
+            # connect to the localhost bridge and command the vehicle. A
+            # browser always sends Origin on a WS handshake; it must match
+            # the host this console was served from. Non-browser clients
+            # (tests, scripts) send no Origin and pass.
+            log.warning(
+                "rejected WS from foreign origin %r", request.headers.get("Origin")
+            )
+            raise web.HTTPForbidden(text="cross-origin WebSocket refused")
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
         # The hello goes direct: the socket is fresh, so these cannot stall.
@@ -435,6 +461,26 @@ class Bridge:
             resources.files("xtce_sim").joinpath("static/ui.html").read_text
         )
         return web.Response(text=page, content_type="text/html")
+
+
+def _origin_allowed(request: web.Request) -> bool:
+    """Whether a WS handshake's Origin is this console's own page.
+
+    Absent Origin (non-browser client) is allowed; a present one must name
+    exactly the host:port the request was addressed to.
+    """
+    origin = request.headers.get("Origin")
+    if origin is None:
+        return True
+    try:
+        parsed = URL(origin)
+        origin_host = parsed.host or ""
+        origin_port = parsed.explicit_port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return False
+    host, _, port_text = request.host.partition(":")
+    port = int(port_text) if port_text else 80
+    return origin_host == host and origin_port == port
 
 
 async def run_ui(
