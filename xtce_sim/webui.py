@@ -492,16 +492,24 @@ def _host_guard(http_host: str, http_port: int):
     its loopback aliases; an explicit wide bind (0.0.0.0/::) is a stated
     choice to serve any interface, so only the port is enforced there.
     """
+    # yarl IDNA-lowercases the parsed host, so the allowed set must be
+    # lowercase too or a --http-host MyHost.local would refuse the very
+    # URL the CLI prints.
+    configured = http_host.lower()
     loopback = {"127.0.0.1", "::1", "localhost"}
-    any_host = http_host in ("0.0.0.0", "::")
-    allowed = loopback | {http_host} if http_host in loopback else {http_host}
+    any_host = configured in ("0.0.0.0", "::")
+    allowed = loopback | {configured} if configured in loopback else {configured}
 
     @web.middleware
     async def guard(request: web.Request, handler):
-        if request.url.port != http_port or (
-            not any_host and request.url.host not in allowed
-        ):
-            log.warning("refused request addressed to %r", request.host)
+        try:
+            # request.url parses the Host header lazily; a malformed one
+            # ('evil:99999') raises here and earns the same refusal.
+            host, port = request.url.host, request.url.port
+        except ValueError:
+            host, port = None, None
+        if port != http_port or (not any_host and host not in allowed):
+            log.warning("refused request addressed to %r", request.headers.get("Host"))
             raise web.HTTPForbidden(text="unexpected Host")
         return await handler(request)
 
