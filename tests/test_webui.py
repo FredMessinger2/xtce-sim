@@ -588,14 +588,21 @@ async def test_host_guard_refuses_rebound_names(simdef):
                 assert resp.status == 200  # loopback aliases pass
             async with session.get(f"http://127.0.0.1:{port}/") as resp:
                 assert resp.status == 200
-            # A malformed Host earns the same 403, never a traceback-500,
-            # and case games don't slip past the (lowercased) comparison.
-            for bad in (f"evil.example:{port}", "evil.example:99999", "evil:abc",
-                        f"EVIL.EXAMPLE:{port}"):
+            # Well-formed foreign hosts get the guard's own 403; case games
+            # don't slip past the (lowercased) comparison.
+            for foreign in (f"evil.example:{port}", f"EVIL.EXAMPLE:{port}"):
+                async with session.get(
+                    f"http://127.0.0.1:{port}/", headers={"Host": foreign}
+                ) as resp:
+                    assert resp.status == 403, foreign
+            # A MALFORMED Host must be refused without a traceback-500 —
+            # whether by the guard (403) or by a stricter future aiohttp
+            # parser (400) is an internal detail, so pin the property.
+            for bad in ("evil.example:99999", "evil:abc"):
                 async with session.get(
                     f"http://127.0.0.1:{port}/", headers={"Host": bad}
                 ) as resp:
-                    assert resp.status == 403, bad
+                    assert resp.status in (400, 403), bad
             async with session.get(
                 f"http://127.0.0.1:{port}/", headers={"Host": f"LOCALHOST:{port}"}
             ) as resp:
