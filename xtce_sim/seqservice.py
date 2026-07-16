@@ -39,7 +39,7 @@ from typing import Awaitable, Callable, Optional
 
 from xtce_sim import sequences
 from xtce_sim.fileservice import FileStore, decode_filename_arg
-from xtce_sim.sequencer import Fired, Sequencer
+from xtce_sim.sequencer import CmdResult, Fired, SeqState, Sequencer
 from xtce_sim.sequences import Sequence
 
 #: Command name -> (slot kind, sequencer verb). ``handles`` claims exactly
@@ -57,6 +57,13 @@ SEQUENCE_COMMANDS = {
 
 _STATUS_PACKET_NAMES = {"ats": "ATS_STATUS", "rts": "RTS_STATUS"}
 _PARSERS = {"ats": sequences.parse_ats, "rts": sequences.parse_rts}
+
+#: Every label the sequencer can ever emit, per status key — what a status
+#: packet's enumerations must cover to tell the whole story on the wire.
+_LABEL_SETS = {
+    "state": {s.name for s in SeqState},
+    "last_cmd_result": {r.name for r in CmdResult},
+}
 
 #: Executor type re-exported for the server: fired commands travel it.
 Executor = Callable[[str, dict], Awaitable[bool]]
@@ -134,6 +141,23 @@ class SequenceService:
                     name,
                     ", ".join(unmapped),
                 )
+            for field in packet.fields:
+                needed = _LABEL_SETS.get(field.name.removeprefix(prefix).lower())
+                if needed is None or not field.enumerations:
+                    continue
+                missing = sorted(needed - set(field.enumerations))
+                if missing:
+                    # A state the wire cannot express downlinks as the field
+                    # default (0) — say so HERE, where the ICD author looks,
+                    # not in a runtime log after the first failed LOAD.
+                    self._logger.warning(
+                        "%s.%s: enumeration is missing label(s) %s — those "
+                        "states cannot be downlinked and will read as the "
+                        "default value",
+                        name,
+                        field.name,
+                        ", ".join(missing),
+                    )
 
     def bind_executor(self, execute: Executor) -> None:
         """Install the dispatch path fired commands travel (server-owned)."""
@@ -158,11 +182,11 @@ class SequenceService:
         this simulator's contract, and a vehicle whose XTCE forgot the
         range must still refuse SeqId 3 rather than silently act on slot 1.
         """
-        seq_id = args.get("SeqId")
+        seq_id = self._seq_id_wire_value(command_name, args)
         if seq_id not in (None, 1):
             raise SequenceCommandError(
-                f"SeqId {seq_id} refused — this vehicle has a single ATS slot "
-                "and a single RTS slot, both SeqId 1"
+                f"SeqId {args.get('SeqId')} refused — this vehicle has a single "
+                "ATS slot and a single RTS slot, both SeqId 1"
             )
         kind, verb = SEQUENCE_COMMANDS[command_name]
         if verb == "load":
@@ -176,6 +200,26 @@ class SequenceService:
         if not ok:
             raise SequenceCommandError(msg)
         return msg
+
+    def _seq_id_wire_value(self, command_name: str, args: dict):
+        """The SeqId argument as its wire value (None if absent).
+
+        ``decode_command`` hands enum arguments over as their LABELS — a
+        vehicle is free to type SeqId as an enumeration (SLOT_1 = 1), and
+        the single-slot rule judges the wire value, not the spelling.
+        """
+        seq_id = args.get("SeqId")
+        if not isinstance(seq_id, str):
+            return seq_id
+        command = self.simdef.command_by_name(command_name)
+        param = (
+            next((p for p in command.params if p.name == "SeqId"), None)
+            if command is not None
+            else None
+        )
+        if param is not None and param.enumerations:
+            return param.enumerations.get(seq_id, seq_id)
+        return seq_id
 
     def _cmd_load(self, kind: str, args: dict) -> str:
         """LOAD: read the plan out of the vehicle's own store and install it.
