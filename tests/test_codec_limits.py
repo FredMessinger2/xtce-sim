@@ -84,10 +84,12 @@ def test_command_wrong_type_for_string_field_is_value_error():
 
 
 def test_decode_command_stays_liberal():
-    # Receiving stays lenient: an over-long payload truncates, short pads.
+    # Receiving stays lenient: an over-long payload truncates, short pads —
+    # and string arguments come back as TEXT (NUL padding stripped), the
+    # way they were commanded, so no log or console shows a hex blob.
     cmd = _cmd("string", 32)
-    assert codec.decode_command(cmd, b"ABCDEFGH")["P"] == b"ABCD"
-    assert codec.decode_command(cmd, b"A")["P"] == b"A\x00\x00\x00"
+    assert codec.decode_command(cmd, b"ABCDEFGH")["P"] == "ABCD"
+    assert codec.decode_command(cmd, b"A")["P"] == "A"
 
 
 # ---- telemetry pack: liberal, but loud once --------------------------------

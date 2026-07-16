@@ -609,3 +609,21 @@ async def test_host_guard_refuses_rebound_names(simdef):
                 assert resp.status == 200  # our own alias, any spelling
     finally:
         await runner.cleanup()
+
+
+def test_command_message_string_arg_renders_text(simdef):
+    """Fred's console screenshot: LOAD_RTS's Filename showed as a hex blob.
+
+    decode_command now hands string arguments over as NUL-stripped text
+    (like enum labels), so the command log — and the sim's own log — show
+    Filename=demo.rts, not 64656d6f2e727473...
+    """
+    command = simdef.command_by_name("LOAD_RTS")
+    packet = ccsds.build_command_packet(
+        command.opcode, codec.encode_command(command, {"Filename": "demo.rts"})
+    )
+    echo = ccsds.build_command_echo(packet, ccsds.ECHO_EXECUTED)
+    from xtce_sim.webui import command_message
+
+    msg = command_message(simdef, echo)
+    assert msg["args"]["Filename"] == "demo.rts"
