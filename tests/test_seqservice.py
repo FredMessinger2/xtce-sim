@@ -233,6 +233,52 @@ def test_seqid_other_than_1_is_refused_by_the_service(service, store):
     assert service.sequencer.status("rts", T0)["state"] == "LOADED"  # untouched
 
 
+def test_enum_typed_seqid_is_judged_by_wire_value(store, simdef):
+    # A vehicle may type SeqId as an enumeration; decode_command then hands
+    # the service a LABEL. The single-slot rule judges the wire value, so
+    # a label meaning 1 passes and a label meaning 2 refuses.
+    start = simdef.command_by_name("START_RTS")
+    enum_params = [
+        dataclasses.replace(p, enumerations={"SLOT_1": 1, "SLOT_2": 2})
+        if p.name == "SeqId"
+        else p
+        for p in start.params
+    ]
+    enum_def = dataclasses.replace(simdef, commands=[
+        dataclasses.replace(start, params=enum_params) if c.name == "START_RTS" else c
+        for c in simdef.commands
+    ])
+    service = SequenceService(store, enum_def, clock=lambda: T0)
+    store.write("plan.rts", b"+0 IMAGER_ON\n")
+    service.handle_command("LOAD_RTS", _filename_arg("plan.rts"))
+    assert "started" in service.handle_command("START_RTS", {"SeqId": "SLOT_1"})
+    service.handle_command("STOP_RTS", {})
+    with pytest.raises(SequenceCommandError, match="single"):
+        service.handle_command("START_RTS", {"SeqId": "SLOT_2"})
+
+
+def test_a_lean_state_enumeration_is_reported_at_construction(store, simdef, caplog):
+    # A SeqStateType without ERROR cannot downlink the one state a failed
+    # LOAD reaches; the wire would read 0 = IDLE. The ICD author hears it
+    # at construction, not from a runtime log after the first failure.
+    packet = simdef.packet_by_name("ATS_STATUS")
+    lean_fields = [
+        dataclasses.replace(
+            f, enumerations={k: v for k, v in f.enumerations.items() if k != "ERROR"}
+        )
+        if f.name == "ATS_STATE"
+        else f
+        for f in packet.fields
+    ]
+    lean_def = dataclasses.replace(simdef, packets=[
+        dataclasses.replace(packet, fields=lean_fields) if p.name == "ATS_STATUS" else p
+        for p in simdef.packets
+    ])
+    with caplog.at_level("WARNING"):
+        SequenceService(store, lean_def, clock=lambda: T0)
+    assert "missing label(s) ERROR" in caplog.text
+
+
 def test_wrong_kind_refusal_is_case_insensitive(service, store):
     # Uppercase names are common flight-file convention; 'PLAN.RTS' must
     # get the crisp kind-mismatch refusal, not a confusing parse error.
