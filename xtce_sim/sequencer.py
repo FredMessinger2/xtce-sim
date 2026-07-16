@@ -144,8 +144,11 @@ class _Slot:
 class Sequencer:
     """One ATS and one RTS slot, advanced by ``tick(now)``."""
 
-    def __init__(self, execute: Executor) -> None:
+    def __init__(self, execute: Executor, logger_: logging.Logger | None = None) -> None:
         self._execute = execute
+        # Injected like the services': the integration hands over the
+        # instance's own logger so slot events land in the sim window.
+        self._log = logger_ or logger
         self._slots = {"ats": _Slot(kind="ats"), "rts": _Slot(kind="rts")}
 
     # -- commands ----------------------------------------------------------------
@@ -162,7 +165,7 @@ class Sequencer:
         slot.clear()
         slot.sequence = sequence
         slot.state = SeqState.LOADED
-        logger.info("%s loaded: %s (%d commands)", slot.kind.upper(), sequence.name, slot.total)
+        self._log.info("%s loaded: %s (%d commands)", slot.kind.upper(), sequence.name, slot.total)
         return True, f"loaded {sequence.name} ({slot.total} commands){replaced}"
 
     def load_failed(self, kind: str, name: str, reason: str) -> tuple[bool, str]:
@@ -179,7 +182,7 @@ class Sequencer:
         slot.clear()
         slot.state = SeqState.ERROR
         slot.error_name = name
-        logger.error("%s load failed: %s — %s", kind.upper(), name, reason)
+        self._log.error("%s load failed: %s — %s", kind.upper(), name, reason)
         return True, f"load of {name} failed: {reason}"
 
     def start(self, kind: str, now: float) -> tuple[bool, str]:
@@ -198,14 +201,14 @@ class Sequencer:
                 slot.state = SeqState.LOADED
                 return False, refusal
             if skipped:
-                logger.warning(
+                self._log.warning(
                     "ATS %s: skipped %d past command(s), starting at entry %d",
                     slot.sequence.name,
                     skipped,
                     slot.position + 1,
                 )
         slot.state = SeqState.RUNNING
-        logger.info("%s started: %s", kind.upper(), slot.sequence.name)
+        self._log.info("%s started: %s", kind.upper(), slot.sequence.name)
         return True, f"started {slot.sequence.name}"
 
     def stop(self, kind: str) -> tuple[bool, str]:
@@ -216,7 +219,7 @@ class Sequencer:
         halted_at = f"{slot.position}/{slot.total}"
         slot.reset_run()
         slot.state = SeqState.LOADED
-        logger.info("%s stopped at %s; %s remains loaded", kind.upper(), halted_at, slot.sequence.name)
+        self._log.info("%s stopped at %s; %s remains loaded", kind.upper(), halted_at, slot.sequence.name)
         return True, f"stopped at command {halted_at}; {slot.sequence.name} remains loaded"
 
     def abort(self, kind: str) -> tuple[bool, str]:
@@ -224,7 +227,7 @@ class Sequencer:
         slot = self._slots[kind]
         name = slot.sequence.name if slot.sequence else "(nothing loaded)"
         slot.clear()
-        logger.info("%s aborted: %s", kind.upper(), name)
+        self._log.info("%s aborted: %s", kind.upper(), name)
         return True, f"aborted {name}"
 
     def _skip_past(self, slot: _Slot, now: float) -> tuple[int, str | None]:
@@ -260,7 +263,7 @@ class Sequencer:
             if slot.state is SeqState.RUNNING and slot.exhausted:
                 slot.state = SeqState.COMPLETE
                 slot.final_elapsed = max(0.0, now - slot.base)
-                logger.info(
+                self._log.info(
                     "%s complete: %s (%d executed, %d skipped)",
                     slot.kind.upper(),
                     slot.sequence.name,
@@ -305,7 +308,7 @@ class Sequencer:
         try:
             success = bool(await self._execute(entry.command, args))
         except Exception:
-            logger.exception("%s: %s raised", slot.kind.upper(), entry.command)
+            self._log.exception("%s: %s raised", slot.kind.upper(), entry.command)
             success = False
         result = CmdResult.SUCCESS if success else CmdResult.FAILED
         if slot.generation == generation:
@@ -318,7 +321,7 @@ class Sequencer:
             # the entry still ran, but its bookkeeping must not land on the
             # new run.
             progress = 0
-        log = logger.info if success else logger.warning
+        log = self._log.info if success else self._log.warning
         log(
             "%s fired %s (%d/%d) -> %s",
             slot.kind.upper(),
