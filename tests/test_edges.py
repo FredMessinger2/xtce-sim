@@ -77,7 +77,7 @@ def test_codec_encode_string_and_float():
     payload = codec.encode_command(cmd, {"NAME": "hi", "GAIN": 1.5})
     out = codec.decode_command(cmd, payload)
     assert out["GAIN"] == pytest.approx(1.5)
-    assert out["NAME"].startswith(b"hi")
+    assert out["NAME"] == "hi"  # text round-trips as text, padding stripped
 
 
 # ---- ccsds -----------------------------------------------------------------

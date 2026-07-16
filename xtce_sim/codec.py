@@ -300,6 +300,11 @@ def decode_command(command: CommandDef, payload: bytes) -> dict:
     The payload is the command packet bytes *after* the opcode. It is padded or
     truncated to the expected argument size so a short/over-long client frame
     still decodes rather than raising.
+
+    Decoded values arrive as commanded, not as wire noise: enum arguments as
+    their labels, and string arguments as NUL-stripped text — the operator
+    typed ``Filename=demo.rts`` and every log and console downstream shows
+    that, not a hex blob. Binary ('bytes') arguments stay bytes.
     """
     if not command.params:
         return {}
@@ -314,6 +319,8 @@ def decode_command(command: CommandDef, payload: bytes) -> dict:
             # Attach the enum label when the raw value matches one.
             label = next((k for k, v in param.enumerations.items() if v == value), None)
             result[param.name] = label if label is not None else value
+        elif param.python_type == "string" and isinstance(value, (bytes, bytearray)):
+            result[param.name] = bytes(value).split(b"\x00", 1)[0].decode("utf-8", "replace")
         else:
             result[param.name] = value
     return result
