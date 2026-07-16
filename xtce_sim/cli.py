@@ -29,7 +29,7 @@ from pathlib import Path
 
 import click
 
-from xtce_sim import behavior, ccsds, client, codec, fileservice, render, sequences
+from xtce_sim import behavior, ccsds, client, codec, fileservice, render, seqservice, sequences
 from xtce_sim.definition import SimDefinition
 from xtce_sim.exercise import build_send_plan, reject_probe, run_exercise
 from xtce_sim.generate import GeneratorError, emit_python, format_json, format_text
@@ -340,6 +340,9 @@ def run(
     # persists across restarts of the same instance, as real storage would.
     store = fileservice.FileStore(run_dir / "files")
     service = fileservice.FileService(store, simdef, logger=logger)
+    # The sequencer reads LOAD_ATS/LOAD_RTS plans out of the same store the
+    # file uplink writes — upload, then LOAD, with no ground-side staging.
+    sequences_service = seqservice.SequenceService(store, simdef, logger=logger)
 
     server = SimServer(
         simdef,
@@ -349,6 +352,7 @@ def run(
         telemetry_source=LiveTelemetry() if live else None,
         behavior_engine=engine,
         file_service=service,
+        sequence_service=sequences_service,
         logger=logger,
     )
 
