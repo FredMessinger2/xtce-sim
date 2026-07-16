@@ -894,7 +894,7 @@ def _exercise_targets(simdef, wanted: set) -> list:
     sweep is background traffic and must not act on the vehicle's
     sequencing engine — an ABORT would kill a plan the operator is running,
     a bare LOAD lands the slot in ERROR, and a bare START is a guaranteed
-    refusal. Naming them with --commands sends them like anything else.
+    refusal. Naming them with --command sends them like anything else.
     """
     targets = [c for c in simdef.commands if not wanted or c.name in wanted]
     if wanted:
@@ -905,7 +905,7 @@ def _exercise_targets(simdef, wanted: set) -> list:
         click.echo(
             f"leaving {len(sequenced)} sequence command(s) out of the sweep "
             "(they act on the sequencer — exercise them via upload + LOAD/START, "
-            "or name them with --commands)"
+            "or name them with --command)"
         )
     return targets
 

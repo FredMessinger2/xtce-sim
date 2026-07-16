@@ -242,15 +242,22 @@ xtce-sim exercise --id sat-a --port 5000
 ```
 
 ```text
-Exercising 40 command(s) on 127.0.0.1:5000 ...
-Commands: sent 82/82 OK
-Telemetry: 35 packet(s), 12 APID(s), 0 decode failure(s)
-  sample: ADCS_STATUS: ADCS_TIMESTAMP=0, ADCS_MODE=3, ADCS_EST_STATE=0
+leaving 8 sequence command(s) out of the sweep (they act on the sequencer — exercise them via upload + LOAD/START, or name them with --command)
+Exercising 32 command(s) on 127.0.0.1:5000 ...
+Commands: sent 74/74 OK
+Telemetry: 154 packet(s), 12 APID(s), 0 decode failure(s)
+  sample: THERMAL_STATUS: THM_TIMESTAMP=0, THM_PANEL_PLUS_X=2568, THM_PANEL_MINUS_X=-469
 ```
 
 `--command NAME` limits the sweep (repeatable), `--dry-run` prints what would
 be sent without connecting, and the exit code is non-zero on any failure — 
 usable in CI.
+
+The eight ATS/RTS commands sit the sweep out, as the first line says: the
+sweep is background traffic, and it must not abort a plan you are running
+or land a sequencer slot in ERROR with a bare LOAD. Naming one with
+`--command` sends it like anything else; the real way to exercise them is
+the flow in [Onboard sequences](#onboard-sequences-ats-and-rts).
 
 At full speed the sweep finishes in well under a second — fine for CI,
 useless to watch. For a human at a monitor or the web console, slow it down
@@ -324,24 +331,26 @@ output stays greppable. Best paired with `--packet NAME` to focus one packet
 **`dashboard`** — a full-screen view, one row per APID, refreshing in place.
 
 ```
-xtce-sim monitor · sat-a · 127.0.0.1:5000     packets 11
+xtce-sim monitor · sat-a · 127.0.0.1:5010     packets 11
 ──────────────────────────────────────────────────────────────────
-0x10 HOUSEKEEPING   seq 0      TIMESTAMP=1735689605 s  SYSTEM_MODE=STANDBY  CMD_RECV_COUNT=10  CMD_REJECT_COUNT=10  LAST_CMD_OPCODE=80  +9
-0x11 IMAGER_STATUS  seq 0      TIMESTAMP=1735689605 s  STATE=IDLE  EXPOSURE_MS=80  GAIN=80  BAND1_AVG=79.6482  +5
-0x12 POWER_STATUS   seq 0      TIMESTAMP=1735689605 s  SOLAR_VOLTAGE=16.171 V  SOLAR_CURRENT=0.99 A  BATTERY_VOLTAGE=24.178 V  BATTERY_CURRENT=0.99 A  +6
-0x13 THERMAL_STATUS seq 0      TIMESTAMP=1735689605 s  PANEL_PLUS_X=9.81 degC  PANEL_MINUS_X=10.18 degC  PANEL_PLUS_Y=35.33 degC  PANEL_MINUS_Y=-14.55 degC  +7
-0x14 EVENT_LOG      seq 0      TIMESTAMP=1735689605 s  SEVERITY=1  SUBSYSTEM=80  EVENT_ID=80  MESSAGE=
-0x16 ATS_STATUS     seq 0      TIMESTAMP=1735689605 s  SEQ_ID=10  SEQ_NAME=  STATE=LOADED  CMD_TOTAL=10  +5
-0x17 RTS_STATUS     seq 0      TIMESTAMP=1735689605 s  SEQ_ID=10  SEQ_NAME=  STATE=LOADED  CMD_TOTAL=10  +5
-0x18 ADCS_STATUS    seq 0      TIMESTAMP=1735689605 s  MODE=STANDBY  EST_STATE=CONVERGING  POINTING_ERR=0 deg  MOMENTUM_TOTAL=0 Nms  +3
-0x19 ADCS_ATTITUDE  seq 0      ATT_TIMESTAMP=1735689605 s  ATT_QUAT_Q1=-9.15555e-05  ATT_QUAT_Q2=3.05185e-05  ATT_QUAT_Q3=3.05185e-05  ATT_QUAT_Q4=1  +6
-0x1A ADCS_WHEELS    seq 0      WHL_TIMESTAMP=1735689605 s  WHEEL1_SPEED=0 RPM  WHEEL2_SPEED=0 RPM  WHEEL3_SPEED=0 RPM  WHEEL4_SPEED=0 RPM  +8
-0x1B ADCS_SENSORS   seq 0      SNS_TIMESTAMP=1735689605 s  ST_QUAT_Q1=-9.15555e-05  ST_QUAT_Q2=3.05185e-05  ST_QUAT_Q3=3.05185e-05  ST_QUAT_Q4=1  +8
+0x10 HOUSEKEEPING   seq 4      TIMESTAMP=1735689647 s  SYSTEM_MODE=DOWNLINK  CMD_RECV_COUNT=94  CMD_REJECT_COUNT=94  LAST_CMD_OPCODE=90  +9
+0x11 IMAGER_STATUS  seq 4      TIMESTAMP=1735689647 s  STATE=ERROR  EXPOSURE_MS=90  GAIN=90  BAND1_AVG=89.9983  +5
+0x12 POWER_STATUS   seq 4      TIMESTAMP=1735689647 s  SOLAR_VOLTAGE=16.642 V  SOLAR_CURRENT=0.657 A  BATTERY_VOLTAGE=24.178 V  BATTERY_CURRENT=0.657 A  +6
+0x13 THERMAL_STATUS seq 4      TIMESTAMP=1735689647 s  PANEL_PLUS_X=10.94 degC  PANEL_MINUS_X=8.9 degC  PANEL_PLUS_Y=35.53 degC  PANEL_MINUS_Y=-13.96 degC  +7
+0x14 EVENT_LOG      seq 4      TIMESTAMP=1735689647 s  SEVERITY=0  SUBSYSTEM=90  EVENT_ID=90  MESSAGE=
+0x16 ATS_STATUS     seq 4      TIMESTAMP=1784172395 s  SEQ_ID=0  SEQ_NAME=  STATE=IDLE  CMD_TOTAL=0  +6
+0x17 RTS_STATUS     seq 4      TIMESTAMP=1784172395 s  SEQ_ID=0  SEQ_NAME=  STATE=IDLE  CMD_TOTAL=0  +6
+0x18 ADCS_STATUS    seq 4      TIMESTAMP=1735689647 s  MODE=STANDBY  EST_STATE=VALID  POINTING_ERR=0 deg  MOMENTUM_TOTAL=0 Nms  +3
+0x19 ADCS_ATTITUDE  seq 4      ATT_TIMESTAMP=1735689647 s  ATT_QUAT_Q1=-9.15555e-05  ATT_QUAT_Q2=-6.1037e-05  ATT_QUAT_Q3=-0.000122074  ATT_QUAT_Q4=1  +6
+0x1A ADCS_WHEELS    seq 4      WHL_TIMESTAMP=1735689647 s  WHEEL1_SPEED=0 RPM  WHEEL2_SPEED=0 RPM  WHEEL3_SPEED=0 RPM  WHEEL4_SPEED=0 RPM  +8
+0x1B ADCS_SENSORS   seq 4      SNS_TIMESTAMP=1735689647 s  ST_QUAT_Q1=-9.15555e-05  ST_QUAT_Q2=-6.1037e-05  ST_QUAT_Q3=-0.000122074  ST_QUAT_Q4=1  +8
 ```
 
 *(the instance label is the `--id`. `0x15 FILE_RECEIPT` is absent by design:
 file receipts are event telemetry — they downlink when a transfer or a
-FILE_\* command happens, and never on the beacon.)*
+FILE_\* command happens, and never on the beacon. The ATS/RTS rows are the
+sequencer's real state — an idle vehicle reports IDLE with a live
+timestamp, whatever `--live` synthesizes for the other packets.)*
 
 Filter to specific packets with `--packet NAME` (repeatable).
 
@@ -481,6 +490,196 @@ Watch one instance's telemetry live, then stop the fleet:
 xtce-sim monitor --id sat-b --port 5002 --style dashboard
 kill $(jobs -p)          # or: pkill -f "xtce-sim run"
 ```
+
+## Onboard sequences: ATS and RTS
+
+The vehicle carries an onboard sequencer with one **ATS** slot and one
+**RTS** slot, modeled on flight stored-command systems (cFS's Stored
+Command app is the reference). An ATS — *absolute time sequence* — fires
+each command at a UTC instant; an RTS — *relative time sequence* — fires
+each command a delay after START. Plans are plain text, one command per
+line, with `#` comments:
+
+```
+# window7.ats — times are absolute UTC
+2026-07-15T12:00:00Z IMAGER_ON
+2026-07-15T12:00:30Z TAKE_IMAGE ImageCount=3
+2026-07-15T12:02:00Z IMAGER_OFF
+```
+
+```
+# pass1.rts — delays in seconds after START (ms/s/m/h suffixes accepted)
++0   IMAGER_ON
++10  SET_EXPOSURE ExposureMs=40 GainLevel=2
++15  TAKE_IMAGE ImageCount=1
++30  IMAGER_OFF
+```
+
+### Validate on the ground
+
+`seq check` runs every entry through the same encoding machinery the
+uplink uses, so what passes here is exactly what LOAD will accept:
+
+```bash
+xtce-sim seq check pass1.rts --id sat-a
+```
+
+```
+OK: pass1.rts — 4 command(s) over 30.0 s
+  +0s  IMAGER_ON
+  +10s  SET_EXPOSURE ExposureMs=40 GainLevel=2
+  +15s  TAKE_IMAGE ImageCount=1
+  +30s  IMAGER_OFF
+```
+
+A bad plan is refused with every problem listed by line — this one had a
+typo'd argument name:
+
+```
+Error: pass1.rts: 1 problem(s):
+  - line 3: SET_EXPOSURE: unknown argument(s) ['Gain']; valid: ['ExposureMs', 'GainLevel']
+```
+
+### Fly it: upload, LOAD, START
+
+The plan reaches the vehicle the way any file does — over the command
+link into the onboard store — and LOAD reads it from there, not from your
+disk:
+
+```bash
+xtce-sim upload pass1.rts --id sat-a --port 5000
+```
+
+```bash
+xtce-sim send --id sat-a --port 5000 LOAD_RTS Filename=pass1.rts
+```
+
+```bash
+xtce-sim send --id sat-a --port 5000 START_RTS SeqId=1
+```
+
+(START and ABORT are declared `critical` in the ICD, so `send` announces
+the significance before transmitting. `SeqId` is 1 — the ICD declares a
+ValidRange of exactly 1..1 because there is one slot of each kind, and
+the vehicle rejects anything else.)
+
+From START, the vehicle is on its own. Every fired entry is encoded as a
+real command packet and pushed through the same dispatch path a ground
+command takes — argument validation, behavior effects, immediate
+emissions, and the command echo all happen exactly as if you had typed
+it, which is why the fires appear in the sim window and in the web
+console's command log:
+
+```
+20:21:02 [sat-a] RTS started: pass1.rts
+20:21:02 [sat-a] command 0x30 IMAGER_ON args={}
+20:21:02 [sat-a]   effects: IMG_STATE=1, EVT_MESSAGE=b'IMAGER POWERED ON', EVT_EVENT_ID=10, IMG_FOCAL_PLANE_TEMP ramping to 35.0 (tau=20.0s)
+20:21:02 [sat-a]   immediate: APID 0x11 emitted
+20:21:02 [sat-a]   immediate: APID 0x14 emitted
+20:21:02 [sat-a] RTS fired IMAGER_ON (1/4) -> SUCCESS
+20:21:12 [sat-a] command 0x32 SET_EXPOSURE args={'ExposureMs': 40, 'GainLevel': 2}
+20:21:12 [sat-a]   effects: IMG_EXPOSURE_MS=40, IMG_GAIN=2
+20:21:12 [sat-a] RTS fired SET_EXPOSURE (2/4) -> SUCCESS
+20:21:17 [sat-a] command 0x33 TAKE_IMAGE args={'ImageCount': 1}
+20:21:17 [sat-a] RTS fired TAKE_IMAGE (3/4) -> SUCCESS
+20:21:32 [sat-a] command 0x31 IMAGER_OFF args={}
+20:21:32 [sat-a] RTS fired IMAGER_OFF (4/4) -> SUCCESS
+20:21:32 [sat-a] RTS complete: pass1.rts (4 executed, 0 skipped)
+```
+
+Progress downlinks in the `ATS_STATUS`/`RTS_STATUS` packets. They ride
+the normal beacon, and additionally push the moment anything happens — a
+load, a start, a fire, a completion, a failure — so the console reacts
+immediately instead of a beacon later:
+
+```
+┌ RTS_STATUS · APID 0x17 · seq 5 · 20:21:55.598
+│ RTS_TIMESTAMP        1784172115  s
+│ RTS_SEQ_ID           1
+│ RTS_SEQ_NAME         pass1.rts
+│ RTS_STATE            COMPLETE
+│ RTS_CMD_TOTAL        4
+│ RTS_CMD_EXECUTED     4
+│ RTS_CMD_SKIPPED      0
+│ RTS_CMD_REMAINING    0
+│ RTS_ELAPSED_SEC      30
+│ RTS_LAST_CMD_NAME    IMAGER_OFF
+│ RTS_LAST_CMD_RESULT  SUCCESS
+└───────────────────────────────────────────────
+```
+
+### The verbs
+
+The command set matches cFS Stored Command's semantics:
+
+- **LOAD** installs a plan from the store into its slot. The parsed plan
+  is held in memory, so deleting or replacing the file afterwards cannot
+  touch a loaded sequence.
+- **START** runs the loaded plan from the top — whether freshly LOADED or
+  already COMPLETE (an RTS can simply be re-run). There is no pause.
+- **STOP** halts execution; the plan stays on board, reset exactly to the
+  state a fresh LOAD leaves, and START runs it again from the top.
+- **ABORT** halts and clears the slot entirely; re-running needs a new
+  LOAD.
+- A fired command that fails (a rejected argument, a handler error) is
+  recorded FAILED and the sequence **continues** — one bad command does
+  not strand the rest of a timeline, matching flight sequencers.
+
+### ATS time is wall-clock UTC — and the vehicle is honest about it
+
+The ATS time base is real UTC, so a plan written for this morning is
+stale by afternoon. Starting an ATS whose leading entries are past
+**skips** them (counted in `ATS_CMD_SKIPPED`, so the downlinked numbers
+always add up); starting one whose entries are *all* past is refused —
+burst-firing a stale timeline at a vehicle is exactly the accident this
+rule prevents:
+
+```
+20:22:35 [sat-a] refused START_ATS: all 3 remaining command(s) are in the past — re-base the plan with 'seq shift' and load it again
+```
+
+The fix is the ground tool it names — re-base the plan and send it up
+again:
+
+```bash
+xtce-sim seq shift window7.ats --start-in 30s --write
+```
+
+```
+window7.ats: first command at 2026-07-16T03:23:22Z
+```
+
+Only the timestamps move (comments, spacing, and the command half of
+every line are preserved byte-for-byte); the relative spacing between
+entries is kept, so a choreographed pass stays choreographed.
+
+### Failure is a state, not a shrug
+
+A LOAD that cannot produce a plan — the file is missing, is not UTF-8
+text, has the wrong extension for the slot, or fails validation — echoes
+FAILED and lands the slot in **ERROR**, with the refusing plan's name
+held in telemetry so the operator can see *what* failed, not just that
+something did:
+
+```
+┌ ATS_STATUS · APID 0x16 · seq 22 · 20:26:55.393
+│ ATS_TIMESTAMP        1784172415  s
+│ ATS_SEQ_ID           0
+│ ATS_SEQ_NAME         ghost.ats
+│ ATS_STATE            ERROR
+│ ATS_CMD_TOTAL        0
+│ ATS_CMD_EXECUTED     0
+│ ATS_CMD_SKIPPED      0
+│ ATS_CMD_REMAINING    0
+│ ATS_NEXT_CMD_TIME    0
+│ ATS_LAST_CMD_NAME    
+│ ATS_LAST_CMD_RESULT  PENDING
+└────────────────────────────────────────────────
+```
+
+A good LOAD (or an ABORT) clears the error. A LOAD against a RUNNING slot
+is refused outright — a bad load attempt must not tear down the plan
+currently executing.
 
 ## Behavior: making commands change telemetry
 
