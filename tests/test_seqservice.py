@@ -279,6 +279,29 @@ def test_a_lean_state_enumeration_is_reported_at_construction(store, simdef, cap
     assert "missing label(s) ERROR" in caplog.text
 
 
+def test_a_bare_integer_state_field_warns_and_skips_instead_of_dying(store, simdef, caplog):
+    # The worst configuration: ATS_STATE declared as a plain uint8 with no
+    # enumeration. No state is expressible — construction says so, and at
+    # emission the field is skipped (the packet must still pack) rather
+    # than utf-8 bytes reaching struct.pack and killing every downlink.
+    packet = simdef.packet_by_name("ATS_STATUS")
+    bare_fields = [
+        dataclasses.replace(f, enumerations=None) if f.name == "ATS_STATE" else f
+        for f in packet.fields
+    ]
+    bare_def = dataclasses.replace(simdef, packets=[
+        dataclasses.replace(packet, fields=bare_fields) if p.name == "ATS_STATUS" else p
+        for p in simdef.packets
+    ])
+    with caplog.at_level("WARNING"):
+        service = SequenceService(store, bare_def, clock=lambda: T0)
+    assert "not an enumeration" in caplog.text
+    bare_packet = service.simdef.packet_by_name("ATS_STATUS")
+    values = service.values_for(bare_packet)
+    assert "ATS_STATE" not in values
+    codec.pack_telemetry(bare_packet, values)  # still packs
+
+
 def test_wrong_kind_refusal_is_case_insensitive(service, store):
     # Uppercase names are common flight-file convention; 'PLAN.RTS' must
     # get the crisp kind-mismatch refusal, not a confusing parse error.
