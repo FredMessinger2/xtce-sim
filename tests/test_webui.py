@@ -564,16 +564,17 @@ async def test_host_guard_refuses_rebound_names(simdef):
     from xtce_sim.webui import _host_guard
 
     bridge = Bridge(simdef, "127.0.0.1", 1)
-    # run_ui knows its port up front; the test picks a free one the same way.
-    with socketlib.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
+    # Bind the socket FIRST (no release-and-rebind race), then build the
+    # guard with the port it actually holds.
+    sock = socketlib.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
     app = web.Application(middlewares=[_host_guard("127.0.0.1", port)])
     app.router.add_get("/", bridge.handle_index)
     app.router.add_get("/ws", bridge.handle_ws)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", port)
+    site = web.SockSite(runner, sock)
     await site.start()
     try:
         async with ClientSession() as session:
@@ -587,5 +588,17 @@ async def test_host_guard_refuses_rebound_names(simdef):
                 assert resp.status == 200  # loopback aliases pass
             async with session.get(f"http://127.0.0.1:{port}/") as resp:
                 assert resp.status == 200
+            # A malformed Host earns the same 403, never a traceback-500,
+            # and case games don't slip past the (lowercased) comparison.
+            for bad in (f"evil.example:{port}", "evil.example:99999", "evil:abc",
+                        f"EVIL.EXAMPLE:{port}"):
+                async with session.get(
+                    f"http://127.0.0.1:{port}/", headers={"Host": bad}
+                ) as resp:
+                    assert resp.status == 403, bad
+            async with session.get(
+                f"http://127.0.0.1:{port}/", headers={"Host": f"LOCALHOST:{port}"}
+            ) as resp:
+                assert resp.status == 200  # our own alias, any spelling
     finally:
         await runner.cleanup()
