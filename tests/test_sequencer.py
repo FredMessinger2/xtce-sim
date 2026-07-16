@@ -186,6 +186,20 @@ async def test_stopped_ats_restarts_with_the_skip_rule(seq, rec):
     assert status["cmd_executed"] == 1
 
 
+async def test_refused_start_leaves_a_complete_record_untouched(seq, rec):
+    # A completed ATS's entries are all in the past, so any later START_ATS
+    # is refused — and the refusal must not erase the completion record the
+    # telemetry is holding (executed counts, last command, elapsed).
+    seq.load(_ats(offsets=(0, 60)))
+    seq.start("ats", T0 - 1)
+    await seq.tick(T0 + 60)
+    before = seq.status("ats", T0 + 1000)
+    assert before["state"] == "COMPLETE" and before["cmd_executed"] == 2
+    ok, msg = seq.start("ats", T0 + 1000)
+    assert not ok and "seq shift" in msg
+    assert seq.status("ats", T0 + 1000) == before  # byte-for-byte untouched
+
+
 async def test_start_from_complete_reruns_the_plan(seq, rec):
     seq.load(_rts(delays=(0, 5)))
     seq.start("rts", T0)

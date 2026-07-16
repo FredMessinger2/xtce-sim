@@ -44,6 +44,17 @@ from xtce_sim import codec
 #: each line is interpreted.
 KINDS = {".ats": "ats", ".rts": "rts"}
 
+
+def kind_for(name: str) -> str | None:
+    """The sequence kind a filename's extension declares, or None.
+
+    Case-insensitive ('PLAN.ATS' is an ATS — uppercase names are common
+    flight-file convention), and the single classifier shared by the ground
+    CLI and the vehicle's LOAD guard so the two can never disagree.
+    """
+    ext = "." + name.rsplit(".", 1)[-1] if "." in name else ""
+    return KINDS.get(ext.lower())
+
 _DURATION_RE = re.compile(r"^(?P<value>\d+(?:\.\d+)?)(?P<unit>ms|s|m|h)?$")
 _DURATION_SCALE = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0, None: 1.0}
 

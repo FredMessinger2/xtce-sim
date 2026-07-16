@@ -3,6 +3,7 @@ own file store, fired commands travel the normal dispatch path, and the two
 status packets are sequencer-written, event-driven telemetry."""
 
 import asyncio
+import dataclasses
 import time
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import pytest
 from xtce_sim import ccsds, codec
 from xtce_sim.definition import SimDefinition
 from xtce_sim.fileservice import FileStore
-from xtce_sim.seqservice import SequenceCommandError, SequenceService, steady_view
+from xtce_sim.seqservice import SequenceCommandError, SequenceService
 from xtce_sim.server import SimServer
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -191,13 +192,54 @@ def test_values_for_maps_the_packet_declared_fields(service, store, simdef):
 
 def test_a_post_2106_deadline_saturates_instead_of_killing_the_packet(service, store, simdef):
     # NEXT_CMD_TIME is a uint32 epoch; a plan scheduled past 2106 is legal
-    # but inexpressible. The packet must survive (saturated), not vanish.
+    # but inexpressible. The packet must survive (codec saturates the int
+    # at pack time — liberal downlink), not vanish.
     store.write("far.ats", b"2126-01-01T00:00:00Z IMAGER_ON\n")
     service.handle_command("LOAD_ATS", _filename_arg("far.ats"))
     packet = simdef.packet_by_name("ATS_STATUS")
-    values = service.values_for(packet)
-    assert values["ATS_NEXT_CMD_TIME"] == 0xFFFFFFFF
-    codec.pack_telemetry(packet, values)  # packs without raising
+    payload = codec.pack_telemetry(packet, service.values_for(packet))
+    unpacked = codec.unpack_telemetry(packet, payload)
+    assert unpacked["ATS_NEXT_CMD_TIME"] == 0xFFFFFFFF
+
+
+def test_a_lean_enumeration_skips_the_field_instead_of_raising(service, store, simdef):
+    # A vehicle may declare CmdResultType without every label the sequencer
+    # emits; the promise is a warning and a skipped field, not a dead
+    # status packet (a raise here used to kill the server's waiter task).
+    packet = simdef.packet_by_name("ATS_STATUS")
+    lean_fields = [
+        dataclasses.replace(
+            f, enumerations={k: v for k, v in f.enumerations.items() if k != "PENDING"}
+        )
+        if f.name == "ATS_LAST_CMD_RESULT"
+        else f
+        for f in packet.fields
+    ]
+    lean = dataclasses.replace(packet, fields=lean_fields)
+    values = service.values_for(lean)  # slot is IDLE: last_cmd_result is PENDING
+    assert "ATS_LAST_CMD_RESULT" not in values
+    assert values["ATS_STATE"] == 0  # every other field still maps
+    codec.pack_telemetry(lean, values)  # and the packet still packs
+
+
+def test_seqid_other_than_1_is_refused_by_the_service(service, store):
+    # Defense in depth: the example ICD's ValidRange rejects SeqId=2 before
+    # dispatch, but the single-slot rule is the simulator's own contract —
+    # a vehicle whose XTCE forgot the range must still be refused here.
+    store.write("plan.rts", b"+0 IMAGER_ON\n")
+    service.handle_command("LOAD_RTS", _filename_arg("plan.rts"))
+    with pytest.raises(SequenceCommandError, match="single ATS slot"):
+        service.handle_command("START_RTS", {"SeqId": 3})
+    assert service.sequencer.status("rts", T0)["state"] == "LOADED"  # untouched
+
+
+def test_wrong_kind_refusal_is_case_insensitive(service, store):
+    # Uppercase names are common flight-file convention; 'PLAN.RTS' must
+    # get the crisp kind-mismatch refusal, not a confusing parse error.
+    store.write("PLAN.RTS", b"+0 IMAGER_ON\n")
+    args = _filename_arg("PLAN.RTS")
+    with pytest.raises(SequenceCommandError, match="RTS plan"):
+        service.handle_command("LOAD_ATS", args)
 
 
 def test_values_for_other_packets_is_empty(service, simdef):
@@ -220,14 +262,24 @@ def test_vehicle_without_status_packets_is_log_only(store):
     assert service.values_for(hk) == {}
 
 
-def test_steady_view_drops_the_self_moving_fields():
-    values = {
-        "RTS_STATE": 2,
-        "RTS_CMD_EXECUTED": 3,
-        "RTS_ELAPSED_SEC": 41,
-        "RTS_TIMESTAMP": 1773585000,
-    }
-    assert steady_view(values) == {"RTS_STATE": 2, "RTS_CMD_EXECUTED": 3}
+def test_a_misnamed_status_field_is_reported_at_construction(store, simdef, caplog):
+    # A typo'd field name would downlink a plausible constant zero forever;
+    # the mismatch must be said out loud where the ICD author will see it.
+    packet = simdef.packet_by_name("ATS_STATUS")
+    renamed = [
+        dataclasses.replace(f, name="ATS_CMDS_EXECUTED")
+        if f.name == "ATS_CMD_EXECUTED"
+        else f
+        for f in packet.fields
+    ]
+    typo_def = dataclasses.replace(simdef, packets=[
+        dataclasses.replace(packet, fields=renamed) if p.name == "ATS_STATUS" else p
+        for p in simdef.packets
+    ])
+    with caplog.at_level("WARNING"):
+        SequenceService(store, typo_def, clock=lambda: T0)
+    assert "ATS_CMDS_EXECUTED" in caplog.text
+    assert "match no sequencer status key" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -241,11 +293,7 @@ def test_steady_view_drops_the_self_moving_fields():
 def _command_packet(simdef, name: str, args: dict | None = None, *, validate=True) -> bytes:
     command = simdef.command_by_name(name)
     payload = codec.encode_command(command, args, validate=validate)
-    return (
-        ccsds.CCSDSHeader(packet_type=int(ccsds.PacketType.COMMAND), apid=1).pack()
-        + bytes([command.opcode])
-        + payload
-    )
+    return ccsds.build_command_packet(command.opcode, payload)
 
 
 class _Downlink:

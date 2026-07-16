@@ -35,11 +35,7 @@ def send_command(
     anyway — for testing the vehicle's own argument guards.
     """
     payload = codec.encode_command(command, args, validate=validate)
-    packet = (
-        ccsds.CCSDSHeader(packet_type=int(ccsds.PacketType.COMMAND), apid=apid).pack()
-        + bytes([command.opcode])
-        + payload
-    )
+    packet = ccsds.build_command_packet(command.opcode, payload, apid=apid)
     with socket.create_connection((host, port)) as sock:
         sock.sendall(ccsds.frame(packet))
     return packet

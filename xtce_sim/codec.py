@@ -47,29 +47,50 @@ def default_field_values(packet: PacketDef) -> dict:
 
 
 def _fit_telemetry_value(packet: PacketDef, field, value):
-    """Truncate an oversized string/binary telemetry value to its field size.
+    """Fit one telemetry value to its field: oversized string/binary values
+    are truncated, out-of-range integers are saturated to the field's wire
+    range (the real case: a uint32 epoch field handed a post-2106 deadline).
 
     Liberal downlink: unlike command encoding this never raises — the beacon
-    must keep running — but the loss is logged (once per packet/field, since
-    the beacon repacks every interval).
+    must keep running, whichever layer produced the value — but every loss
+    is logged (once per packet/field, since the beacon repacks every
+    interval).
     """
-    if field.python_type not in _STRING_TYPES or not isinstance(value, (bytes, bytearray)):
-        return value
-    capacity = field.size_bits // 8
-    if len(value) <= capacity:
-        return value
-    key = (packet.name, field.name)
-    if key not in _oversize_warned:
-        _oversize_warned.add(key)
-        logger.warning(
-            "%s.%s: telemetry value is %d bytes, field holds %d — truncating "
-            "(further occurrences suppressed)",
-            packet.name,
-            field.name,
-            len(value),
-            capacity,
+    if field.python_type in _STRING_TYPES and isinstance(value, (bytes, bytearray)):
+        capacity = field.size_bits // 8
+        if len(value) <= capacity:
+            return value
+        _fit_warn(
+            packet, field, f"telemetry value is {len(value)} bytes, field holds {capacity} — truncating"
         )
-    return value[:capacity]
+        return value[:capacity]
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and field.python_type.startswith(("u", "i"))
+    ):
+        bits = field.size_bits or 8
+        if field.python_type.startswith("u"):
+            lo, hi = 0, (1 << bits) - 1
+        else:
+            lo, hi = -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+        if not lo <= value <= hi:
+            _fit_warn(
+                packet, field, f"telemetry value {value} is outside the wire range [{lo}, {hi}] — saturating"
+            )
+            return min(max(value, lo), hi)
+    return value
+
+
+def _fit_warn(packet: PacketDef, field, problem: str) -> None:
+    """Log one fit problem, once per packet/field."""
+    key = (packet.name, field.name)
+    if key in _oversize_warned:
+        return
+    _oversize_warned.add(key)
+    logger.warning(
+        "%s.%s: %s (further occurrences suppressed)", packet.name, field.name, problem
+    )
 
 
 def pack_telemetry(packet: PacketDef, values: Optional[dict] = None) -> bytes:

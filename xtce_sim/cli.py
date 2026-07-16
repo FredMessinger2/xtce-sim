@@ -845,7 +845,7 @@ def exercise(
         missing = wanted - {c.name for c in simdef.commands}
         if missing:
             raise click.ClickException(f"unknown command(s): {sorted(missing)}")
-    targets = [c for c in simdef.commands if not wanted or c.name in wanted]
+    targets = _exercise_targets(simdef, wanted)
 
     if reject_probes and not any(reject_probe(c) for c in targets):
         # Asked-for probes that can't exist deserve a say-so, not silence.
@@ -885,6 +885,29 @@ def exercise(
         raise SystemExit(1)
     if interrupted and not loop:
         raise SystemExit(130)
+
+
+def _exercise_targets(simdef, wanted: set) -> list:
+    """The sweep's command list: the named subset, or everything safe.
+
+    With no explicit selection, the eight ATS/RTS commands stay out: the
+    sweep is background traffic and must not act on the vehicle's
+    sequencing engine — an ABORT would kill a plan the operator is running,
+    a bare LOAD lands the slot in ERROR, and a bare START is a guaranteed
+    refusal. Naming them with --commands sends them like anything else.
+    """
+    targets = [c for c in simdef.commands if not wanted or c.name in wanted]
+    if wanted:
+        return targets
+    sequenced = [c.name for c in targets if c.name in seqservice.SEQUENCE_COMMANDS]
+    if sequenced:
+        targets = [c for c in targets if c.name not in seqservice.SEQUENCE_COMMANDS]
+        click.echo(
+            f"leaving {len(sequenced)} sequence command(s) out of the sweep "
+            "(they act on the sequencer — exercise them via upload + LOAD/START, "
+            "or name them with --commands)"
+        )
+    return targets
 
 
 def _run_sweeps(simdef, targets, host, port, *, apid, verify, pause, loop, reject_probes=0):
@@ -1059,7 +1082,7 @@ def _read_sequence_text(path: Path) -> str:
 
 
 def _parse_sequence(path: Path, text: str, simdef: SimDefinition | None):
-    kind = sequences.KINDS.get(path.suffix.lower())
+    kind = sequences.kind_for(path.name)
     if kind is None:
         raise click.ClickException(f"{path.name}: expected a .ats or .rts file")
     parse = sequences.parse_ats if kind == "ats" else sequences.parse_rts

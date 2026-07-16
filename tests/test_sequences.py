@@ -307,6 +307,18 @@ def test_seq_tools_report_non_utf8_cleanly(tmp_path):
         assert "Traceback" not in result.output
 
 
+def test_kind_for_is_case_insensitive_and_shared():
+    # One classifier for the ground CLI and the vehicle's LOAD guard:
+    # uppercase names are common flight-file convention.
+    from xtce_sim.sequences import kind_for
+
+    assert kind_for("plan.ats") == "ats"
+    assert kind_for("PLAN.ATS") == "ats"
+    assert kind_for("Safe.Rts") == "rts"
+    assert kind_for("notes.txt") is None
+    assert kind_for("noextension") is None
+
+
 def test_seq_shift_output_is_whole_seconds(tmp_path):
     f = tmp_path / "burn.ats"
     f.write_text("2026-03-15T14:30:00Z IMAGER_ON\n")

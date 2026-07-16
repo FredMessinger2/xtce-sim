@@ -112,6 +112,43 @@ def test_telemetry_fitting_value_no_warning(caplog):
     assert not caplog.records
 
 
+def _int_pkt(python_type: str = "uint32", size_bits: int = 32, fmt: str = ">I") -> PacketDef:
+    return PacketDef(
+        name="PKT",
+        apid=1,
+        fields=[FieldInfo(name="N", size_bits=size_bits, python_type=python_type)],
+        struct_format=fmt,
+    )
+
+
+def test_telemetry_out_of_range_int_saturates_and_warns_once(caplog):
+    # The real case: a uint32 epoch field handed a post-2106 deadline.
+    # Whichever layer produced the value, the packet must pack (saturated),
+    # not die in struct.pack and vanish from the downlink.
+    codec._oversize_warned.clear()
+    pkt = _int_pkt()
+    over = {"N": 4_922_553_600}  # 2126-01-01 as epoch seconds
+    with caplog.at_level(logging.WARNING, logger="xtce_sim.codec"):
+        assert codec.pack_telemetry(pkt, over) == b"\xff\xff\xff\xff"
+        codec.pack_telemetry(pkt, over)  # repeat offender
+    warnings = [r for r in caplog.records if "saturating" in r.message]
+    assert len(warnings) == 1
+
+
+def test_telemetry_signed_int_saturates_at_both_ends():
+    codec._oversize_warned.clear()
+    pkt = _int_pkt("int8", 8, ">b")
+    assert codec.pack_telemetry(pkt, {"N": 999}) == b"\x7f"
+    assert codec.pack_telemetry(pkt, {"N": -999}) == b"\x80"
+
+
+def test_telemetry_in_range_int_is_untouched(caplog):
+    codec._oversize_warned.clear()
+    with caplog.at_level(logging.WARNING, logger="xtce_sim.codec"):
+        assert codec.pack_telemetry(_int_pkt(), {"N": 42}) == b"\x00\x00\x00\x2a"
+    assert not caplog.records
+
+
 # ---- CLI: the reject surfaces as a clean error ------------------------------
 
 
