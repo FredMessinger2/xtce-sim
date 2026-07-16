@@ -192,21 +192,31 @@ class Sequencer:
             return False, f"{kind.upper()} is already RUNNING — stop or abort it first"
         if slot.state not in (SeqState.LOADED, SeqState.COMPLETE):
             return False, f"{kind.upper()} is {slot.state.name} — load a sequence first"
+        skipped = 0
+        if kind == "ats":
+            # Decide the skip/refusal BEFORE touching the slot: a refused
+            # START must leave the slot exactly as it was, including a
+            # COMPLETE run's record. Entries are time-sorted, so the count
+            # of strictly-past deadlines is also the first future index
+            # (an entry due exactly at the start instant is kept and fires
+            # on the next tick).
+            skipped = sum(1 for e in slot.sequence.entries if e.time < now)
+            if skipped == slot.total:
+                return False, (
+                    f"all {skipped} remaining command(s) are in the past — re-base "
+                    "the plan with 'seq shift' and load it again"
+                )
         slot.reset_run()
         slot.base = now
-        if kind == "ats":
-            skipped, refusal = self._skip_past(slot, now)
-            if refusal is not None:
-                slot.reset_run()  # leave the slot exactly as loaded
-                slot.state = SeqState.LOADED
-                return False, refusal
-            if skipped:
-                self._log.warning(
-                    "ATS %s: skipped %d past command(s), starting at entry %d",
-                    slot.sequence.name,
-                    skipped,
-                    slot.position + 1,
-                )
+        slot.position = skipped
+        slot.skipped = skipped
+        if skipped:
+            self._log.warning(
+                "ATS %s: skipped %d past command(s), starting at entry %d",
+                slot.sequence.name,
+                skipped,
+                slot.position + 1,
+            )
         slot.state = SeqState.RUNNING
         self._log.info("%s started: %s", kind.upper(), slot.sequence.name)
         return True, f"started {slot.sequence.name}"
@@ -229,25 +239,6 @@ class Sequencer:
         slot.clear()
         self._log.info("%s aborted: %s", kind.upper(), name)
         return True, f"aborted {name}"
-
-    def _skip_past(self, slot: _Slot, now: float) -> tuple[int, str | None]:
-        """Advance past entries already behind ``now``; refuse an all-past plan.
-
-        The skip rule is strict (deadline < now): an entry due exactly at
-        the start instant still fires on the next tick.
-        """
-        skipped = 0
-        while not slot.exhausted and slot.deadline(slot.position) < now:
-            slot.position += 1
-            skipped += 1
-        if slot.exhausted:
-            slot.position -= skipped  # leave the slot as it was
-            return 0, (
-                f"all {skipped} remaining command(s) are in the past — re-base "
-                "the plan with 'seq shift' and load it again"
-            )
-        slot.skipped += skipped
-        return skipped, None
 
     # -- time --------------------------------------------------------------------
 

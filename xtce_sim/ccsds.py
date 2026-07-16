@@ -88,6 +88,22 @@ def build_telemetry_packet(apid: int, payload: bytes, seq_count: int = 0) -> byt
     return header.pack() + payload
 
 
+def build_command_packet(
+    opcode: int, payload: bytes = b"", *, apid: int = 1, seq_count: int = 0
+) -> bytes:
+    """Assemble a CCSDS command packet: header + [1-byte opcode] + payload.
+
+    The single owner of the command wire shape. The ground client and the
+    onboard sequencer's executor both build through here, so "a sequence
+    fire is byte-identical to a ground send" holds by construction rather
+    than by copy-paste.
+    """
+    header = CCSDSHeader(
+        packet_type=int(PacketType.COMMAND), apid=apid, seq_count=seq_count
+    )
+    return header.pack() + bytes([opcode]) + payload
+
+
 # =============================================================================
 # COMMAND ECHO (protocol infrastructure)
 # =============================================================================

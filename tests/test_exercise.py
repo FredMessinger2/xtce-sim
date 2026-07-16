@@ -577,3 +577,29 @@ async def test_check_telemetry_does_not_wait_for_event_only_packets():
             assert receipt_apid not in health.apids
         finally:
             await server.stop()
+
+
+# ---------------------------------------------------------------------------
+# The sweep leaves the sequencing engine alone
+
+
+def test_sweep_excludes_sequence_commands_unless_named():
+    """The sweep is background traffic: an ABORT in it would kill a plan the
+    operator is running, so the eight ATS/RTS commands stay out of the
+    default target list — but naming one with --commands sends it."""
+    from xtce_sim.cli import _exercise_targets
+    from xtce_sim.seqservice import SEQUENCE_COMMANDS
+
+    imaging = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
+    default = _exercise_targets(imaging, set())
+    assert not [c.name for c in default if c.name in SEQUENCE_COMMANDS]
+    assert len(default) == len(imaging.commands) - len(SEQUENCE_COMMANDS)
+
+    named = _exercise_targets(imaging, {"LOAD_ATS", "NOOP"})
+    assert {c.name for c in named} == {"LOAD_ATS", "NOOP"}
+
+
+def test_sweep_on_a_vehicle_without_sequencing_is_untouched(simdef):
+    from xtce_sim.cli import _exercise_targets
+
+    assert _exercise_targets(simdef, set()) == list(simdef.commands)

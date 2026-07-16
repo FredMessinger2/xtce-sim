@@ -19,15 +19,16 @@ exactly as the file service finds ``FILE_RECEIPT``: a vehicle that does not
 declare them still sequences — its lifecycle is visible in the log only.
 The sequencer is the single writer of every field it maps; the mapping is
 driven by the packet's own field list, so a leaner declaration (fewer
-status fields) is a valid configuration, not an error.
+status fields, a subset enumeration) is a valid configuration, not an
+error. Fields and labels that map to nothing are reported at load/emit
+time so a typo in an ICD reads as a warning, not as a mystery zero.
 
-A refused command — START with nothing loaded, STOP of an idle slot, LOAD
-of a missing or unparseable file — raises ``SequenceCommandError``, which
-dispatch's guard turns into a FAILED command echo, the same honesty the
-file service practices. (A bad SeqId never gets this far: the ICD declares
-ValidRange 1..1 and dispatch's range validation rejects it first.) A
-failed LOAD additionally lands the slot in ERROR, naming the plan that
-refused.
+A refused command — a SeqId other than 1 (one ATS slot and one RTS slot is
+this simulator's contract, whatever ranges a vehicle's ICD declares), START
+with nothing loaded, STOP of an idle slot, LOAD of a missing or unparseable
+file — raises ``SequenceCommandError``, which dispatch's guard turns into a
+FAILED command echo. A failed LOAD additionally lands the slot in ERROR,
+naming the plan that refused.
 """
 
 from __future__ import annotations
@@ -65,25 +66,6 @@ class SequenceCommandError(Exception):
     """A sequence command the vehicle refused; dispatch echoes FAILED."""
 
 
-#: Field-name suffixes that move on their own while a sequence runs (the
-#: packet timestamp, the elapsed counter). Everything else only moves when
-#: something HAPPENED — a load, a start, a fire, a completion.
-_STEADY_EXCLUDES = ("TIMESTAMP", "ELAPSED_SEC")
-
-
-def steady_view(values: dict) -> dict:
-    """The subset of status values whose change warrants an immediate
-    downlink. The beacon carries the moving clock readouts on its own
-    schedule; pushing a packet for every elapsed-second tick would be
-    noise, but pushing one the instant a state or counter changes is how
-    the console reflects sequencer activity without waiting a beacon."""
-    return {
-        name: value
-        for name, value in values.items()
-        if not name.endswith(_STEADY_EXCLUDES)
-    }
-
-
 class SequenceService:
     """Owns one vehicle's Sequencer and its command/telemetry plumbing.
 
@@ -107,19 +89,50 @@ class SequenceService:
         # clock the deadlines are judged by (wall-clock UTC in v1).
         self.clock = clock
         self._logger = logger or logging.getLogger(__name__)
-        self._saturation_warned: set[str] = set()
+        self._warned: set[tuple[str, str]] = set()
         self._execute: Optional[Executor] = None
         self.sequencer = Sequencer(self._run_fired, logger_=self._logger)
         self._packets = {
             kind: simdef.packet_by_name(name)
             for kind, name in _STATUS_PACKET_NAMES.items()
         }
+        self._kind_by_apid = {
+            p.apid: kind for kind, p in self._packets.items() if p is not None
+        }
+        #: The status packets this service is the single writer of.
+        self.status_packets = tuple(p for p in self._packets.values() if p is not None)
+        self._report_declaration()
+
+    def _report_declaration(self) -> None:
+        """Say up front what the ICD's status packets do and don't map.
+
+        A field whose name matches no sequencer status key would otherwise
+        downlink a plausible constant zero forever — indistinguishable from
+        a sequence that never ran — so the mismatch is reported here, once,
+        where an ICD author will see it.
+        """
         for kind, name in _STATUS_PACKET_NAMES.items():
-            if self._packets[kind] is None:
+            packet = self._packets[kind]
+            if packet is None:
                 self._logger.info(
                     "definition declares no %s packet; %s lifecycle will be log-only",
                     name,
                     kind.upper(),
+                )
+                continue
+            known = set(self.sequencer.status(kind, 0.0)) | {"timestamp"}
+            prefix = kind.upper() + "_"
+            unmapped = [
+                f.name
+                for f in packet.fields
+                if f.name.removeprefix(prefix).lower() not in known
+            ]
+            if unmapped:
+                self._logger.warning(
+                    "%s: field(s) %s match no sequencer status key — they will "
+                    "pack as defaults",
+                    name,
+                    ", ".join(unmapped),
                 )
 
     def bind_executor(self, execute: Executor) -> None:
@@ -140,8 +153,17 @@ class SequenceService:
     def handle_command(self, command_name: str, args: dict) -> str:
         """Route one decoded sequence command; returns the human verdict.
 
-        Raises ``SequenceCommandError`` on refusal.
+        Raises ``SequenceCommandError`` on refusal. SeqId is enforced here
+        as well as by the example ICD's ValidRange: the single-slot rule is
+        this simulator's contract, and a vehicle whose XTCE forgot the
+        range must still refuse SeqId 3 rather than silently act on slot 1.
         """
+        seq_id = args.get("SeqId")
+        if seq_id not in (None, 1):
+            raise SequenceCommandError(
+                f"SeqId {seq_id} refused — this vehicle has a single ATS slot "
+                "and a single RTS slot, both SeqId 1"
+            )
         kind, verb = SEQUENCE_COMMANDS[command_name]
         if verb == "load":
             return self._cmd_load(kind, args)
@@ -181,8 +203,7 @@ class SequenceService:
         """The named plan parsed for ``kind``, or why it cannot load."""
         if not name:
             return None, "no Filename argument"
-        ext = "." + name.rsplit(".", 1)[-1] if "." in name else ""
-        ext_kind = sequences.KINDS.get(ext)
+        ext_kind = sequences.kind_for(name)
         if ext_kind is not None and ext_kind != kind:
             return None, f"{name} is an {ext_kind.upper()} plan — this slot takes .{kind} files"
         try:
@@ -215,7 +236,7 @@ class SequenceService:
     @property
     def status_apids(self) -> set[int]:
         """APIDs of the status packets this service is the single writer of."""
-        return {p.apid for p in self._packets.values() if p is not None}
+        return set(self._kind_by_apid)
 
     def values_for(self, packet_def) -> dict:
         """Pack-ready values for one status packet ({} if not ours).
@@ -225,13 +246,12 @@ class SequenceService:
         ``Sequencer.status()`` — so ATS_CMD_SKIPPED finds ``cmd_skipped``,
         and a vehicle that declares fewer fields simply maps fewer. Values
         are made pack-ready here (bytes for strings, wire ints for enums)
-        because ``pack_telemetry`` maps no labels. The packet's timestamp
-        field is stamped from the service clock.
+        because ``pack_telemetry`` maps no labels; an enum label the field
+        does not declare skips the field with a warning rather than raising
+        — the beacon and the waiter must both survive a lean enumeration.
+        The packet's timestamp field is stamped from the service clock.
         """
-        kind = next(
-            (k for k, p in self._packets.items() if p is not None and p.apid == packet_def.apid),
-            None,
-        )
+        kind = self._kind_by_apid.get(packet_def.apid)
         if kind is None:
             return {}
         status = self.sequencer.status(kind, self.clock())
@@ -240,42 +260,30 @@ class SequenceService:
         for field in packet_def.fields:
             key = field.name.removeprefix(prefix).lower()
             if key == "timestamp":
-                values[field.name] = self._saturate(field, int(self.clock()))
+                values[field.name] = int(self.clock())
                 continue
             if key not in status:
                 continue
             value = status[key]
             if field.enumerations and isinstance(value, str):
-                value = field.enumerations[value]
+                wire = field.enumerations.get(value)
+                if wire is None:
+                    self._warn_once(
+                        field.name,
+                        value,
+                        f"{field.name}: enumeration declares no label {value!r} — "
+                        "skipping the field this pass",
+                    )
+                    continue
+                value = wire
             elif isinstance(value, str):
                 value = value.encode("utf-8")
-            if isinstance(value, int):
-                value = self._saturate(field, value)
             values[field.name] = value
         return values
 
-    def _saturate(self, field, value: int) -> int:
-        """Clamp an integer to the field's wire range so packing never
-        raises — the status downlink must survive any legal plan. The real
-        case: NEXT_CMD_TIME is a uint32 epoch, and an ATS entry beyond 2106
-        is a valid schedule the field simply cannot express. Saturating
-        (with a warning, once per field) beats losing the whole packet.
-        """
-        bits = field.size_bits or 8
-        if field.python_type.startswith("u"):
-            lo, hi = 0, (1 << bits) - 1
-        else:
-            lo, hi = -(1 << (bits - 1)), (1 << (bits - 1)) - 1
-        if lo <= value <= hi:
-            return value
-        if field.name not in self._saturation_warned:
-            self._saturation_warned.add(field.name)
-            self._logger.warning(
-                "%s: value %d exceeds the field's wire range [%d, %d] — "
-                "saturating (further occurrences suppressed)",
-                field.name,
-                value,
-                lo,
-                hi,
-            )
-        return min(max(value, lo), hi)
+    def _warn_once(self, field_name: str, detail: str, message: str) -> None:
+        key = (field_name, detail)
+        if key in self._warned:
+            return
+        self._warned.add(key)
+        self._logger.warning("%s (further occurrences suppressed)", message)
