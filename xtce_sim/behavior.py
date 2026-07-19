@@ -31,9 +31,13 @@ each other while a restarted behavior continues its stream — and a
 completed noisy ramp degrades into a noisy hold at its target. An optional ``[_signals]`` table starts continuous
 behaviors at boot (ambient realism: orbit thermal cycles, bus ripple) with
 no command needed; a command's behavior on the same field replaces a
-signal, and a direct set cancels it, exactly like ramps. ``{ArgName}`` inside a field name or ``@`` target is filled with the
-argument's decoded **raw integer** value at execution time (an enumerated
-argument substitutes its raw value, not its label). An instant effect
+signal, and a direct set cancels it, exactly like ramps. ``{ArgName}`` inside a field name or ``@`` target is filled at
+execution time: an enumerated argument substitutes its **label** (so
+``"PWR_{SubsystemId}_STATE"`` resolves to ``PWR_COMMS_STATE``), a plain
+integer argument its raw value (``"THM_HEATER{HeaterId}_STATE"`` to
+``THM_HEATER1_STATE``); a raw enum value with no declared label — or a
+string that is not one of the declared labels — refuses to resolve and the
+effect is skipped with a warning. An instant effect
 (set/copy/increment) may carry ``emit = "immediate"``: the packet containing
 the field is emitted out-of-cycle the moment the command executes, while the
 beacon keeps its own schedule — for a copy that is written
@@ -74,7 +78,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from xtce_sim.definition import CommandDef, SimDefinition
+from xtce_sim.definition import CommandDef, SimDefinition, label_for
 from xtce_sim.dynamics.model import AdcsModel, AdcsModelConfig, parse_model
 
 _TEMPLATE_RE = re.compile(r"\{(\w+)\}")
@@ -828,23 +832,28 @@ def _expansions(template: str, command: Optional[CommandDef]) -> Optional[list[s
     return names
 
 
-def _arg_values(command: CommandDef, arg: str) -> Optional[list[int]]:
-    """The finite value set of a command argument, or None if unbounded."""
+def _arg_values(command: CommandDef, arg: str) -> Optional[list[str]]:
+    """The finite substitution set of a command argument, or None if unbounded.
+
+    What each value substitutes as must mirror the runtime rule in
+    ``BehaviorEngine._template_arg``: an enumerated argument contributes its
+    labels, an integer argument with a small ValidRange each raw value.
+    """
     p = next((p for p in command.params if p.name == arg), None)
     if p is None:
         return None
     if p.enumerations:
-        return sorted(set(p.enumerations.values()))
+        return sorted(p.enumerations)
     if p.valid_min is not None and p.valid_max is not None:
         # ceil/floor so a float range like 1.5..2.7 yields only the integers
         # actually inside it (2), not truncation artifacts at the edges.
         lo, hi = math.ceil(p.valid_min), math.floor(p.valid_max)
         if lo <= hi and (hi - lo) < _MAX_EXPANSIONS:
-            return list(range(lo, hi + 1))
+            return [str(v) for v in range(lo, hi + 1)]
     return None
 
 
-def _product_size(value_sets: list[list[int]]) -> int:
+def _product_size(value_sets: list[list[str]]) -> int:
     size = 1
     for values in value_sets:
         size *= max(1, len(values))
@@ -1265,20 +1274,50 @@ class BehaviorEngine:
         return apids
 
     def _resolve_template(self, where: str, template: str, command, args: dict) -> Optional[str]:
-        """Fill {Arg} placeholders with raw argument values; None on failure."""
+        """Fill {Arg} placeholders (enum labels, raw ints); None on failure."""
 
         def sub(match: re.Match) -> str:
-            return str(self._raw_arg(command, args, match.group(1)))
+            return self._template_arg(command, args, match.group(1))
 
         try:
             fname = _TEMPLATE_RE.sub(sub, template)
-        except KeyError as exc:
-            logger.warning("%s: template argument %s missing; skipped", where, exc)
+        except LookupError as exc:
+            logger.warning("%s: template %s; skipped", where, exc)
             return None
         if fname not in self._fields:
             logger.warning("%s: resolved field %r does not exist; skipped", where, fname)
             return None
         return fname
+
+    def _template_arg(self, command, args: dict, name: str) -> str:
+        """The substitution text for one ``{Arg}``: enum label, else raw value.
+
+        Mirrors the load-time expansion rule in ``_arg_values``. Raises
+        LookupError when the argument is absent, its raw value has no
+        declared label, or a string is not a declared label — the template
+        cannot honestly name a field, so the caller skips the effect.
+        """
+        if name not in args:
+            raise LookupError(f"argument {name!r} missing")
+        value = args[name]
+        param = self._params.get(command.name, {}).get(name)
+        if param is not None and param.enumerations:
+            if isinstance(value, str):
+                # The codec decodes enum args to labels, but direct callers
+                # can pass anything — a string that is not a declared label
+                # must not name a field this command cannot legally address.
+                if value not in param.enumerations:
+                    raise LookupError(f"{{{name}}}: {value!r} is not a declared label")
+                return value
+            label = label_for(param.enumerations, value)
+            if label is None:
+                raise LookupError(f"{{{name}}}: raw value {value!r} has no label")
+            return label
+        # Integral floats substitute like the integers load-time expansion
+        # produces ('2', never '2.0'), keeping the two rules in step.
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
 
     def _raw_arg(self, command, args: dict, name: str):
         """A decoded argument as its raw wire value (labels back to ints)."""

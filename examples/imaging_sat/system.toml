@@ -9,16 +9,15 @@
 HK_SYSTEM_MODE = { set = "@arg:Mode", emit = "immediate" }
 
 # ---------------------------------------------------------------------------
-# Dangling in the source XTCE: the original annotations below targeted
-# COMM_* telemetry fields that are not defined in any packet, so they could
-# never have taken effect. Preserved as intent; enable them if a COMM
-# status packet is ever added to imaging_sat.xml.
+# Dangling in the source XTCE: the original annotations below targeted a
+# COMM_DOWNLINK_ACTIVE field that no packet defines yet, so they could never
+# have taken effect. Preserved as intent; enable them when the downlink
+# commands become real. (ENABLE_BEACON's twin annotation came true when
+# COMMS_STATUS was added — it lives in comms.toml now, and the server
+# actually gates the beacon.)
 #
 # [DOWNLINK_START]
 # COMM_DOWNLINK_ACTIVE = 1
 #
 # [DOWNLINK_STOP]
 # COMM_DOWNLINK_ACTIVE = 0
-#
-# [ENABLE_BEACON]
-# COMM_BEACON_STATE = "@arg:BeaconState"

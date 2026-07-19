@@ -18,17 +18,51 @@ import asyncio
 import contextlib
 import logging
 import struct
+import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
 from xtce_sim import ccsds, codec
-from xtce_sim.definition import CommandDef, SimDefinition
+from xtce_sim.definition import CommandDef, SimDefinition, resolve_enum_arg
 from xtce_sim.fileservice import FileService
 from xtce_sim.seqservice import SequenceCommandError, SequenceService
 
 # A command handler receives the server, the decoded command, and its argument
 # values, and may send telemetry via the server. It returns nothing.
 CommandHandler = Callable[["SimServer", CommandDef, dict], Awaitable[None]]
+
+#: Conventional command names that gate the autonomous beacon, the same
+#: opt-in-by-declaration pattern as FILE_COMMANDS and SEQUENCE_COMMANDS: a
+#: vehicle whose XTCE declares ENABLE_BEACON (with an ENABLE/DISABLE
+#: ``BeaconState`` argument) gets real beacon control; a vehicle that
+#: doesn't is untouched. DISABLE stops the periodic beacon only — physics
+#: keep ticking, and command-caused emissions (echo, immediate effects,
+#: file receipts, sequence status) still flow, whether the command came
+#: from the ground or from a RUNNING ATS/RTS: beacon-off silences the
+#: beacon, it does not pause the vehicle's stored program, so a running
+#: sequence keeps transmitting its fires' echoes and effects on its own
+#: clock.
+BEACON_COMMANDS = ("ENABLE_BEACON",)
+
+#: Conventional command names that request an immediate telemetry snapshot:
+#: one on-demand pass over every periodically-downlinked packet, exactly
+#: what a beacon pass sends. Deliberately independent of the beacon gate —
+#: this is how the ground polls a vehicle whose beacon is disabled. Same
+#: opt-in-by-declaration rule as BEACON_COMMANDS.
+STATUS_COMMANDS = ("GET_STATUS",)
+
+#: Conventional command names that retime one periodic packet's beacon
+#: period in flight — the command-side of the XTCE DefaultRateInStream
+#: declarations, PUS-style (per-packet periods, never one global rate).
+#: Contract: a ``Packet`` argument whose enumerated labels name the
+#: periodic packets (label value = APID) and a ``PeriodMs`` duration.
+#: Same opt-in-by-declaration rule as BEACON_COMMANDS.
+TLM_RATE_COMMANDS = ("SET_TLM_RATE",)
+
+#: Hard floor on a commanded beacon period. The ICD's ValidRange guards
+#: wire commands where one is declared; this guards every vehicle against
+#: a period faster than the scheduler's own wake clamp (a downlink flood).
+_TLM_PERIOD_FLOOR_S = 0.05
 
 
 @dataclass
@@ -66,6 +100,21 @@ class SimServer:
         self.host = host
         self.port = port
         self.beacon_interval = beacon_interval
+        # Autonomous beacon mode: ENABLE_BEACON (BEACON_COMMANDS) flips this.
+        # False silences the periodic beacon only; command-caused emissions
+        # still flow and the behavior engine keeps ticking.
+        self.beacon_enabled = True
+        # Per-packet beacon periods (seconds): each packet's declared XTCE
+        # DefaultRateInStream period, falling back to --interval where the
+        # ICD declares none. SET_TLM_RATE (TLM_RATE_COMMANDS) retimes one
+        # packet live. The schedule itself (next-due times) lives with the
+        # beacon loop; _beacon_wake nudges it out of a long sleep when a
+        # period changes or the beacon re-enables.
+        self._tlm_periods: dict[int, float] = {
+            p.apid: (p.period_s or beacon_interval) for p in simdef.packets
+        }
+        self._next_due: dict[int, float] = dict.fromkeys(self._tlm_periods, 0.0)
+        self._beacon_wake = asyncio.Event()
         # A client whose write doesn't drain within this many seconds is dropped,
         # so one unresponsive client can't stall telemetry for others.
         self.write_timeout = write_timeout
@@ -275,27 +324,82 @@ class SimServer:
             conn.writer.close()
 
     async def _beacon_loop(self) -> None:
-        """Broadcast every telemetry packet on a fixed interval.
+        """Beacon every periodic packet on its own declared period.
+
+        Each packet paces on ``_tlm_periods`` — its XTCE DefaultRateInStream
+        period, or the --interval fallback — and SET_TLM_RATE retimes one
+        live. Schedules advance whether or not anyone listens and whether or
+        not the beacon is enabled: the vehicle's clock does not stop, the
+        gate and the empty-client check only decide if a due packet
+        transmits. ``_beacon_wake`` nudges the sleep when a period changes
+        or the beacon re-enables, so a retime never waits out the old period.
 
         On cancellation (server stop) the CancelledError raised inside the
-        ``sleep`` propagates out and marks the task cancelled — it is not
+        wait propagates out and marks the task cancelled — it is not
         swallowed. ``stop()`` awaits the task and suppresses it there.
         """
+        last_tick = time.monotonic()
         while True:
+            now = time.monotonic()
             # Physics advance regardless of connected clients: the vehicle
             # keeps warming/cooling whether or not anyone is watching. Guarded
             # like the sends below — a behavior bug must not kill the beacon.
             if self.behavior_engine is not None:
                 try:
-                    self.behavior_engine.tick(self.beacon_interval)
+                    self.behavior_engine.tick(now - last_tick)
                 except Exception:
                     self.logger.exception("behavior tick failed")
-            if self._clients:
-                self._beacon_packets()
-            await asyncio.sleep(self.beacon_interval)
+            last_tick = now
+            self._emit_due_packets(now)
+            # A commands-only definition has nothing to schedule; keep the
+            # loop alive at the fallback interval so physics still tick.
+            if self._next_due:
+                delay = max(0.01, min(self._next_due.values()) - time.monotonic())
+            else:
+                delay = self.beacon_interval
+            # asyncio.timeout, NOT wait_for: on Python 3.11, wait_for can
+            # swallow a task cancellation that races a completing wait (the
+            # wake fires as stop() cancels) — the loop would then never
+            # unwind and stop() would hang awaiting it forever.
+            try:
+                async with asyncio.timeout(delay):
+                    await self._beacon_wake.wait()
+            except TimeoutError:
+                pass
+            self._beacon_wake.clear()
 
-    def _beacon_packets(self) -> None:
-        """One beacon pass over every periodically-downlinked packet."""
+    def _emit_due_packets(self, now: float) -> None:
+        """Send every schedule-due packet and re-arm its period."""
+        for apid in sorted(a for a, t in self._next_due.items() if t <= now):
+            # Pace from the DUE time, not the wake time, so loop latency
+            # never accumulates into the delivered rate (the declared rate
+            # is the ICD's guaranteed minimum). If we fell more than one
+            # period behind (retime-now sentinel, suspended host), re-anchor
+            # to now instead of bursting the backlog.
+            nxt = self._next_due[apid] + self._tlm_periods[apid]
+            if nxt <= now:
+                nxt = now + self._tlm_periods[apid]
+            self._next_due[apid] = nxt
+            packet_def = self.simdef.packet_by_apid(apid)
+            if packet_def is None or self._event_only(packet_def):
+                continue  # event packets downlink on events, never on time
+            if not (self._clients and self.beacon_enabled):
+                continue  # schedule advanced; a quiet/unwatched vehicle sends nothing
+            # One packet failing (e.g. a bad telemetry_source value) must
+            # not kill the beacon loop.
+            try:
+                self.send_packet(apid)
+            except Exception:
+                self.logger.exception("beacon: failed to send APID 0x%X", apid)
+
+    def _beacon_packets(self) -> int:
+        """One pass over every periodically-downlinked packet.
+
+        Returns how many packets actually sent — each is guarded
+        individually, so callers reporting the pass (GET_STATUS) can say
+        what really left the vehicle instead of assuming all of it did.
+        """
+        sent = 0
         for packet_def in self.simdef.packets:
             if self._event_only(packet_def):
                 continue
@@ -303,10 +407,12 @@ class SimServer:
             # must not kill the whole beacon loop.
             try:
                 self.send_packet(packet_def.apid)
+                sent += 1
             except Exception:
                 self.logger.exception(
                     "beacon: failed to send APID 0x%X", packet_def.apid
                 )
+        return sent
 
     def _event_only(self, packet_def) -> bool:
         """Whether this packet downlinks on events rather than the beacon.
@@ -329,10 +435,15 @@ class SimServer:
                 data = await conn.queue.get()
                 try:
                     writer.write(data)
-                    await asyncio.wait_for(writer.drain(), self.write_timeout)
+                    # asyncio.timeout, NOT wait_for — see _beacon_loop's note
+                    # on the 3.11 cancellation-swallowing race; a drain that
+                    # completes as stop() cancels would leave this task stuck
+                    # in queue.get() forever, hanging shutdown.
+                    async with asyncio.timeout(self.write_timeout):
+                        await writer.drain()
                 except OSError as exc:
                     # OSError covers ConnectionError and TimeoutError (the
-                    # wait_for timeout); all are subclasses on Python 3.11+.
+                    # asyncio.timeout expiry); all are subclasses on Python 3.11+.
                     self.logger.debug("dropping unresponsive client: %s", exc)
                     break
                 except Exception:
@@ -522,8 +633,140 @@ class SimServer:
             verdict = self.sequence_service.handle_command(command.name, args)
             self.logger.info("  sequence: %s", verdict)
             self._seq_wake.set()
+        self._apply_link_conventions(command, args)
         if self.command_handler is not None:
             await self.command_handler(self, command, args)
+
+    def _apply_link_conventions(self, command: CommandDef, args: dict) -> None:
+        """The link-control conventions: beacon gate, packet retiming, and
+        the commanded snapshot (BEACON/TLM_RATE/STATUS_COMMANDS).
+
+        Runs AFTER behavior effects on purpose: the sidecar's emit=immediate
+        mirrors have already pushed their packets — for ENABLE_BEACON
+        DISABLE, that push is the link's last autonomous packet before the
+        beacon goes quiet. (Known limit while quiet: the beacon pass is also
+        the only periodic write, so abruptly-vanished clients are not reaped
+        until the next transmission — see backlog.)
+        """
+        if command.name in BEACON_COMMANDS:
+            self._set_beacon_enabled(command, args)
+        if command.name in TLM_RATE_COMMANDS:
+            self._set_tlm_period(command, args)
+        if command.name in STATUS_COMMANDS:
+            # A commanded snapshot bypasses the beacon gate on purpose:
+            # answering the ground is command-caused transmission, and this
+            # is the one downlink path an operator has to a quiet vehicle.
+            # It transmits whether or not anyone is listening — a commanded
+            # emission advances sequence counts between ground contacts
+            # exactly as a real vehicle would (the beacon loop's client
+            # check is an idle-sim optimization, not a rule).
+            if command.params:
+                self.logger.warning(
+                    "%s declares argument(s) the snapshot convention does not honor "
+                    "(%s); emitting the full snapshot",
+                    command.name,
+                    ", ".join(p.name for p in command.params),
+                )
+            sent = self._beacon_packets()
+            self.logger.info("  status: telemetry snapshot emitted (%d packet(s))", sent)
+
+    def _set_beacon_enabled(self, command: CommandDef, args: dict) -> None:
+        """Apply a beacon-gating command's BeaconState argument.
+
+        The convention is label-driven: whatever raw values the vehicle's
+        ICD assigns, the declared label ENABLE means on and DISABLE means
+        off. A raw wire value resolves through the command's own
+        enumeration first (definition.label_for). An argument that is
+        missing, unlabeled, or labeled anything else leaves the gate
+        alone — guessing about RF silence is worse than ignoring a
+        malformed command.
+        """
+        value = args.get("BeaconState")
+        param = next((p for p in command.params if p.name == "BeaconState"), None)
+        resolved = (
+            resolve_enum_arg(param.enumerations, value)
+            if param is not None and param.enumerations
+            else None
+        )
+        wanted = {"ENABLE": True, "DISABLE": False}.get(resolved[0]) if resolved else None
+        if wanted is None:
+            self.logger.warning(
+                "beacon command without a usable BeaconState=%r; ignored", value
+            )
+            return
+        self.beacon_enabled = wanted
+        if wanted:
+            # Nudge the scheduler out of its sleep so overdue packets flow
+            # now, not up to a full period later.
+            self._beacon_wake.set()
+        self.logger.info(
+            "  beacon %s",
+            "enabled" if wanted else "disabled (periodic telemetry quiet)",
+        )
+
+    def _set_tlm_period(self, command: CommandDef, args: dict) -> None:
+        """Apply a telemetry-retiming command: one packet, one new period.
+
+        Label-driven like the beacon gate: the ``Packet`` argument's
+        declared label names the packet and its enum value is the APID (the
+        ICD carries the mapping — PeriodicPacketIdType). ``PeriodMs`` is a
+        duration; range validation already enforced the ICD's bounds for
+        wire commands. Anything missing or unresolvable leaves every
+        schedule alone.
+        """
+        packet_arg = args.get("Packet")
+        param = next((p for p in command.params if p.name == "Packet"), None)
+        resolved = (
+            resolve_enum_arg(param.enumerations, packet_arg)
+            if param is not None and param.enumerations
+            else None
+        )
+        apid = resolved[1] if resolved else None
+        period_ms = args.get("PeriodMs")
+        usable_period = (
+            isinstance(period_ms, (int, float))
+            and not isinstance(period_ms, bool)
+            and period_ms > 0
+        )
+        if apid is None or apid not in self._tlm_periods or not usable_period:
+            self.logger.warning(
+                "telemetry-rate command without a usable Packet/PeriodMs "
+                "(%r, %r); ignored",
+                packet_arg,
+                period_ms,
+            )
+            return
+        if period_ms / 1000.0 < _TLM_PERIOD_FLOOR_S:
+            # The ICD's ValidRange is the real guard for wire commands, but
+            # nothing forces a vehicle to declare one — refuse a period the
+            # scheduler would turn into a downlink flood.
+            self.logger.warning(
+                "telemetry-rate period %sms is below the %.0fms floor; ignored",
+                period_ms,
+                _TLM_PERIOD_FLOOR_S * 1000,
+            )
+            return
+        packet_def = self.simdef.packet_by_apid(apid)
+        if packet_def is not None and self._event_only(packet_def):
+            # Accepting would log success for a packet the scheduler never
+            # sends — refuse loudly instead, like every other unusable arg.
+            self.logger.warning(
+                "%s is event-only telemetry with no beacon period; ignored",
+                packet_def.name,
+            )
+            return
+        self._tlm_periods[apid] = period_ms / 1000.0
+        # Due immediately: the retimed packet announces its new cadence now
+        # rather than waiting out the old period, and the wake recomputes
+        # the loop's sleep.
+        self._next_due[apid] = 0.0
+        self._beacon_wake.set()
+        packet_def = self.simdef.packet_by_apid(apid)
+        self.logger.info(
+            "  telemetry period: %s every %.3g s",
+            packet_def.name if packet_def else f"APID 0x{apid:X}",
+            period_ms / 1000.0,
+        )
 
     # ---- sequencing ----------------------------------------------------------
 
@@ -583,8 +826,13 @@ class SimServer:
             timeout = None
             if deadline is not None:
                 timeout = max(0.0, min(deadline - service.clock(), _SEQ_SLEEP_CAP))
+            # asyncio.timeout, NOT wait_for — same cancellation-swallowing
+            # race as the beacon loop's wait (see _beacon_loop): a command
+            # nudging _seq_wake as stop() cancels would leave this task
+            # unkillable and hang shutdown.
             try:
-                await asyncio.wait_for(self._seq_wake.wait(), timeout)
+                async with asyncio.timeout(timeout):
+                    await self._seq_wake.wait()
             except TimeoutError:
                 pass
 

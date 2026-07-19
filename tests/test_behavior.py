@@ -50,9 +50,13 @@ def _errors(tmp_path, simdef, text: str) -> str:
 
 def test_shipped_imaging_sidecar_validates(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    assert len(spec.initial) == 5  # ADCS seeds moved into the model
+    # 5 non-ADCS seeds + 5 boot power states + the beacon state (the ADCS
+    # model owns its fields)
+    assert len(spec.initial) == 11
     assert set(spec.commands) == {
         "SET_MODE",
+        "SET_POWER",
+        "ENABLE_BEACON",
         "HEATER_ON",
         "HEATER_OFF",
         "SET_HEATER_SETPOINT",
@@ -134,6 +138,15 @@ def test_template_expansion_catches_missing_field(tmp_path, simdef):
     # HeaterId expands to 1..2; THM_HEATER1_BOGUS / THM_HEATER2_BOGUS don't exist.
     msg = _errors(tmp_path, simdef, '[HEATER_ON]\n"THM_HEATER{HeaterId}_BOGUS" = 1\n')
     assert "THM_HEATER1_BOGUS" in msg and "THM_HEATER2_BOGUS" in msg
+
+
+def test_template_expansion_uses_enum_labels(tmp_path, simdef):
+    # An enumerated argument expands to its labels. RESET's SubsystemId
+    # enumerates all six subsystems but only four have a PWR_*_STATE field,
+    # so load-time expansion names exactly the two that don't exist.
+    msg = _errors(tmp_path, simdef, '[RESET]\n"PWR_{SubsystemId}_STATE" = "OFF"\n')
+    assert "PWR_EPS_STATE" in msg and "PWR_THERMAL_STATE" in msg
+    assert "PWR_COMMS_STATE" not in msg  # the real fields validate fine
 
 
 def test_bad_enum_label(tmp_path, simdef):
@@ -318,6 +331,28 @@ def engine(simdef):
 
 
 @pytest.fixture()
+async def imaging_server(simdef):
+    """A started, engine-backed imaging_sat server on an ephemeral port.
+
+    One scaffold for every wire test (fast 0.05s beacon); teardown stops
+    the server so no test leaks it on failure.
+    """
+    from xtce_sim.server import SimServer
+
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    server = SimServer(
+        simdef,
+        host="127.0.0.1",
+        port=0,
+        beacon_interval=0.05,
+        behavior_engine=behavior.BehaviorEngine(spec, simdef),
+    )
+    await server.start()
+    yield server
+    await server.stop()
+
+
+@pytest.fixture()
 def simdef_quadratic(tmp_path_factory):
     """imaging_sat with IMG temperature calibration made quadratic (x^2) —
     a legal XTCE calibrator with no unique inverse."""
@@ -380,6 +415,92 @@ def test_engine_template_isolates_instances(engine, simdef):
     assert "THM_HEATER1_STATE" not in engine.state  # heater 1 untouched
 
 
+def test_engine_seeds_power_states(engine, simdef):
+    # The bus boots with platform loads on and the payload off (power.toml
+    # [_initial]); held states, not synthetic wobble, from the first beacon.
+    values = engine.values_for(simdef.packet_by_name("POWER_STATUS"))
+    assert values["PWR_CDH_STATE"] == 1
+    assert values["PWR_COMMS_STATE"] == 1
+    assert values["PWR_ADCS_STATE"] == 1
+    assert values["PWR_IMAGER_STATE"] == 0
+
+
+def test_engine_template_substitutes_enum_label(engine, simdef):
+    # SET_POWER's SubsystemId is enumerated: the label names the field, so
+    # COMMS lands in PWR_COMMS_STATE — no numbering convention involved.
+    applied = engine.apply_command(
+        _cmd(simdef, "SET_POWER"), {"SubsystemId": "COMMS", "PowerState": "OFF"}
+    )
+    assert engine.state["PWR_COMMS_STATE"] == 0  # "OFF" -> raw 0
+    assert applied == ["PWR_COMMS_STATE=0"]
+
+
+def test_engine_template_enum_raw_value_resolves_via_label(engine, simdef):
+    # A raw wire value that has a declared label names the same field the
+    # label would (4 = IMAGER on PowerLoadIdType).
+    engine.apply_command(_cmd(simdef, "SET_POWER"), {"SubsystemId": 4, "PowerState": "ON"})
+    assert engine.state["PWR_IMAGER_STATE"] == 1
+
+
+def test_engine_template_unlabeled_raw_value_refused(engine, simdef, caplog):
+    # EPS (raw 1) is not a switchable load — PowerLoadIdType declares no
+    # label for it, so the effect refuses to resolve rather than invent a
+    # field name, and the refusal is logged.
+    with caplog.at_level(logging.WARNING, logger="xtce_sim.behavior"):
+        applied = engine.apply_command(
+            _cmd(simdef, "SET_POWER"), {"SubsystemId": 1, "PowerState": "ON"}
+        )
+    assert applied == []
+    assert any("has no label" in r.getMessage() for r in caplog.records)
+
+
+def test_engine_template_undeclared_label_string_refused(engine, simdef, caplog):
+    # The sharp case: "HEATER" would resolve to PWR_HEATER_STATE — a real
+    # field this command cannot legally address over the wire. A string that
+    # is not a declared PowerLoadIdType label is refused at the label check,
+    # never by luck of field existence.
+    with caplog.at_level(logging.WARNING, logger="xtce_sim.behavior"):
+        applied = engine.apply_command(
+            _cmd(simdef, "SET_POWER"), {"SubsystemId": "HEATER", "PowerState": "ON"}
+        )
+    assert applied == []
+    assert engine.state["PWR_HEATER_STATE"] == 0  # still the boot seed, not ON
+    assert any("is not a declared label" in r.getMessage() for r in caplog.records)
+
+
+def test_engine_template_integral_float_substitutes_like_the_integer(engine, simdef):
+    # Load-time expansion writes integer text ('2'); a float 2.0 from a
+    # direct caller must name the same field, not 'THM_HEATER2.0_STATE'.
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 2.0})
+    assert engine.state["THM_HEATER2_STATE"] == 1
+
+
+def test_heater_commands_drive_the_power_card_channel(engine, simdef):
+    # One power channel for two heaters: it tracks the last heater command
+    # (the honest approximation documented in thermal.toml).
+    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
+    assert engine.state["PWR_HEATER_STATE"] == 1
+    engine.apply_command(_cmd(simdef, "HEATER_OFF"), {"HeaterId": 1})
+    assert engine.state["PWR_HEATER_STATE"] == 0
+
+
+def test_set_power_emits_power_status_immediately(engine, simdef):
+    engine.apply_command(
+        _cmd(simdef, "SET_POWER"), {"SubsystemId": "CDH", "PowerState": "STANDBY"}
+    )
+    power = simdef.packet_by_name("POWER_STATUS")
+    assert power.apid in engine.pop_immediate_apids()
+
+
+def test_imager_commands_track_the_power_card(engine, simdef):
+    # One switch, one story: IMAGER_ON/OFF keep PWR_IMAGER_STATE coherent
+    # with IMG_STATE instead of leaving the power card telling a stale tale.
+    engine.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    assert engine.state["PWR_IMAGER_STATE"] == 1
+    engine.apply_command(_cmd(simdef, "IMAGER_OFF"), {})
+    assert engine.state["PWR_IMAGER_STATE"] == 0
+
+
 def test_engine_increment_accumulates(tmp_path, simdef):
     spec = _load(tmp_path, simdef, "[TAKE_IMAGE]\nIMG_CAPTURE_COUNT = { increment = 1 }\n")
     eng = behavior.BehaviorEngine(spec, simdef)
@@ -409,46 +530,329 @@ def test_engine_clamps_int_to_wire_width(tmp_path, simdef):
     assert eng.state["IMG_GAIN"] == (1 << field.size_bits) - 1  # clamped, no overflow
 
 
-async def test_server_end_to_end_command_changes_telemetry(simdef):
+async def test_server_end_to_end_command_changes_telemetry(imaging_server, simdef):
     # The full loop: command in -> overlay mutated -> beacon carries it.
+    import asyncio
+
     from xtce_sim import ccsds, client, codec
+
+    server = imaging_server
+    cmd = simdef.command_by_name("IMAGER_ON")
+    await asyncio.to_thread(client.send_command, "127.0.0.1", server.bound_port, cmd, {})
+    await asyncio.sleep(0.1)  # let the dispatch land
+
+    img = simdef.packet_by_name("IMAGER_STATUS")
+
+    def read_one():
+        for pkt in client.stream_packets("127.0.0.1", server.bound_port, timeout=2.0):
+            header = ccsds.CCSDSHeader.unpack(pkt[:6])
+            if header.apid == img.apid:
+                return codec.unpack_telemetry(img, pkt[6:])
+        return None
+
+    values = await asyncio.to_thread(read_one)
+    assert values is not None
+    assert values["IMG_STATE"] == 1  # IDLE, set by the command
+    # the wire carries counts (0.01 degC/count): seeded at 20 degC and
+    # already warming toward 35 (IMAGER_ON starts the ramp; noise=0.2
+    # EU can dip a few counts below the seed on early ticks).
+    assert 1900 <= values["IMG_FOCAL_PLANE_TEMP"] < 3600
+
+
+# ---- ENABLE_BEACON: the beacon gate -----------------------------------------
+
+
+def test_comms_card_boots_with_beacon_enabled(engine, simdef):
+    values = engine.values_for(simdef.packet_by_name("COMMS_STATUS"))
+    assert values["COMM_BEACON_STATE"] == 1  # ENABLE, seeded by comms.toml
+
+
+def test_enable_beacon_mirror_emits_final_comms_status(engine, simdef):
+    # The sidecar mirror runs before the server's gate flips, so DISABLE's
+    # immediate COMMS_STATUS — carrying the new state — is the link's last
+    # autonomous packet.
+    applied = engine.apply_command(
+        _cmd(simdef, "ENABLE_BEACON"), {"BeaconState": "DISABLE"}
+    )
+    assert applied == ["COMM_BEACON_STATE=0"]
+    assert simdef.packet_by_name("COMMS_STATUS").apid in engine.pop_immediate_apids()
+
+
+def test_beacon_gate_is_label_driven(simdef):
+    # The gate resolves BeaconState through the command's OWN enumeration
+    # (label_for), so raw wire values follow whatever the ICD declares —
+    # no server-side assumption about which number means what.
     from xtce_sim.server import SimServer
 
-    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    engine = behavior.BehaviorEngine(spec, simdef)
-    server = SimServer(
-        simdef,
-        host="127.0.0.1",
-        port=0,
-        beacon_interval=0.05,
-        behavior_engine=engine,
-    )
-    await server.start()
+    server = SimServer(simdef, port=0)
+    cmd = simdef.command_by_name("ENABLE_BEACON")
+    server._set_beacon_enabled(cmd, {"BeaconState": 0})  # raw DISABLE
+    assert server.beacon_enabled is False
+    server._set_beacon_enabled(cmd, {"BeaconState": "ENABLE"})  # decoded label
+    assert server.beacon_enabled is True
+
+
+def test_beacon_gate_ignores_malformed_state(simdef, caplog):
+    # A beacon command without a usable BeaconState leaves the gate alone —
+    # guessing about RF silence is worse than ignoring a malformed command.
+    # True == 1 in Python, so a leaked boolean must also be refused.
+    from xtce_sim.server import SimServer
+
+    server = SimServer(simdef, port=0)
+    cmd = simdef.command_by_name("ENABLE_BEACON")
+    assert server.beacon_enabled
+    with caplog.at_level(logging.WARNING, logger="xtce_sim"):
+        server._set_beacon_enabled(cmd, {})
+        server._set_beacon_enabled(cmd, {"BeaconState": "MAYBE"})
+        server._set_beacon_enabled(cmd, {"BeaconState": False})
+        server._set_beacon_enabled(cmd, {"BeaconState": 2})  # no label
+    assert server.beacon_enabled
+    assert sum("ignored" in r.getMessage() for r in caplog.records) == 4
+
+
+async def test_enable_beacon_gates_the_periodic_beacon(imaging_server, simdef):
+    # The full story on the wire: beacons flow, DISABLE silences them (echo
+    # and immediate emissions excepted), ENABLE brings them back.
+    import asyncio
+    import socket
+    import time
+
+    from xtce_sim import client
+
+    server = imaging_server
+    cmd = simdef.command_by_name("ENABLE_BEACON")
+
+    def saw_packet(window: float) -> bool:
+        # One packet is proof, so flowing phases return in ~one beacon
+        # interval; the timeout is the failure bound and, for the quiet
+        # phase, the whole point. A fresh connection receives only what
+        # is enqueued after it connects, so no stale packets leak in.
+        try:
+            for _ in client.stream_packets(
+                "127.0.0.1", server.bound_port, timeout=window
+            ):
+                return True
+        except (TimeoutError, socket.timeout):
+            pass
+        return False
+
+    async def command_beacon(state: str, want: bool) -> None:
+        # Poll the gate instead of a fixed sleep: fast normally, and a
+        # generous cap instead of a flake under CI load.
+        await asyncio.to_thread(
+            client.send_command,
+            "127.0.0.1",
+            server.bound_port,
+            cmd,
+            {"BeaconState": state},
+        )
+        deadline = time.monotonic() + 2.0
+        while server.beacon_enabled is not want and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        assert server.beacon_enabled is want
+
+    assert await asyncio.to_thread(saw_packet, 2.0)  # boot: beacons flow
+    await command_beacon("DISABLE", want=False)
+    assert not await asyncio.to_thread(saw_packet, 0.4)  # autonomous silence
+    await command_beacon("ENABLE", want=True)
+    assert await asyncio.to_thread(saw_packet, 2.0)  # beacons resumed
+
+
+async def test_get_status_snapshots_a_quiet_vehicle(imaging_server, simdef, tmp_path):
+    # GET_STATUS is the operator's downlink path to a beacon-disabled
+    # vehicle: one commanded pass over every PERIODIC packet, on demand,
+    # deliberately independent of the beacon gate. With a file service
+    # wired (as the real `run` always has), the event-only FILE_RECEIPT
+    # must NOT ride the snapshot — re-broadcasting a stale transfer
+    # verdict on every poll is exactly what event-only forbids.
+    import asyncio
+    import contextlib
+    import socket
+    import time
+
+    from xtce_sim import ccsds, client, fileservice
+
+    server = imaging_server
+    store = fileservice.FileStore(tmp_path / "files")
+    server.file_service = fileservice.FileService(store, simdef)
+    server.beacon_enabled = False  # commanded quiet (the gate is tested above)
+
+    event_only = fileservice.event_only_apids(simdef)
+    want = {p.apid for p in simdef.packets} - event_only
+    seen: set[int] = set()
+
+    def collect() -> None:
+        # Reader window (5s) is deliberately larger than the registration
+        # poll (2s) plus the send, so its socket timeout cannot expire
+        # before the snapshot is even commanded.
+        with contextlib.suppress(TimeoutError, socket.timeout):
+            for pkt in client.stream_packets(
+                "127.0.0.1", server.bound_port, timeout=5.0
+            ):
+                seen.add(ccsds.CCSDSHeader.unpack(pkt[:6]).apid)
+                if want <= seen:
+                    return
+
+    reader = asyncio.create_task(asyncio.to_thread(collect))
     try:
-        import asyncio
+        # The snapshot broadcasts to clients connected at emission time, so
+        # wait for the reader's connection to register before commanding.
+        deadline = time.monotonic() + 2.0
+        while not server._clients and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        assert server._clients
 
-        cmd = simdef.command_by_name("IMAGER_ON")
-        await asyncio.to_thread(client.send_command, "127.0.0.1", server.bound_port, cmd, {})
-        await asyncio.sleep(0.1)  # let the dispatch land
-
-        img = simdef.packet_by_name("IMAGER_STATUS")
-
-        def read_one():
-            for pkt in client.stream_packets("127.0.0.1", server.bound_port, timeout=2.0):
-                header = ccsds.CCSDSHeader.unpack(pkt[:6])
-                if header.apid == img.apid:
-                    return codec.unpack_telemetry(img, pkt[6:])
-            return None
-
-        values = await asyncio.to_thread(read_one)
-        assert values is not None
-        assert values["IMG_STATE"] == 1  # IDLE, set by the command
-        # the wire carries counts (0.01 degC/count): seeded at 20 degC and
-        # already warming toward 35 (IMAGER_ON starts the ramp; noise=0.2
-        # EU can dip a few counts below the seed on early ticks).
-        assert 1900 <= values["IMG_FOCAL_PLANE_TEMP"] < 3600
+        await asyncio.to_thread(
+            client.send_command,
+            "127.0.0.1",
+            server.bound_port,
+            simdef.command_by_name("GET_STATUS"),
+            {},
+        )
     finally:
-        await server.stop()
+        # Always collect the reader — an assertion above must not leak the
+        # thread (bounded by its socket timeout) or its exception.
+        with contextlib.suppress(Exception):
+            await reader
+
+    assert want <= seen  # every periodic packet arrived, beacon still off
+    assert not (seen & event_only)  # and no event-only packet rode along
+    assert server.beacon_enabled is False
+
+
+async def test_beacon_paces_each_packet_on_its_declared_period(imaging_server, simdef):
+    # ADCS_ATTITUDE declares 0.5 s, POWER_STATUS 2 s: over one window the
+    # fast packet must arrive strictly more often than the slow one.
+    # Generous margins — the pin is the ORDERING, not exact counts.
+    import asyncio
+    import socket
+    import time
+
+    from xtce_sim import ccsds, client
+
+    server = imaging_server
+    fast = simdef.packet_by_name("ADCS_ATTITUDE").apid
+    slow = simdef.packet_by_name("POWER_STATUS").apid
+    counts = {fast: 0, slow: 0}
+
+    def collect(window: float) -> None:
+        deadline = time.monotonic() + window
+        try:
+            for pkt in client.stream_packets(
+                "127.0.0.1", server.bound_port, timeout=window
+            ):
+                apid = ccsds.CCSDSHeader.unpack(pkt[:6]).apid
+                if apid in counts:
+                    counts[apid] += 1
+                if time.monotonic() >= deadline:
+                    return
+        except (TimeoutError, socket.timeout):
+            pass
+
+    await asyncio.to_thread(collect, 2.6)
+    assert counts[fast] >= 3  # ~5 expected at 0.5 s
+    assert counts[slow] <= 2  # ~1-2 expected at 2 s
+    assert counts[fast] > counts[slow]
+
+
+async def test_set_tlm_rate_retimes_one_packet(imaging_server, simdef):
+    # The in-flight modifier of the declared periods: label names the
+    # packet, PeriodMs is a duration, everything else keeps its schedule.
+    server = imaging_server
+    cmd = simdef.command_by_name("SET_TLM_RATE")
+    attitude = simdef.packet_by_name("ADCS_ATTITUDE").apid
+    power = simdef.packet_by_name("POWER_STATUS").apid
+
+    await server._apply_command(cmd, {"Packet": "ADCS_ATTITUDE", "PeriodMs": 2000})
+    assert server._tlm_periods[attitude] == 2.0
+    assert server._tlm_periods[power] == 2.0  # untouched (its declared period)
+
+    # A raw enum value (the APID) resolves like its label would.
+    await server._apply_command(cmd, {"Packet": power, "PeriodMs": 250})
+    assert server._tlm_periods[power] == 0.25
+
+
+async def test_set_tlm_rate_refuses_malformed_arguments(imaging_server, simdef, caplog):
+    # Missing args, undeclared labels, and leaked booleans all leave every
+    # schedule alone — same refusal posture as the beacon gate.
+    server = imaging_server
+    cmd = simdef.command_by_name("SET_TLM_RATE")
+    before = dict(server._tlm_periods)
+    with caplog.at_level(logging.WARNING, logger="xtce_sim"):
+        await server._apply_command(cmd, {})
+        await server._apply_command(cmd, {"Packet": "EVENT_LOG", "PeriodMs": 1000})
+        await server._apply_command(cmd, {"Packet": "POWER_STATUS", "PeriodMs": True})
+        await server._apply_command(cmd, {"Packet": True, "PeriodMs": 1000})
+        # Below the flood floor: legal only for a vehicle whose ICD forgot a
+        # ValidRange, refused by the server regardless.
+        await server._apply_command(cmd, {"Packet": "POWER_STATUS", "PeriodMs": 10})
+    assert server._tlm_periods == before
+    assert sum("ignored" in r.getMessage() for r in caplog.records) == 5
+
+
+async def test_set_tlm_rate_refuses_event_only_packets(
+    imaging_server, simdef, tmp_path, caplog
+):
+    # On a vehicle whose Packet enum lists an event-only packet, accepting
+    # would log success for a packet the scheduler never sends — refuse.
+    from xtce_sim import fileservice
+    from xtce_sim.definition import CommandDef, ParamInfo
+
+    server = imaging_server
+    store = fileservice.FileStore(tmp_path / "files")
+    server.file_service = fileservice.FileService(store, simdef)
+    receipt = simdef.packet_by_name("FILE_RECEIPT")
+    cmd = CommandDef(
+        name="SET_TLM_RATE",
+        opcode=0x11,
+        params=[
+            ParamInfo("Packet", 8, "uint8", enumerations={"FILE_RECEIPT": receipt.apid}),
+            ParamInfo("PeriodMs", 16, "uint16"),
+        ],
+    )
+    before = dict(server._tlm_periods)
+    with caplog.at_level(logging.WARNING, logger="xtce_sim"):
+        server._set_tlm_period(cmd, {"Packet": "FILE_RECEIPT", "PeriodMs": 1000})
+    assert server._tlm_periods == before
+    assert any("event-only" in r.getMessage() for r in caplog.records)
+
+
+async def test_commands_only_definition_serves_cleanly():
+    # A commands-only ICD (uplink half of a split pair) has nothing to
+    # schedule; the beacon loop must idle as a physics heartbeat instead of
+    # dying on an empty schedule (regression: min() of an empty dict).
+    import asyncio
+
+    from xtce_sim.server import SimServer
+
+    d = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle_commands.xml")
+    assert d.packets == []
+    server = SimServer(d, host="127.0.0.1", port=0, beacon_interval=0.05)
+    await server.start()
+    await asyncio.sleep(0.15)  # a few loop passes
+    await server.stop()  # used to re-raise ValueError from the dead task
+
+
+def test_undeclared_rates_fall_back_to_the_global_interval(simdef):
+    # my_vehicle declares no DefaultRateInStream anywhere: every packet
+    # paces on --interval, exactly the pre-feature behavior.
+    from xtce_sim.server import SimServer
+
+    my_vehicle = SimDefinition.from_xtce(DATA / "my_vehicle/my_vehicle.xml")
+    server = SimServer(my_vehicle, port=0, beacon_interval=0.7)
+    assert set(server._tlm_periods.values()) == {0.7}
+
+
+async def test_get_status_leaves_the_beacon_gate_alone(imaging_server, simdef):
+    # 'Independent of the gate' cuts both ways: a snapshot must neither
+    # need the beacon nor touch its state, from either side of the switch.
+    server = imaging_server
+    cmd = simdef.command_by_name("GET_STATUS")
+    await server._apply_command(cmd, {})
+    assert server.beacon_enabled is True
+    server.beacon_enabled = False
+    await server._apply_command(cmd, {})
+    assert server.beacon_enabled is False
 
 
 # ---- review-driven runtime cases --------------------------------------------
@@ -594,11 +998,12 @@ def test_unbounded_template_defers_to_runtime(tmp_path, simdef):
     assert "IMG_7_X" not in eng.state
 
 
-def test_enum_arg_template_expands_raw_values(tmp_path, simdef):
-    # Mode is enumerated: the template expands over its raw values, and the
-    # nonexistent expansions are all named in the error.
+def test_enum_arg_template_expands_labels(tmp_path, simdef):
+    # Mode is enumerated: the template expands over its labels (the same
+    # text runtime substitution uses), and the nonexistent expansions are
+    # all named in the error.
     msg = _errors(tmp_path, simdef, '[SET_MODE]\n"X_{Mode}_Y" = 1\n')
-    assert "X_0_Y" in msg and "X_4_Y" in msg
+    assert "X_SAFE_Y" in msg and "X_DOWNLINK_Y" in msg
 
 
 def test_engine_skips_when_template_arg_missing(engine, simdef, caplog):
@@ -1458,11 +1863,11 @@ def test_effects_log_confirms_in_engineering_units(tmp_path, simdef):
 
 def test_directory_source_merges_files(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    assert len(spec.files) == 5  # adcs, imager, power, system, thermal
-    assert len(spec.initial) == 5  # non-ADCS seeds (the model owns its fields)
+    assert len(spec.files) == 6  # adcs, comms, imager, power, system, thermal
+    assert len(spec.initial) == 11  # non-ADCS seeds incl. power + beacon states
     assert len(spec.signals) == 8
     assert "HEATER_ON" in spec.commands and "TAKE_IMAGE" in spec.commands
-    assert "(5 file(s))" in spec.source_label
+    assert "(6 file(s))" in spec.source_label
 
 
 def test_cross_file_conflict_is_load_error(tmp_path, simdef):

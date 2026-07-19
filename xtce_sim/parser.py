@@ -10,6 +10,7 @@ Reference: OMG XTCE 1.2/1.3 Specification (https://www.omg.org/spec/XTCE)
 """
 
 import logging
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
@@ -1926,7 +1927,50 @@ class XTCEParser:
             entries=entries,
             base_container_ref=base_ref,
             restriction_criteria=restriction_criteria,
+            rate_per_second=self._parse_rate_in_stream(elem, name),
         )
+
+    def _parse_rate_in_stream(self, elem: ET.Element, name: str) -> Optional[float]:
+        """A container's ``<DefaultRateInStream>`` as a per-second rate.
+
+        The standard's ``basis`` defaults to perSecond; a perContainerUpdate
+        basis has no meaning for a top-level packet, so it is warned about
+        and ignored rather than misread. ``minimumValue`` is the guaranteed
+        rate (the one ground systems consume); when it is absent or declares
+        no guarantee (``minimumValue="0"``), a positive ``maximumValue`` is
+        accepted as the best-effort fallback.
+        """
+        rate_elem = self._find(elem, "DefaultRateInStream")
+        if rate_elem is None:
+            return None
+
+        def ignored(detail: str, *fmt) -> None:
+            if self._warn:
+                logger.warning(
+                    "SequenceContainer %r: DefaultRateInStream " + detail + "; rate ignored",
+                    name,
+                    *fmt,
+                )
+
+        basis = rate_elem.get("basis", "perSecond")
+        if basis != "perSecond":
+            ignored("basis %r not supported (only perSecond)", basis)
+            return None
+        for attr in ("minimumValue", "maximumValue"):
+            value = rate_elem.get(attr)
+            if value is None:
+                continue
+            try:
+                rate = float(value)
+            except ValueError:
+                ignored("%s %r is not a number", attr, value)
+                return None
+            if rate > 0 and math.isfinite(rate):
+                return rate
+            # minimumValue="0" is the standard's 'no guaranteed rate' —
+            # fall through to maximumValue before giving up.
+        ignored("carries no positive finite rate value")
+        return None
 
     # ========================================================================
     # REFERENCE RESOLUTION

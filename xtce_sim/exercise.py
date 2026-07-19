@@ -276,6 +276,11 @@ def check_telemetry(
     """
     health = TelemetryHealth()
     want = {p.apid for p in simdef.packets} - fileservice.event_only_apids(simdef)
+    # Per-packet periods: full coverage takes at least one lap of the
+    # SLOWEST declared period, so the read window scales with the ICD
+    # instead of silently under-reading a slow packet.
+    slowest = max((p.period_s or 0.0 for p in simdef.packets), default=0.0)
+    timeout = max(timeout, 2.5 * slowest)
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as exc:
@@ -302,7 +307,27 @@ def check_telemetry(
                 _tally(pkt, simdef, health)
     finally:
         sock.close()
+    _flag_missing_coverage(health, want, simdef, timeout)
     return health
+
+
+def _flag_missing_coverage(health: TelemetryHealth, want, simdef, timeout: float) -> None:
+    """Silence and coverage gaps are health errors, not quiet greens.
+
+    Both became reachable states: ENABLE_BEACON can silence the vehicle
+    entirely, and per-packet periods (or a SET_TLM_RATE retime) can push
+    one packet past any fixed read window.
+    """
+    if health.error is not None:
+        return
+    if not health.apids:
+        health.error = "no telemetry received (beacon disabled, or downlink dead)"
+        return
+    if want.issubset(health.apids):
+        return
+    names = {p.apid: p.name for p in simdef.packets}
+    missing = ", ".join(names.get(a, hex(a)) for a in sorted(want - health.apids))
+    health.error = f"packet(s) never arrived within {timeout:g}s: {missing}"
 
 
 def _tally(pkt: bytes, simdef: SimDefinition, health: TelemetryHealth) -> None:

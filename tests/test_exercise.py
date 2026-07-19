@@ -162,6 +162,24 @@ async def test_check_telemetry_tolerates_corrupt_frame(simdef):
     assert health.error is not None and "framing" in health.error
 
 
+async def test_check_telemetry_flags_total_silence(simdef):
+    # ENABLE_BEACON made commanded silence a reachable state; a verify that
+    # reads nothing must report it, not pass with a vacuous green.
+    from xtce_sim.server import SimServer
+
+    server = SimServer(simdef, host="127.0.0.1", port=0)
+    server.beacon_enabled = False
+    await server.start()
+    try:
+        health = await asyncio.to_thread(
+            check_telemetry, "127.0.0.1", server.bound_port, simdef, timeout=0.5
+        )
+    finally:
+        await server.stop()
+    assert health.packets == 0
+    assert health.error is not None and "no telemetry" in health.error
+
+
 # ---- end to end against an in-process server -----------------------------
 
 
@@ -585,18 +603,23 @@ async def test_check_telemetry_does_not_wait_for_event_only_packets():
 
 def test_sweep_excludes_sequence_commands_unless_named():
     """The sweep is background traffic: an ABORT in it would kill a plan the
-    operator is running, so the eight ATS/RTS commands stay out of the
-    default target list — but naming one with --commands sends it."""
+    operator is running, and a SET_TLM_RATE sweep would leave the whole
+    telemetry schedule deranged — both families stay out of the default
+    target list, but naming one with --commands sends it."""
     from xtce_sim.cli import _exercise_targets
     from xtce_sim.seqservice import SEQUENCE_COMMANDS
+    from xtce_sim.server import TLM_RATE_COMMANDS
 
     imaging = SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
     default = _exercise_targets(imaging, set())
     assert not [c.name for c in default if c.name in SEQUENCE_COMMANDS]
-    assert len(default) == len(imaging.commands) - len(SEQUENCE_COMMANDS)
+    assert not [c.name for c in default if c.name in TLM_RATE_COMMANDS]
+    assert len(default) == len(imaging.commands) - len(SEQUENCE_COMMANDS) - len(
+        TLM_RATE_COMMANDS
+    )
 
-    named = _exercise_targets(imaging, {"LOAD_ATS", "NOOP"})
-    assert {c.name for c in named} == {"LOAD_ATS", "NOOP"}
+    named = _exercise_targets(imaging, {"LOAD_ATS", "SET_TLM_RATE", "NOOP"})
+    assert {c.name for c in named} == {"LOAD_ATS", "SET_TLM_RATE", "NOOP"}
 
 
 def test_sweep_on_a_vehicle_without_sequencing_is_untouched(simdef):

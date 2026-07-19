@@ -64,7 +64,7 @@ from aiohttp import WSMsgType, web
 from yarl import URL
 
 from xtce_sim import ccsds, codec, fileservice
-from xtce_sim.definition import FieldInfo, SimDefinition
+from xtce_sim.definition import FieldInfo, SimDefinition, label_for
 
 log = logging.getLogger("xtce_sim.webui")
 
@@ -110,6 +110,7 @@ def definition_message(simdef: SimDefinition) -> dict:
                 "name": p.name,
                 "apid": p.apid,
                 "description": p.description,
+                "period_s": p.period_s,
                 "fields": [_field_json(f) for f in p.fields],
             }
             for p in simdef.packets
@@ -159,9 +160,7 @@ def _field_values(field: FieldInfo, raw) -> dict:
         eu = field.calibrator.apply(raw)
     out["eu"] = _json_safe(eu)
     if field.enumerations:
-        out["label"] = next(
-            (k for k, v in field.enumerations.items() if v == raw), None
-        )
+        out["label"] = label_for(field.enumerations, raw)
     return out
 
 

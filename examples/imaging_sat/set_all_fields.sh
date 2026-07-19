@@ -33,6 +33,21 @@ send() {
 echo "== system: HK_SYSTEM_MODE =="
 send SET_MODE Mode=IMAGING
 
+echo "== comms: beacon off then back on — telemetry goes quiet between the two =="
+# Keep the pair adjacent so the sweep's remaining sends beacon normally.
+send ENABLE_BEACON BeaconState=DISABLE
+send ENABLE_BEACON BeaconState=ENABLE
+
+echo "== power: switchable loads by name — the enum label picks the PWR_*_STATE field =="
+# Each load toggles away from its boot state and back, so every send is
+# visible on the monitor.
+send SET_POWER SubsystemId=COMMS PowerState=STANDBY
+send SET_POWER SubsystemId=COMMS PowerState=ON
+send SET_POWER SubsystemId=CDH PowerState=STANDBY
+send SET_POWER SubsystemId=CDH PowerState=ON
+send SET_POWER SubsystemId=ADCS PowerState=STANDBY
+send SET_POWER SubsystemId=ADCS PowerState=ON
+
 echo "== thermal: heater states cycle OFF->ON, setpoints (temps ramp toward setpoints) =="
 send HEATER_OFF HeaterId=1
 send HEATER_ON HeaterId=1

@@ -20,7 +20,7 @@ import math
 import struct
 from typing import Optional
 
-from xtce_sim.definition import CommandDef, PacketDef
+from xtce_sim.definition import CommandDef, PacketDef, label_for
 from xtce_sim.generate import fields_to_struct_format
 
 logger = logging.getLogger(__name__)
@@ -317,7 +317,7 @@ def decode_command(command: CommandDef, payload: bytes) -> dict:
     for param, value in zip(command.params, values):
         if param.enumerations:
             # Attach the enum label when the raw value matches one.
-            label = next((k for k, v in param.enumerations.items() if v == value), None)
+            label = label_for(param.enumerations, value)
             result[param.name] = label if label is not None else value
         elif param.python_type == "string" and isinstance(value, (bytes, bytearray)):
             result[param.name] = bytes(value).split(b"\x00", 1)[0].decode("utf-8", "replace")

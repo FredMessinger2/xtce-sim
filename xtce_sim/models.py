@@ -692,6 +692,11 @@ class SequenceContainer:
     entries: list[str] = field(default_factory=list)  # List of parameter refs
     base_container_ref: Optional[str] = None
     restriction_criteria: Optional[dict] = None  # e.g., {"CCSDS_APID": 1}
+    # <DefaultRateInStream basis="perSecond" minimumValue="..."/> — the
+    # XTCE-standard declaration of how often this container appears in the
+    # downlink. Stored as the standard's per-second rate; consumers derive
+    # a period from it at the boundary.
+    rate_per_second: Optional[float] = None
 
     # Resolved references
     base_container: Optional["SequenceContainer"] = None
