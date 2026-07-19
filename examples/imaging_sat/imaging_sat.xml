@@ -9,7 +9,8 @@
   signals) lives in the per-subsystem behavior .toml files beside it —
   thermal, imager, power, system, and adcs — all discovered automatically.
 
-  Subsystems:
+  Subsystems (declared by SubsystemIdType — that enumeration is the
+  machine-readable source of this numbering; this list is a courtesy copy):
     0 = CDH (Command & Data Handling)
     1 = EPS (Electrical Power System)
     2 = THERMAL
@@ -164,6 +165,17 @@
           <xtce:Enumeration label="OFF" value="0" />
           <xtce:Enumeration label="ON" value="1" />
           <xtce:Enumeration label="STANDBY" value="2" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
+      <!-- Enumerated: Enable State (mirrors the EnableDisableType command
+           argument, so commanded state reads back with the labels the
+           operator typed) -->
+      <xtce:EnumeratedParameterType name="EnableStateParamType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="DISABLE" value="0" />
+          <xtce:Enumeration label="ENABLE" value="1" />
         </xtce:EnumerationList>
       </xtce:EnumeratedParameterType>
 
@@ -552,6 +564,10 @@
       <xtce:Parameter name="ADCS_MAG_X" parameterTypeRef="MagFieldType" shortDescription="Magnetic field X (body)" />
       <xtce:Parameter name="ADCS_MAG_Y" parameterTypeRef="MagFieldType" shortDescription="Magnetic field Y (body)" />
       <xtce:Parameter name="ADCS_MAG_Z" parameterTypeRef="MagFieldType" shortDescription="Magnetic field Z (body)" />
+
+      <!-- COMMS_STATUS Parameters (APID 0x1C) -->
+      <xtce:Parameter name="COMM_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Comms status timestamp" />
+      <xtce:Parameter name="COMM_BEACON_STATE" parameterTypeRef="EnableStateParamType" shortDescription="Autonomous beacon mode (ENABLE_BEACON)" />
     </xtce:ParameterSet>
 
     <xtce:ContainerSet>
@@ -571,6 +587,8 @@
 
       <!-- HOUSEKEEPING Packet (APID 0x10 = 16) -->
       <xtce:SequenceContainer name="HOUSEKEEPING" shortDescription="Housekeeping telemetry">
+        <!-- beacons every 1 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="1.0" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="HK_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="HK_SYSTEM_MODE" />
@@ -599,6 +617,8 @@
 
       <!-- IMAGER_STATUS Packet (APID 0x11 = 17) -->
       <xtce:SequenceContainer name="IMAGER_STATUS" shortDescription="Imager status and data quality">
+        <!-- beacons every 1 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="1.0" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="IMG_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="IMG_STATE" />
@@ -622,6 +642,8 @@
 
       <!-- POWER_STATUS Packet (APID 0x12 = 18) -->
       <xtce:SequenceContainer name="POWER_STATUS" shortDescription="Electrical power system status">
+        <!-- beacons every 2 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="0.5" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="PWR_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="PWR_SOLAR_VOLTAGE" />
@@ -646,6 +668,8 @@
 
       <!-- THERMAL_STATUS Packet (APID 0x13 = 19) -->
       <xtce:SequenceContainer name="THERMAL_STATUS" shortDescription="Thermal subsystem status">
+        <!-- beacons every 2 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="0.5" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="THM_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="THM_PANEL_PLUS_X" />
@@ -711,6 +735,8 @@
 
       <!-- ATS_STATUS: Absolute Time Sequence execution status (APID 0x16 = 22) -->
       <xtce:SequenceContainer name="ATS_STATUS" shortDescription="Absolute Time Sequence execution status">
+        <!-- beacons every 2 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="0.5" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="ATS_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="ATS_SEQ_ID" />
@@ -735,6 +761,8 @@
 
       <!-- RTS_STATUS: Relative Time Sequence execution status (APID 0x17 = 23) -->
       <xtce:SequenceContainer name="RTS_STATUS" shortDescription="Relative Time Sequence execution status">
+        <!-- beacons every 2 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="0.5" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="RTS_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="RTS_SEQ_ID" />
@@ -759,6 +787,8 @@
 
 
       <xtce:SequenceContainer name="ADCS_STATUS" shortDescription="ADCS mode, health, and pointing summary">
+        <!-- beacons every 1 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="1.0" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="ADCS_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="ADCS_MODE" />
@@ -779,6 +809,8 @@
       </xtce:SequenceContainer>
 
       <xtce:SequenceContainer name="ADCS_ATTITUDE" shortDescription="Attitude solution and body rates">
+        <!-- beacons every 0.5 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="2.0" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="ADCS_ATT_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="ADCS_ATT_QUAT" />
@@ -799,6 +831,8 @@
       </xtce:SequenceContainer>
 
       <xtce:SequenceContainer name="ADCS_WHEELS" shortDescription="Reaction wheel telemetry (4-wheel pyramid)">
+        <!-- beacons every 0.5 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="2.0" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="ADCS_WHL_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="ADCS_WHEEL1_SPEED" />
@@ -824,6 +858,8 @@
       </xtce:SequenceContainer>
 
       <xtce:SequenceContainer name="ADCS_SENSORS" shortDescription="Star tracker, sun sensor, magnetometer">
+        <!-- beacons every 1 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="1.0" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="ADCS_SNS_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="ADCS_ST_QUAT" />
@@ -840,6 +876,23 @@
           <xtce:RestrictionCriteria>
             <xtce:ComparisonList>
               <xtce:Comparison parameterRef="APID" value="27" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
+
+      <!-- COMMS_STATUS Packet (APID 0x1C = 28) -->
+      <xtce:SequenceContainer name="COMMS_STATUS" shortDescription="Communications subsystem status">
+        <!-- beacons every 2 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="0.5" />
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="COMM_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="COMM_BEACON_STATE" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="28" />
             </xtce:ComparisonList>
           </xtce:RestrictionCriteria>
         </xtce:BaseContainer>
@@ -890,11 +943,36 @@
         <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="255" /></xtce:ValidRangeSet>
       </xtce:IntegerArgumentType>
 
-      <!-- SubsystemId -->
-      <xtce:IntegerArgumentType name="SubsystemIdType" signed="false">
+      <!-- SubsystemId: the vehicle's subsystems, by their bus address. This
+           enumeration IS the subsystem numbering — commands that address a
+           subsystem (RESET) take this type, so the mapping lives in the ICD,
+           not in a comment. -->
+      <xtce:EnumeratedArgumentType name="SubsystemIdType">
         <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
-        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="0" maxInclusive="7" /></xtce:ValidRangeSet>
-      </xtce:IntegerArgumentType>
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="CDH" value="0" />
+          <xtce:Enumeration label="EPS" value="1" />
+          <xtce:Enumeration label="THERMAL" value="2" />
+          <xtce:Enumeration label="COMMS" value="3" />
+          <xtce:Enumeration label="IMAGER" value="4" />
+          <xtce:Enumeration label="ADCS" value="5" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      <!-- The subsystems addressable by SET_POWER: the switchable loads on
+           the power bus. EPS is not a load on itself, and thermal's
+           switchable element is the heater, whose power channel
+           (PWR_HEATER_STATE) is driven by HEATER_ON/HEATER_OFF rather than
+           by SET_POWER. Values match SubsystemIdType (pinned by a test). -->
+      <xtce:EnumeratedArgumentType name="PowerLoadIdType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="CDH" value="0" />
+          <xtce:Enumeration label="COMMS" value="3" />
+          <xtce:Enumeration label="IMAGER" value="4" />
+          <xtce:Enumeration label="ADCS" value="5" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
 
       <!-- Power State Enum -->
       <xtce:EnumeratedArgumentType name="PowerStateType">
@@ -949,11 +1027,36 @@
         <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="100" /></xtce:ValidRangeSet>
       </xtce:IntegerArgumentType>
 
-      <!-- Telemetry rate in Hz -->
-      <xtce:IntegerArgumentType name="TlmRateType" signed="false">
-        <xtce:UnitSet><xtce:Unit>Hz</xtce:Unit></xtce:UnitSet>
+      <!-- The periodic packets SET_TLM_RATE may retime, by name; each
+           label's value IS the packet's APID, so the ICD carries the
+           mapping. EVENT_LOG and FILE_RECEIPT are deliberately absent:
+           FILE_RECEIPT is event-only telemetry, and EVENT_LOG declares no
+           rate (it paces on the server's fallback interval until it too
+           becomes event-only) — neither is retimeable. -->
+      <xtce:EnumeratedArgumentType name="PeriodicPacketIdType">
         <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
-        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="1" maxInclusive="10" /></xtce:ValidRangeSet>
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="HOUSEKEEPING" value="16" />
+          <xtce:Enumeration label="IMAGER_STATUS" value="17" />
+          <xtce:Enumeration label="POWER_STATUS" value="18" />
+          <xtce:Enumeration label="THERMAL_STATUS" value="19" />
+          <xtce:Enumeration label="ATS_STATUS" value="22" />
+          <xtce:Enumeration label="RTS_STATUS" value="23" />
+          <xtce:Enumeration label="ADCS_STATUS" value="24" />
+          <xtce:Enumeration label="ADCS_ATTITUDE" value="25" />
+          <xtce:Enumeration label="ADCS_WHEELS" value="26" />
+          <xtce:Enumeration label="ADCS_SENSORS" value="27" />
+          <xtce:Enumeration label="COMMS_STATUS" value="28" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedArgumentType>
+
+      <!-- New beacon period for one packet, as a DURATION in milliseconds
+           (PUS expresses housekeeping collection intervals as periods; so
+           do we). 100 ms floor, 60 s ceiling. -->
+      <xtce:IntegerArgumentType name="TlmPeriodType" signed="false">
+        <xtce:UnitSet><xtce:Unit>ms</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="unsigned" />
+        <xtce:ValidRangeSet><xtce:ValidRange minInclusive="100" maxInclusive="60000" /></xtce:ValidRangeSet>
       </xtce:IntegerArgumentType>
 
       <!-- Boolean enable/disable -->
@@ -1146,8 +1249,9 @@
         <xtce:DefaultSignificance consequenceLevel="critical" reasonForWarning="Subsystem reset may interrupt operations" />
       </xtce:MetaCommand>
 
-      <!-- GET_STATUS: Request housekeeping telemetry -->
-      <xtce:MetaCommand name="GET_STATUS" shortDescription="Request immediate housekeeping telemetry">
+      <!-- GET_STATUS: request an immediate telemetry snapshot (all periodic
+           packets) — the on-demand downlink path, beacon state notwithstanding -->
+      <xtce:MetaCommand name="GET_STATUS" shortDescription="Request an immediate telemetry snapshot (all periodic packets)">
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x02" />
@@ -1192,7 +1296,7 @@
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="SubsystemId" argumentTypeRef="SubsystemIdType" />
+          <xtce:Argument name="SubsystemId" argumentTypeRef="PowerLoadIdType" />
           <xtce:Argument name="PowerState" argumentTypeRef="PowerStateType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="SET_POWER_Container">
@@ -1205,20 +1309,23 @@
         </xtce:CommandContainer>
       </xtce:MetaCommand>
 
-      <!-- SET_TLM_RATE: Set telemetry output rate -->
-      <xtce:MetaCommand name="SET_TLM_RATE" shortDescription="Set telemetry output rate">
+      <!-- SET_TLM_RATE: retime one periodic packet's beacon period (the
+           in-flight modifier of the DefaultRateInStream declarations) -->
+      <xtce:MetaCommand name="SET_TLM_RATE" shortDescription="Set one packet's telemetry period">
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x11" />
           </xtce:ArgumentAssignmentList>
         </xtce:BaseMetaCommand>
         <xtce:ArgumentList>
-          <xtce:Argument name="RateHz" argumentTypeRef="TlmRateType" />
+          <xtce:Argument name="Packet" argumentTypeRef="PeriodicPacketIdType" />
+          <xtce:Argument name="PeriodMs" argumentTypeRef="TlmPeriodType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="SET_TLM_RATE_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
-            <xtce:ArgumentRefEntry argumentRef="RateHz" />
+            <xtce:ArgumentRefEntry argumentRef="Packet" />
+            <xtce:ArgumentRefEntry argumentRef="PeriodMs" />
           </xtce:EntryList>
           <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
         </xtce:CommandContainer>

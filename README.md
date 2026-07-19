@@ -104,7 +104,7 @@ xtce-sim run examples/imaging_sat/imaging_sat.xml --id sat-a --port 5000 --live
 xtce-sim monitor --id sat-a --port 5000
 
 # Terminal 3 — send a command (enum arguments accept their labels)
-xtce-sim send --id sat-a --port 5000 SET_POWER SubsystemId=3 PowerState=ON
+xtce-sim send --id sat-a --port 5000 SET_POWER SubsystemId=COMMS PowerState=ON
 ```
 
 The bundled example is
@@ -153,7 +153,7 @@ Behavior (examples/imaging_sat):
     THM_HEATER{HeaterId}_STATE = 'ON'  [emit: immediate]
     THM_HEATER{HeaterId}_TEMP ramps to @THM_HEATER{HeaterId}_SETPOINT (tau=30.0s)
   ...
-OK: ImagingSat — 40 command(s), 12 packet(s)
+OK: ImagingSat — 40 command(s), 13 packet(s)
 ```
 
 Lines marked `~` are **inferences and gaps** — places the parser filled a gap
@@ -503,16 +503,16 @@ You'll see three colored `listening on …` lines. Send a different command to
 each and watch it appear in that instance's color:
 
 ```bash
-xtce-sim send --id sat-a --port 5001 SET_POWER SubsystemId=1 PowerState=ON
+xtce-sim send --id sat-a --port 5001 SET_POWER SubsystemId=COMMS PowerState=ON
 xtce-sim send --id sat-b --port 5002 TAKE_IMAGE ImageCount=3
-xtce-sim send --id sat-c --port 5003 RESET SubsystemId=2 ResetMode=HARD
+xtce-sim send --id sat-c --port 5003 RESET SubsystemId=THERMAL ResetMode=HARD
 ```
 
 ```
-07:03:30 [sat-a] listening on 127.0.0.1:5001 — 40 command(s), 12 packet(s)
-07:03:30 [sat-b] listening on 127.0.0.1:5002 — 40 command(s), 12 packet(s)
-07:03:34 [sat-a] command 0x10 SET_POWER args={'SubsystemId': 1, 'PowerState': 'ON'}
-07:03:35 [sat-b] command 0x33 TAKE_IMAGE args={'ImageCount': 3}
+16:46:10 [sat-a] listening on 127.0.0.1:5001 — 40 command(s), 13 packet(s)
+16:46:10 [sat-b] listening on 127.0.0.1:5002 — 40 command(s), 13 packet(s)
+16:46:13 [sat-a] command 0x10 SET_POWER args={'SubsystemId': 'COMMS', 'PowerState': 'ON'}
+16:46:13 [sat-b] command 0x33 TAKE_IMAGE args={'ImageCount': 3}
 ```
 
 Watch one instance's telemetry live, then stop the fleet:
@@ -758,9 +758,13 @@ registered per field and advanced by the beacon clock: `ramp_to`/`tau`
 jitter with one seeded RNG per field, so runs reproduce exactly. One behavior
 per field: a new command's behavior replaces the old (HEATER_OFF's cooling
 displaces HEATER_ON's warming), and a direct set cancels it — last command
-wins. `{ArgName}` templates in field names scale one rule across HeaterId 1
-and 2; an `@FIELD` reference may not name its own field (feeding a field its
-own output is drift, not jitter).
+wins. `{ArgName}` templates in field names scale one rule across a family of
+fields: an integer argument fills in its value (`THM_HEATER{HeaterId}_STATE`
+reaches heater 1 or 2), and an enumerated argument fills in its **label**
+(`PWR_{SubsystemId}_STATE` sends COMMS to `PWR_COMMS_STATE`) — a raw enum
+value with no declared label, or a string that is not one of the declared
+labels, refuses to resolve, and the effect is skipped with a warning. An `@FIELD` reference may not name its own field (feeding a
+field its own output is drift, not jitter).
 
 **Values are engineering units.** A calibrated field transmits raw counts on
 the wire, but behavior values mean what they say — `ramp_to = 40.0` on a
@@ -794,20 +798,110 @@ EVT_MESSAGE = { set = "IMAGE CAPTURE STARTED", emit = "immediate" }
 EVT_EVENT_ID = { set = 11, emit = "immediate" }
 ```
 
-See it: serve with a slow beacon so the instant packets stand out, watch, and
-command —
+See it: slow the imager packet right down (its declared period is 1 s), so
+the instant emission stands out against a ten-second gap —
 
 ```bash
 xtce-sim run examples/imaging_sat/imaging_sat.xml --port 5000 --interval 10
 xtce-sim monitor --def examples/imaging_sat/imaging_sat.xml --port 5000
+xtce-sim send --def examples/imaging_sat/imaging_sat.xml --port 5000 SET_TLM_RATE Packet=IMAGER_STATUS PeriodMs=10000
 xtce-sim send --def examples/imaging_sat/imaging_sat.xml --port 5000 TAKE_IMAGE ImageCount=3
 ```
 
 IMAGER_STATUS (`STATE=CAPTURING`) and EVENT_LOG (`EVENT_ID=11`) appear alone,
-out of rhythm, the instant the command lands — the rest of the telemetry
-arrives on the ten-second beat. `xtce-sim inspect` narrates a loaded sidecar
-(initial values, boot signals, per-command effects, `[emit: immediate]`
-marks), so you can review the behavior without running anything.
+out of rhythm, the instant the TAKE_IMAGE lands — the retimed imager packet
+otherwise beacons on its new ten-second beat (and EVENT_LOG, which declares
+no rate, paces on the `--interval 10` fallback). `xtce-sim inspect` narrates
+a loaded sidecar (initial values, boot signals, per-command effects,
+`[emit: immediate]` marks), so you can review the behavior without running
+anything.
+
+### Telemetry rates: every packet has its own period
+
+Real vehicles do not beacon everything at one rate, and neither does the
+sim. Each telemetry container in the XTCE declares its nominal rate with
+the standard's own element — this is POWER_STATUS in
+`examples/imaging_sat/imaging_sat.xml`:
+
+```xml
+<xtce:SequenceContainer name="POWER_STATUS" shortDescription="Electrical power system status">
+  <!-- beacons every 2 s -->
+  <xtce:DefaultRateInStream basis="perSecond" minimumValue="0.5" />
+```
+
+The parser reads the declaration (one more XTCE element that used to be
+ignored), the server paces each packet on its own period, and `inspect
+--dump` shows the schedule as durations:
+
+```
+APID 0x10  HOUSEKEEPING  [every 1 s]
+APID 0x11  IMAGER_STATUS  [every 1 s]
+APID 0x12  POWER_STATUS  [every 2 s]
+APID 0x13  THERMAL_STATUS  [every 2 s]
+```
+
+Packets that declare no rate (my_vehicle declares none anywhere) pace on
+the `--interval` fallback, exactly the old behavior — imaging_sat's
+EVENT_LOG is such a packet, while FILE_RECEIPT is event-only and never
+beacons at all. In flight, `SET_TLM_RATE`
+retimes one packet — PUS-style per-packet periods, addressed by name, the
+period a duration in milliseconds:
+
+```
+13:18:13 [sat-a] command 0x11 SET_TLM_RATE args={'Packet': 'IMAGER_STATUS', 'PeriodMs': 10000}
+13:18:13 [sat-a]   telemetry period: IMAGER_STATUS every 10 s
+```
+
+The retimed packet emits immediately (announcing its new cadence) and then
+holds the commanded period until another SET_TLM_RATE — or a restart —
+restores the declared one.
+
+### Beacon control: ENABLE_BEACON
+
+A vehicle whose XTCE declares an `ENABLE_BEACON` command (with an
+ENABLE/DISABLE `BeaconState` argument) gets real beacon control — the same
+opt-in-by-declaration convention as the `FILE_*` and ATS/RTS command
+families. `DISABLE` stops the periodic beacon: physics keep ticking, and
+command-caused transmissions (command echoes, `emit = "immediate"` effects,
+file receipts, sequence status) still flow, but the beacon stays quiet
+until an `ENABLE` arrives. One carve-out to know: beacon-off does not
+pause the vehicle's stored program — a *running* ATS/RTS keeps executing,
+and its fired commands re-enter the normal dispatch path, so their echoes,
+immediate effects, and sequence-status pushes still transmit on the
+sequence's own clock.
+
+The imaging satellite pairs the gate with a telemetry mirror in
+`comms.toml`, so the commanded state is visible on the COMMS_STATUS card.
+Because the sidecar's immediate emission runs before the gate flips,
+`DISABLE`'s own COMMS_STATUS push — showing `DISABLE` — is the link's last
+autonomous packet:
+
+```
+06:34:10 [sat-a] command 0x52 ENABLE_BEACON args={'BeaconState': 'DISABLE'}
+06:34:10 [sat-a]   effects: COMM_BEACON_STATE=0
+06:34:10 [sat-a]   immediate: APID 0x1C emitted
+06:34:10 [sat-a]   beacon disabled (periodic telemetry quiet)
+```
+
+With the beacon disabled, `monitor` and the web console go quiet and the
+console's panels dim stale — that is not a bug; it is what you commanded
+the vehicle to do.
+
+The quiet vehicle can still be polled. `GET_STATUS` (same
+opt-in-by-declaration convention) commands one immediate pass over every
+periodic packet, whatever the beacon gate says, so `monitor` shows the
+vehicle's full current state the moment the command lands and then goes
+quiet again. From the same session, mid-silence, and then the `ENABLE`
+that ends it:
+
+```
+06:34:11 [sat-a] command 0x02 GET_STATUS args={}
+06:34:11 [sat-a]   status: telemetry snapshot emitted (12 packet(s))
+06:34:13 [sat-a] command 0x52 ENABLE_BEACON args={'BeaconState': 'ENABLE'}
+06:34:13 [sat-a]   effects: COMM_BEACON_STATE=1
+06:34:13 [sat-a]   immediate: APID 0x1C emitted
+06:34:13 [sat-a]   beacon enabled
+```
 
 ### Physics models: the ADCS flies
 

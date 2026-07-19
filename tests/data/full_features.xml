@@ -188,6 +188,7 @@
       <!-- Concrete packet: inherits base, restricted by a ComparisonList incl. APID,
            payload references a path-qualified ref and an aggregate -->
       <xtce:SequenceContainer name="HEALTH">
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="0.25" />
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="Temp" />
           <xtce:ParameterRefEntry parameterRef="Voltage" />

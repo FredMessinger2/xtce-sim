@@ -38,7 +38,7 @@ def test_imaging_sat_example_builds_and_is_generic():
     d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
     assert d.space_system_name == "ImagingSat"
     assert len(d.commands) == 40
-    assert len(d.packets) == 12
+    assert len(d.packets) == 13  # incl. COMMS_STATUS (APID 28, ENABLE_BEACON's card)
     assert "VendorA" not in IMAGING_SAT_XTCE.read_text()
 
 
@@ -103,6 +103,81 @@ def test_imaging_sat_two_level_inheritance_resolves():
     # Header fields assigned on the intermediate ancestor stay hidden; only
     # the command's real arguments remain operator-typed.
     assert [p.name for p in sp.params] == ["SubsystemId", "PowerState"]
+
+
+def test_power_loads_are_a_subset_of_the_subsystem_ids():
+    # PowerLoadIdType hand-copies four label/value pairs of SubsystemIdType
+    # (XTCE has no enum-subset construct); this pin is the machine check the
+    # XML comment 'Values match SubsystemIdType' promises. If the subsystem
+    # numbering ever changes, this fails instead of the two commands quietly
+    # addressing different subsystems with the same wire byte.
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    loads = next(p for p in d.command_by_name("SET_POWER").params if p.name == "SubsystemId")
+    subsystems = next(p for p in d.command_by_name("RESET").params if p.name == "SubsystemId")
+    assert set(loads.enumerations.items()) <= set(subsystems.enumerations.items())
+
+
+def test_declared_packet_periods_parse_to_durations():
+    # DefaultRateInStream is the XTCE-standard per-packet rate declaration;
+    # the boundary converts the standard's per-second rate into the period
+    # our layer carries. Event-driven packets declare none.
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    periods = {p.name: p.period_s for p in d.packets}
+    assert periods["HOUSEKEEPING"] == 1.0
+    assert periods["POWER_STATUS"] == 2.0
+    assert periods["ADCS_ATTITUDE"] == 0.5
+    assert periods["EVENT_LOG"] is None
+    assert periods["FILE_RECEIPT"] is None
+
+
+def test_periodic_packet_enum_values_are_the_apids():
+    # PeriodicPacketIdType's contract: label = packet name, value = APID —
+    # the ICD carries the mapping SET_TLM_RATE resolves through. Every
+    # declared-periodic packet is addressable; the event packets are not.
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    arg = next(p for p in d.command_by_name("SET_TLM_RATE").params if p.name == "Packet")
+    by_name = {p.name: p for p in d.packets}
+    for label, value in arg.enumerations.items():
+        assert by_name[label].apid == value
+    # BOTH directions: every enum entry is a declared-periodic packet, and
+    # every declared-periodic packet is addressable — a new packet with a
+    # DefaultRateInStream must land in the enum or this fails.
+    assert set(arg.enumerations) == {
+        p.name for p in d.packets if p.period_s is not None
+    }
+
+
+def test_period_survives_the_json_round_trip(tmp_path):
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    path = tmp_path / "cmd_tlm.json"
+    path.write_text(format_json(d))
+    back = SimDefinition.from_json(path)
+    assert {p.name: p.period_s for p in back.packets} == {
+        p.name: p.period_s for p in d.packets
+    }
+
+
+def test_enable_disable_declaration_order_is_pinned():
+    # The exercise sweep sends a command's example values in declaration
+    # order, so the LAST BeaconState sent decides the vehicle's beacon state
+    # after a sweep. DISABLE first / ENABLE last keeps every sweep from
+    # ending with the vehicle silenced — a cosmetic-looking reorder of
+    # EnableDisableType would break the looping exerciser.
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    arg = next(p for p in d.command_by_name("ENABLE_BEACON").params if p.name == "BeaconState")
+    assert list(arg.enumerations) == ["DISABLE", "ENABLE"]
+
+
+def test_beacon_state_mirror_enum_matches_the_argument():
+    # comms.toml copies BeaconState's RAW value into COMM_BEACON_STATE, so
+    # the argument enum (EnableDisableType) and the telemetry enum
+    # (EnableStateParamType) must agree pair-for-pair, or the console would
+    # label the opposite state. This pin is the machine check for the twin
+    # hand-copied enums.
+    d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
+    arg = next(p for p in d.command_by_name("ENABLE_BEACON").params if p.name == "BeaconState")
+    field = next(f for p in d.packets for f in p.fields if f.name == "COMM_BEACON_STATE")
+    assert arg.enumerations == field.enumerations
 
 
 def test_example_binary_fields_have_real_sizes():

@@ -154,6 +154,37 @@ class FieldInfo:
     calibrator: Optional[CalibratorInfo] = None  # raw counts -> engineering units
 
 
+def label_for(enumerations: dict[str, int], value) -> Optional[str]:
+    """The declared label for a raw enum value, or None.
+
+    THE reverse lookup: every place a wire value becomes a label (codec
+    decode, monitor display, web console, behavior templates) resolves
+    through here, so they can never disagree on which label a value gets.
+    """
+    return next((k for k, v in enumerations.items() if v == value), None)
+
+
+def resolve_enum_arg(enumerations: dict[str, int], value) -> Optional[tuple[str, int]]:
+    """Resolve a decoded enum argument to ``(label, raw value)``, or None.
+
+    THE resolution ladder for the two shapes command dispatch produces: a
+    declared label string, or a raw wire value carrying a declared label.
+    Booleans are refused up front (``True == 1`` would otherwise resolve as
+    raw 1). Convention-command consumers (beacon gate, packet retiming)
+    resolve through here so a forgotten guard can't reopen the bool leak
+    in one copy of the ladder.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        raw = enumerations.get(value)
+        return (value, raw) if raw is not None else None
+    if isinstance(value, int):
+        label = label_for(enumerations, value)
+        return (label, value) if label is not None else None
+    return None
+
+
 @dataclass
 class CommandDef:
     """A concrete command: opcode + the arguments an operator can set."""
@@ -184,6 +215,11 @@ class PacketDef:
     description: Optional[str] = None
     fields: list[FieldInfo] = field(default_factory=list)
     struct_format: str = ">"  # big-endian struct format for the payload
+    # Declared beacon period in seconds, derived from the container's XTCE
+    # DefaultRateInStream (the standard stores a per-second rate; this layer
+    # carries the duration). None = no declaration; the server falls back
+    # to its global --interval.
+    period_s: Optional[float] = None
 
 
 @dataclass
@@ -270,6 +306,7 @@ class SimDefinition:
                 name=t["name"],
                 apid=t["apid"],
                 description=t.get("description"),
+                period_s=t.get("period_s"),
                 fields=[
                     FieldInfo(
                         name=f["name"],

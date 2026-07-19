@@ -3,6 +3,29 @@
 # converted to raw wire counts by the engine. Full schema: README, section
 # 'Behavior: making commands change telemetry'.
 
+# Power states at boot: the bus comes up with the platform loads on, the
+# payload off, and the heater circuit off (matching THM_HEATER*_STATE's
+# zero defaults). Held by the engine, so every PWR_*_STATE reads as a real
+# state, not synthetic wobble, from the first beacon.
+[_initial]
+PWR_CDH_STATE = "ON"
+PWR_COMMS_STATE = "ON"
+PWR_IMAGER_STATE = "OFF"
+PWR_ADCS_STATE = "ON"
+PWR_HEATER_STATE = "OFF"
+
+# SET_POWER names a switchable load (PowerLoadIdType in the XTCE); the enum
+# label fills the template, so COMMS lands in PWR_COMMS_STATE. The heater's
+# channel is not addressed here — HEATER_ON/HEATER_OFF own it (thermal.toml).
+# POWER_STATUS emits the moment the command lands.
+#
+# Honest limit: this flips only the power switch. SET_POWER IMAGER OFF does
+# not drive IMG_STATE or cancel the focal-plane ramp (IMAGER_ON/IMAGER_OFF
+# do both) — effects cannot yet condition on an argument's value, so the
+# imager's side of that switch is modeled only by its own commands (backlog).
+[SET_POWER]
+"PWR_{SubsystemId}_STATE" = { set = "@arg:PowerState", emit = "immediate" }
+
 # The solar bus rides the orbit; the battery breathes with seeded noise.
 [_signals]
 PWR_SOLAR_VOLTAGE = { oscillate = 16.0, amplitude = 12.0, period = 5400, noise = 0.3 }

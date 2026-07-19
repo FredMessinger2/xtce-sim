@@ -81,6 +81,12 @@ def _synth_value(field, t: float):
             value = raw
     if field.python_type in ("float32", "float64"):
         return value
+    if field.enumerations:
+        # An enumerated field only ever shows DECLARED states: step through
+        # the declared values instead of wobbling into numbers the ICD does
+        # not define (a 2-state enum must never read 3).
+        declared = sorted(field.enumerations.values())
+        return declared[int(round(abs(value))) % len(declared)]
     lo, hi = _INT_BOUNDS.get(field.python_type, (0, 255))
     # Saturate (clamp) into range — NOT modulo-wrap, so a near-zero negative
     # value on an unsigned field reads as ~0, not as the type's maximum.

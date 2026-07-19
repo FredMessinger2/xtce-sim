@@ -210,3 +210,54 @@ def test_warns_on_illegal_consequence_level(tmp_path, caplog):
         defn = XTCEParser().parse(f)
     assert defn.meta_commands["C"].significance == "caution"  # kept as-is
     assert any("not a legal XTCE value" in r.message for r in caplog.records)
+
+
+def _rate_container(rate_attrs: str) -> str:
+    """A minimal containerized DefaultRateInStream declaration."""
+    return (
+        f'<xtce:SpaceSystem {NS} name="X"><xtce:TelemetryMetaData>'
+        "<xtce:ContainerSet>"
+        '<xtce:SequenceContainer name="PKT">'
+        f"<xtce:DefaultRateInStream {rate_attrs}/>"
+        "<xtce:EntryList/>"
+        "</xtce:SequenceContainer>"
+        "</xtce:ContainerSet></xtce:TelemetryMetaData></xtce:SpaceSystem>"
+    )
+
+
+def test_rate_in_stream_happy_path(tmp_path):
+    f = _write(tmp_path, "rate.xml", _rate_container('basis="perSecond" minimumValue="0.5"'))
+    defn = XTCEParser().parse(f)
+    assert defn.containers["PKT"].rate_per_second == 0.5
+
+
+def test_rate_in_stream_unsupported_basis_warns(tmp_path, caplog):
+    f = _write(tmp_path, "rate.xml", _rate_container('basis="perContainerUpdate" minimumValue="2"'))
+    with caplog.at_level(logging.WARNING):
+        defn = XTCEParser().parse(f)
+    assert defn.containers["PKT"].rate_per_second is None
+    assert any("basis" in r.message and "rate ignored" in r.message for r in caplog.records)
+
+
+def test_rate_in_stream_no_value_warns(tmp_path, caplog):
+    f = _write(tmp_path, "rate.xml", _rate_container('basis="perSecond"'))
+    with caplog.at_level(logging.WARNING):
+        defn = XTCEParser().parse(f)
+    assert defn.containers["PKT"].rate_per_second is None
+    assert any("no positive finite rate" in r.message for r in caplog.records)
+
+
+def test_rate_in_stream_non_numeric_warns(tmp_path, caplog):
+    f = _write(tmp_path, "rate.xml", _rate_container('minimumValue="fast"'))
+    with caplog.at_level(logging.WARNING):
+        defn = XTCEParser().parse(f)
+    assert defn.containers["PKT"].rate_per_second is None
+    assert any("is not a number" in r.message for r in caplog.records)
+
+
+def test_rate_in_stream_zero_minimum_falls_back_to_maximum(tmp_path):
+    # minimumValue="0" is the standard's 'no guaranteed rate' — the declared
+    # maximumValue is the honest best-effort rate, not a rejection.
+    f = _write(tmp_path, "rate.xml", _rate_container('minimumValue="0" maximumValue="4"'))
+    defn = XTCEParser().parse(f)
+    assert defn.containers["PKT"].rate_per_second == 4.0

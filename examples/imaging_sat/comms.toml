@@ -1,0 +1,16 @@
+# Comms subsystem behavior for the ImagingSat example.
+# Values are ENGINEERING UNITS; calibrated fields are converted to raw wire
+# counts by the engine. Full schema: README, section 'Behavior: making
+# commands change telemetry'.
+
+# The beacon boots enabled — held state on the COMMS card from the first
+# packet, not synthetic wobble.
+[_initial]
+COMM_BEACON_STATE = "ENABLE"
+
+# ENABLE_BEACON really gates the beacon — the SERVER stops/starts periodic
+# telemetry (BEACON_COMMANDS in server.py). This mirror copies the commanded
+# state into telemetry, emitted immediately (full story: README, 'Beacon
+# control').
+[ENABLE_BEACON]
+COMM_BEACON_STATE = { set = "@arg:BeaconState", emit = "immediate" }

@@ -528,7 +528,7 @@
       </xtce:MetaCommand>
 
       
-      <xtce:MetaCommand name="GET_STATUS" shortDescription="Request immediate status telemetry">
+      <xtce:MetaCommand name="GET_STATUS" shortDescription="Request an immediate telemetry snapshot (all periodic packets)">
         <xtce:BaseMetaCommand metaCommandRef="CCSDSCommand" />
         <xtce:CommandContainer name="GET_STATUS_Container">
           <xtce:EntryList>

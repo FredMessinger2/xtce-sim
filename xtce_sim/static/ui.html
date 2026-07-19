@@ -663,7 +663,14 @@ function buildPanels(def) {
     }
     panel.append(h2, table);
     grid.appendChild(panel);
-    panels.set(p.apid, { panel, meta, cells, lastSeen: 0, isEvent });
+    // Stale threshold scales with the packet's own period (declared here,
+    // observed cadence later): a healthy 10 s packet must not read as
+    // telemetry loss.
+    const baseStaleMs = Math.max(5000, (p.period_s || 0) * 2500);
+    panels.set(p.apid, {
+      panel, meta, cells, lastSeen: 0, isEvent,
+      baseStaleMs, staleMs: baseStaleMs,
+    });
   }
 }
 
@@ -674,7 +681,14 @@ function render(msg, isArrival) {
     "APID 0x" + msg.apid.toString(16).toUpperCase() +
     " · seq " + msg.seq + " · " + msg.time.slice(11);
   if (isArrival) {
-    entry.lastSeen = Date.now();
+    const now = Date.now();
+    // Follow the OBSERVED cadence too: SET_TLM_RATE can retime a packet
+    // live (the declared period in the hello goes stale), so the last
+    // inter-arrival gap keeps the threshold honest in both directions.
+    if (entry.lastSeen) {
+      entry.staleMs = Math.max(entry.baseStaleMs, (now - entry.lastSeen) * 2.5);
+    }
+    entry.lastSeen = now;
     entry.panel.classList.remove("stale");
   }
   if (!msg.fields) return;
@@ -690,13 +704,14 @@ function render(msg, isArrival) {
   }
 }
 
-// Dim panels whose packets stopped arriving (>5 s without an update).
+// Dim panels whose packets stopped arriving (2.5x their own period, floor
+// 5 s — per-packet periods mean one threshold cannot fit all packets).
 // Event-driven packets are exempt: they downlink when something happens,
 // so quiet is their normal state, not staleness.
 setInterval(() => {
   const now = Date.now();
   for (const p of panels.values()) {
-    if (!p.isEvent && p.lastSeen && now - p.lastSeen > 5000) {
+    if (!p.isEvent && p.lastSeen && now - p.lastSeen > (p.staleMs || 5000)) {
       p.panel.classList.add("stale");
     }
   }

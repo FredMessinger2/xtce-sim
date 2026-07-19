@@ -561,6 +561,7 @@ def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
                 description=container.description or None,
                 fields=fields,
                 struct_format=fields_to_struct_format(fields),
+                period_s=_declared_period(container),
             )
         )
         if logger.isEnabledFor(logging.DEBUG):
@@ -579,8 +580,37 @@ def build_packets(xtce_def: XTCEDefinition) -> list[PacketDef]:
             "abstract bases (not served as packets)",
             skipped,
         )
+    _warn_abstract_rates(xtce_def, {p.name for p in packets})
     packets.sort(key=lambda p: p.apid)
     return packets
+
+
+def _warn_abstract_rates(xtce_def: XTCEDefinition, concrete: set) -> None:
+    """Warn for a DefaultRateInStream on a container that isn't a packet.
+
+    A rate on an abstract base never reaches any packet — and because the
+    parser consumed the element, the ignored-element report will not flag
+    it either. Say so here, or the no-op is undiscoverable.
+    """
+    for name, container in xtce_def.containers.items():
+        if container.rate_per_second and name not in concrete:
+            logger.warning(
+                "~ container %r declares DefaultRateInStream but has no "
+                "CCSDS_APID restriction (abstract base) — the rate has no effect",
+                name,
+            )
+
+
+def _declared_period(container) -> Optional[float]:
+    """A container's declared beacon period in seconds, or None.
+
+    The XTCE standard stores a per-second rate (DefaultRateInStream); the
+    rate -> period conversion happens once, here at the boundary, and the
+    rest of the system speaks durations.
+    """
+    if container.rate_per_second:
+        return 1.0 / container.rate_per_second
+    return None
 
 
 def build_sim_definition(xtce_def: XTCEDefinition) -> SimDefinition:
@@ -659,6 +689,10 @@ def _format_command_block(cmd) -> list[str]:
 def _format_packet_block(pkt) -> list[str]:
     """Header + struct + field lines for one telemetry packet."""
     header = f"APID 0x{pkt.apid:02X}  {pkt.name}"
+    if pkt.period_s is not None:
+        # Shown as a duration; the XTCE declares a per-second rate
+        # (DefaultRateInStream) and the boundary already converted it.
+        header += f"  [every {pkt.period_s:g} s]"
     if pkt.description:
         header += f"  — {pkt.description}"
     lines = [header, f"      struct: {pkt.struct_format}"]
@@ -751,6 +785,7 @@ def to_dict(simdef: SimDefinition) -> dict:
                 "apid": pkt.apid,
                 "apid_hex": f"0x{pkt.apid:02X}",
                 "description": pkt.description,
+                "period_s": pkt.period_s,
                 "struct_format": pkt.struct_format,
                 "fields": [
                     {

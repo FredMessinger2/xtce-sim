@@ -30,7 +30,7 @@ from pathlib import Path
 import click
 
 from xtce_sim import behavior, ccsds, client, codec, fileservice, render, seqservice, sequences
-from xtce_sim.definition import SimDefinition
+from xtce_sim.definition import SimDefinition, label_for
 from xtce_sim.exercise import build_send_plan, reject_probe, run_exercise
 from xtce_sim.generate import GeneratorError, emit_python, format_json, format_text
 from xtce_sim.logs import enable_trace, setup_logging
@@ -295,7 +295,8 @@ def _inspect_behavior(path: Path | None, simdef: SimDefinition) -> None:
     default=1.0,
     show_default=True,
     type=float,
-    help="Telemetry beacon interval in seconds.",
+    help="Fallback beacon period in seconds, for packets whose XTCE declares "
+    "no DefaultRateInStream rate (declared per-packet periods always win).",
 )
 @click.option(
     "--color",
@@ -404,7 +405,7 @@ def send(
     apid: int,
     force: bool,
 ) -> None:
-    """Send a command: xtce-sim send --id sat-a --port 5000 SET_POWER SubsystemId=3 PowerState=ON."""
+    """Send a command: xtce-sim send --id sat-a --port 5000 SET_POWER SubsystemId=COMMS PowerState=ON."""
     simdef = _load_definition(instance_id, def_path)
 
     name, *pairs = command_args
@@ -594,7 +595,7 @@ def _display_value(field, value, raw: bool = False):
     ``raw``, which shows the counts as transmitted).
     """
     if field.enumerations:
-        label = next((k for k, v in field.enumerations.items() if v == value), None)
+        label = label_for(field.enumerations, value)
         if label is not None:
             return label
     if not raw and field.python_type == "string" and isinstance(value, (bytes, bytearray)):
@@ -736,29 +737,37 @@ def _run_dashboard(host, port, instance, decode, count) -> None:
     first_apid = None
     is_tty = sys.stdout.isatty()
 
-    def paint() -> None:
+    last_paint = time.monotonic()
+
+    def paint() -> bool:
+        """Repaint the snapshot; True when --count is satisfied."""
+        nonlocal frames, last_paint
         if is_tty:
             click.echo("\033[H\033[J", nl=False)  # cursor home + clear screen
         click.echo(render.render_dashboard(host, port, instance, latest, total))
         if not is_tty:
             click.echo()
+        frames += 1
+        last_paint = time.monotonic()
+        return bool(count and frames >= count)
 
-    for packet in client.stream_packets(host, port):
-        decoded = decode(packet)
-        if decoded is None:
-            continue
+    # filter(None, ...) drops packets decode() rejects (returns None for).
+    for decoded in filter(None, map(decode, client.stream_packets(host, port))):
         apid, name, seq, meta, prefix = decoded
         if first_apid is None:
             first_apid = apid
         # The cycle's lead APID recurring means the previous cycle is complete:
         # paint that full snapshot before folding in the new value.
-        if apid == first_apid and latest:
-            paint()
-            frames += 1
-            if count and frames >= count:
-                break
+        if apid == first_apid and latest and paint():
+            break
         latest[apid] = (name, seq, meta, prefix)
         total += 1
+        # With the beacon disabled (ENABLE_BEACON) or very slow, the lead
+        # APID may not recur for a long time while command-caused packets
+        # still arrive — paint on those too, so an immediate emission shows
+        # up instead of the dashboard freezing at the last full cycle.
+        if time.monotonic() - last_paint >= 1.0 and paint():
+            break
 
 
 @main.command()
@@ -899,6 +908,20 @@ def _exercise_targets(simdef, wanted: set) -> list:
     targets = [c for c in simdef.commands if not wanted or c.name in wanted]
     if wanted:
         return targets
+    from xtce_sim.server import TLM_RATE_COMMANDS
+
+    retimers = [c.name for c in targets if c.name in TLM_RATE_COMMANDS]
+    if retimers:
+        # A sweep sends every enum value: SET_TLM_RATE would leave the whole
+        # telemetry schedule deranged (every packet at the example period)
+        # with nothing restoring the declared rates — same background-traffic
+        # principle as the sequence commands below.
+        targets = [c for c in targets if c.name not in TLM_RATE_COMMANDS]
+        click.echo(
+            f"leaving {len(retimers)} telemetry-rate command(s) out of the sweep "
+            "(they would permanently retime the vehicle's packets — name them "
+            "with --command to exercise deliberately)"
+        )
     sequenced = [c.name for c in targets if c.name in seqservice.SEQUENCE_COMMANDS]
     if sequenced:
         targets = [c for c in targets if c.name not in seqservice.SEQUENCE_COMMANDS]

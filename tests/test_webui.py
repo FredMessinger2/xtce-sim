@@ -10,6 +10,7 @@ a real WebSocket client.
 import asyncio
 import json
 import math
+import time
 from pathlib import Path
 
 import pytest
@@ -167,13 +168,15 @@ async def test_bridge_end_to_end(simdef):
                 assert len(hello["packets"]) == len(simdef.packets)
                 link = json.loads((await ws.receive(timeout=5)).data)
                 assert link["type"] == "link"
+                # Budget by TIME, not message count: packets beacon on their
+                # declared per-packet periods now (slowest is 2 s), so fast
+                # packets would exhaust any fixed message budget first.
                 seen = set()
-                for _ in range(60):
+                deadline = time.monotonic() + 8.0
+                while len(seen) < len(simdef.packets) and time.monotonic() < deadline:
                     msg = json.loads((await ws.receive(timeout=5)).data)
                     if msg["type"] == "telemetry":
                         seen.add(msg["packet"])
-                    if len(seen) == len(simdef.packets):
-                        break
                 assert seen == {p.name for p in simdef.packets}
     finally:
         downlink.cancel()

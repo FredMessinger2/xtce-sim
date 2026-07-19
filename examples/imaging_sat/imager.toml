@@ -8,6 +8,9 @@ IMG_FOCAL_PLANE_TEMP = 20.0
 
 [IMAGER_ON]
 IMG_STATE = { set = "IDLE", emit = "immediate" }
+# The power card tracks the payload switch too — the imager card saying
+# IDLE while POWER_STATUS says OFF would be two stories about one switch.
+PWR_IMAGER_STATE = { set = "ON", emit = "immediate" }
 # The event channel: EVENT_LOG only means anything pushed at the moment
 # something happens; a beacon copy of a stale event is noise.
 EVT_MESSAGE = { set = "IMAGER POWERED ON", emit = "immediate" }
@@ -16,6 +19,7 @@ IMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = 20.0, noise = 0.2 }
 
 [IMAGER_OFF]
 IMG_STATE = { set = "OFF", emit = "immediate" }
+PWR_IMAGER_STATE = { set = "OFF", emit = "immediate" }
 IMG_FOCAL_PLANE_TEMP = { ramp_to = 20.0, tau = 30.0, noise = 0.2 }
 
 [SET_EXPOSURE]
