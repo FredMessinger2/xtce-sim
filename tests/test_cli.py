@@ -192,15 +192,15 @@ async def _invoke_monitor(server: SimServer, args: list[str]):
     )
 
 
-@pytest.mark.parametrize("style", ["compact", "table", "dashboard"])
-async def test_monitor_styles(simdef, tmp_path, style):
+async def test_monitor_styles(simdef, tmp_path):
+    # The monitor loop's own properties (connect, count, dispatch) need one
+    # style only; per-style rendered content is owned by test_render.py.
     def_json = _def_json(tmp_path, simdef)
     server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=0.02)
     await server.start()
     try:
-        count = "2" if style == "dashboard" else "3"
         result = await _invoke_monitor(
-            server, ["--def", def_json, "--style", style, "--count", count]
+            server, ["--def", def_json, "--style", "compact", "--count", "3"]
         )
         assert result.exit_code == 0, result.output
         assert "Monitoring" in result.output

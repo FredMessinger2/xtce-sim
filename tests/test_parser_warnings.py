@@ -164,6 +164,8 @@ def test_parse_multiple_merges_override_and_reresolves(tmp_path, caplog):
     assert merged.containers["Derived"].base_container is merged.containers["Base"]
     # No spurious unresolved-base-ref warning for the cross-file case.
     assert not any("unknown base container" in r.message for r in caplog.records)
+    # Merging a file with itself is idempotent (no override, nothing lost).
+    assert XTCEParser().parse_multiple([base, base]).parameter_types["T"].size_in_bits == 8
 
 
 def test_parse_multiple_warns_per_empty_file(tmp_path, caplog):

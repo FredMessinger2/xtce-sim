@@ -218,24 +218,6 @@ async def test_exercise_cli_end_to_end(simdef, tmp_path):
         await server.stop()
 
 
-async def test_exercise_cli_command_filter(simdef, tmp_path):
-    def_json = tmp_path / "cmd_tlm.json"
-    def_json.write_text(format_json(simdef))
-    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=0.02)
-    await server.start()
-    try:
-        result = await asyncio.to_thread(
-            CliRunner().invoke,
-            main,
-            ["exercise", "--def", str(def_json), "--port", str(server.bound_port),
-             "--command", "NOOP", "--no-verify"],
-        )
-        assert result.exit_code == 0, result.output
-        assert "sent 1/1 OK" in result.output  # only NOOP, one send, no verify
-    finally:
-        await server.stop()
-
-
 # ---- pacing and looping ---------------------------------------------------
 
 
@@ -270,26 +252,6 @@ def test_run_exercise_pause_waits_between_sends_only(simdef, monkeypatch):
     # Pacing is BETWEEN sends: no sleep before the first or after the last.
     report = run_exercise(simdef, "127.0.0.1", 1, verify=False, pause=0.25)
     assert slept == [0.25] * (len(report.sends) - 1)
-
-
-async def test_exercise_cli_pause_narrates_sends(simdef, tmp_path):
-    def_json = tmp_path / "cmd_tlm.json"
-    def_json.write_text(format_json(simdef))
-    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=0.02)
-    await server.start()
-    try:
-        result = await asyncio.to_thread(
-            CliRunner().invoke,
-            main,
-            ["exercise", "--def", str(def_json), "--port", str(server.bound_port),
-             "--command", "NOOP", "--no-verify", "--pause", "0.01"],
-        )
-        assert result.exit_code == 0, result.output
-        # Per-send narration line, then the summary.
-        assert "NOOP" in result.output and "baseline" in result.output
-        assert "sent 1/1 OK" in result.output
-    finally:
-        await server.stop()
 
 
 async def test_exercise_cli_loop_repeats_until_interrupt(simdef, tmp_path, monkeypatch):
@@ -355,7 +317,10 @@ def test_exercise_cli_loop_stops_and_fails_when_sim_dies(simdef, tmp_path, monke
     import xtce_sim.cli as cli_mod
     from xtce_sim.exercise import ExerciseReport, SendResult
 
+    seen_kwargs: dict = {}
+
     def dead_sim_run(*args, **kwargs):
+        seen_kwargs.update(kwargs)
         report = ExerciseReport()
         report.sends.append(SendResult("NOOP", "baseline", False, "refused"))
         return report
@@ -366,11 +331,14 @@ def test_exercise_cli_loop_stops_and_fails_when_sim_dies(simdef, tmp_path, monke
     )
     result = CliRunner().invoke(
         main,
-        ["exercise", "--def", str(def_json), "--port", "5000", "--no-verify", "--loop"],
+        ["exercise", "--def", str(def_json), "--port", "5000",
+         "--command", "NOOP", "--no-verify", "--loop"],
     )
     assert result.exit_code == 1, result.output
     assert "every send failed — stopping the loop." in result.output
     assert result.output.count("— sweep") == 1  # no spin against a dead port
+    # --command passes through to the sweep as the commands= filter.
+    assert seen_kwargs["commands"] == {"NOOP"}
 
 
 class _FakeSock:

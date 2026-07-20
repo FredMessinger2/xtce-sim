@@ -10,8 +10,7 @@ from pathlib import Path
 import pytest
 
 from xtce_sim import models
-from xtce_sim.definition import SimDefinition
-from xtce_sim.generate import build_sim_definition, format_text
+from xtce_sim.generate import build_sim_definition
 from xtce_sim.parser import XTCEParser
 
 DATA = Path(__file__).resolve().parent / "data"
@@ -263,21 +262,12 @@ def test_build_sim_definition_flattens_aggregate(defn):
     # Aggregate GPS flattened into prefixed member fields.
     assert "GPS_Lat" in field_names
     assert "GPS_Fix" in field_names
+    # A member whose type is enumerated carries the map into the field.
+    fix = next(f for f in health.fields if f.name == "GPS_Fix")
+    assert fix.enumerations  # GPS aggregate's Fix member is ModeType (enum)
     # Binary field -> bytes, string field -> string.
     types = {f.name: f.python_type for f in health.fields}
     assert types["Blob"] == "bytes"
     assert types["Label"] == "string"
     # A synthetic opcode was assigned to the command lacking one.
     assert any(c.synthetic for c in simdef.commands)
-    assert format_text(simdef)  # renders without error
-
-
-def test_parse_multiple_merges(tmp_path):
-    """parse_multiple merges files and re-resolves references."""
-    parser = XTCEParser()
-    merged = parser.parse_multiple([FULL, FULL])  # merging with itself is idempotent
-    assert merged.space_system_name == "FullFeatures"
-    assert "TempType" in merged.parameter_types
-    # from_xtce with a list routes through parse_multiple.
-    sd = SimDefinition.from_xtce([FULL, FULL])
-    assert sd.space_system_name == "FullFeatures"

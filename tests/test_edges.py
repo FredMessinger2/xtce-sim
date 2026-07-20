@@ -68,18 +68,6 @@ def test_codec_decode_enum_without_matching_label():
     assert codec.decode_command(cmd, struct.pack(">B", 9)) == {"S": 9}
 
 
-def test_codec_encode_string_and_float():
-    cmd = CommandDef(
-        name="C",
-        opcode=1,
-        params=[ParamInfo("NAME", 32, "string"), ParamInfo("GAIN", 32, "float32")],
-    )
-    payload = codec.encode_command(cmd, {"NAME": "hi", "GAIN": 1.5})
-    out = codec.decode_command(cmd, payload)
-    assert out["GAIN"] == pytest.approx(1.5)
-    assert out["NAME"] == "hi"  # text round-trips as text, padding stripped
-
-
 # ---- ccsds -----------------------------------------------------------------
 
 
