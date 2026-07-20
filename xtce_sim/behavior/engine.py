@@ -3,8 +3,11 @@
 Owns the overlay of field values that wins over the synthetic layer when
 packets are packed, applies command effects, advances continuous
 behaviors every beacon tick, and converts engineering-unit values to wire
-form at the boundary. The full DSL documentation is the package docstring
-(``xtce_sim/behavior/__init__.py``).
+form at the boundary. Verb-specific math lives with each verb (the
+``verbs`` package): the engine dispatches through the Effect and
+ActiveBehavior hooks and provides the shared services they call back into
+(``_store``, ``_live_number``, ``_noisy``). The full DSL documentation is
+the package docstring (``xtce_sim/behavior/__init__.py``).
 """
 
 from __future__ import annotations
@@ -13,107 +16,18 @@ import logging
 import math
 import random
 import re
-from dataclasses import dataclass
 from typing import Optional
 
-from xtce_sim.behavior.spec import (
-    _CONTINUOUS_EFFECTS,
-    _TEMPLATE_RE,
-    BehaviorSpec,
-    CopyArgEffect,
-    OscillateEffect,
-    RampEffect,
-    SetEffect,
-)
+from xtce_sim.behavior.spec import _TEMPLATE_RE, ActiveBehavior, BehaviorSpec
 from xtce_sim.definition import SimDefinition, label_for
 from xtce_sim.dynamics.model import AdcsModel
 
 logger = logging.getLogger("xtce_sim.behavior")
 
-# A ramp is complete when it gets within this distance of its target. Integer
-# fields land earlier in practice: the moment the stored (rounded) value
-# equals the stored target, the ramp retires.
-_RAMP_TOLERANCE = 1e-6
-
 
 def _field_rng(fname: str) -> random.Random:
     """A per-field RNG with a stable seed: noisy runs are reproducible."""
     return random.Random(f"xtce-sim:{fname}")
-
-
-@dataclass
-class _ActiveRamp:
-    """One running first-order approach on a field (registry entry).
-
-    ``value`` is the ramp's own float trajectory. The overlay stores the
-    wire-coerced view (rounded for integer fields); if the ramp advanced
-    from that stored value instead, sub-0.5 steps on an integer field would
-    round away every tick and the ramp would stall short of its target.
-    Retirement is driven by the float trajectory (tolerance or a stalled
-    step), not by the rounded overlay view. A noisy ramp emits
-    trajectory+noise and degrades into a noisy hold at its target.
-    """
-
-    field: str
-    target: float | str  # number, or "@FIELD" (already template-resolved)
-    tau: float
-    noise: float = 0.0
-    value: Optional[float] = None  # seeded from the overlay on first tick
-    warned: bool = False  # missing-target warning already issued (warn once)
-    rng: Optional[random.Random] = None
-
-
-@dataclass
-class _ActiveOsc:
-    """A continuous wave around a (possibly live @FIELD) center."""
-
-    field: str
-    center: float | str
-    amplitude: float
-    period: float
-    shape: str
-    phase: float
-    noise: float = 0.0
-    elapsed: float = 0.0  # seconds since the behavior started
-    warned: bool = False
-    rng: Optional[random.Random] = None
-
-
-@dataclass
-class _ActiveHold:
-    """Keeps re-asserting a value (or tracking @FIELD), optionally noisy."""
-
-    field: str
-    value: float | str
-    noise: float = 0.0
-    warned: bool = False
-    rng: Optional[random.Random] = None
-
-
-_ActiveBehavior = _ActiveRamp | _ActiveOsc | _ActiveHold
-
-
-def _describe_active(eff, ref) -> str:
-    """Short start-log phrasing for a registered behavior."""
-    if isinstance(eff, RampEffect):
-        return f"ramping to {ref} (tau={eff.tau}s)"
-    if isinstance(eff, OscillateEffect):
-        return f"oscillating ({eff.shape}) around {ref}, period {eff.period}s"
-    return f"holding at {ref}"
-
-
-def _wave(shape: str, frac: float) -> float:
-    """Unit wave in [-1, 1] at cycle fraction *frac* (all start at 0, rising)."""
-    if shape == "sine":
-        return math.sin(2.0 * math.pi * frac)
-    if shape == "triangle":
-        if frac < 0.25:
-            return 4.0 * frac
-        if frac < 0.75:
-            return 2.0 - 4.0 * frac
-        return 4.0 * frac - 4.0
-    # sawtooth: rise 0->1 over the first half, jump to -1, rise back to 0
-    return 2.0 * frac if frac < 0.5 else 2.0 * frac - 2.0
 
 
 class BehaviorEngine:
@@ -138,7 +52,7 @@ class BehaviorEngine:
         self._pending_immediate: set[int] = set()
         # Active continuous behaviors (ramps/oscillations/holds), keyed by
         # resolved field name — newest replaces oldest.
-        self._behaviors: dict[str, _ActiveBehavior] = {}
+        self._behaviors: dict[str, ActiveBehavior] = {}
         # One RNG per field for the engine's lifetime: restarting a behavior
         # continues its noise stream instead of replaying it, while separate
         # runs still reproduce (the seed is stable per field).
@@ -153,7 +67,7 @@ class BehaviorEngine:
         # The loader only emits continuous effects here; gate anyway so a
         # hand-built spec can't crash the constructor with a discrete one.
         for eff in spec.signals:
-            if isinstance(eff, _CONTINUOUS_EFFECTS):
+            if eff.continuous:
                 self._start_behavior(None, eff, {})
             else:
                 logger.warning("[_signals] %s: not a continuous behavior; skipped", eff.field)
@@ -200,7 +114,7 @@ class BehaviorEngine:
                 # "the command took effect".
                 self._pending_immediate |= {self._field_apid[f] for f in model.config.outputs}
         for eff in self.spec.commands.get(command.name, []):
-            if isinstance(eff, _CONTINUOUS_EFFECTS):
+            if eff.continuous:
                 desc = self._start_behavior(command, eff, args)
             else:
                 desc = self._apply_effect(command, eff, args)
@@ -235,12 +149,7 @@ class BehaviorEngine:
             # concrete field. Refuse once, with the real reason.
             logger.warning("%s: %s has a non-invertible calibrator; skipped", where, fname)
             return None
-        if isinstance(eff, RampEffect):
-            ref = eff.target
-        elif isinstance(eff, OscillateEffect):
-            ref = eff.center
-        else:
-            ref = eff.value
+        ref = eff.reference
         if isinstance(ref, str):  # "@FIELD", possibly templated
             resolved = self._resolve_template(where, ref[1:], command, args)
             if resolved is None:
@@ -250,47 +159,23 @@ class BehaviorEngine:
                 return None
             ref = f"@{resolved}"
         rng = self._rngs.setdefault(fname, _field_rng(fname)) if eff.noise else None
-        self._behaviors[fname] = self._make_active(eff, fname, ref, rng)
-        return f"{fname} {_describe_active(eff, ref)}"
-
-    @staticmethod
-    def _make_active(eff, fname: str, ref, rng) -> _ActiveBehavior:
-        if isinstance(eff, RampEffect):
-            return _ActiveRamp(field=fname, target=ref, tau=eff.tau, noise=eff.noise, rng=rng)
-        if isinstance(eff, OscillateEffect):
-            return _ActiveOsc(
-                field=fname,
-                center=ref,
-                amplitude=eff.amplitude,
-                period=eff.period,
-                shape=eff.shape,
-                phase=eff.phase,
-                noise=eff.noise,
-                rng=rng,
-            )
-        return _ActiveHold(field=fname, value=ref, noise=eff.noise, rng=rng)
+        self._behaviors[fname] = eff.make_active(fname, ref, rng)
+        return f"{fname} {eff.describe_active(ref)}"
 
     def tick(self, dt: float) -> None:
-        """Advance every active ramp by *dt* seconds.
+        """Advance every active behavior by *dt* seconds.
 
-        Uses the closed-form first-order step, so the curve is exact for any
-        tick size — a 5-second beacon interval samples the same trajectory a
-        0.5-second one does. The ramp advances its own float trajectory (the
-        overlay stores the wire-coerced view) and completes when it gets
-        within _RAMP_TOLERANCE of the target. An @FIELD target is re-read every tick, so changing a
-        setpoint mid-ramp bends the curve.
+        Ramps use the closed-form first-order step, so the curve is exact
+        for any tick size — a 5-second beacon interval samples the same
+        trajectory a 0.5-second one does. An @FIELD target is re-read every
+        tick, so changing a setpoint mid-ramp bends the curve.
         """
         if dt <= 0:
             return
         # Iterate a snapshot: completed ramps delete themselves mid-loop.
         snapshot = self._behaviors.copy()
-        for fname, beh in snapshot.items():
-            if isinstance(beh, _ActiveRamp):
-                self._tick_ramp(fname, beh, dt)
-            elif isinstance(beh, _ActiveOsc):
-                self._tick_osc(fname, beh, dt)
-            else:
-                self._tick_hold(fname, beh)
+        for beh in snapshot.values():
+            beh.advance(self, dt)
         for model in self.models:
             model.advance(dt)
             self._store_model_outputs(model)
@@ -299,50 +184,6 @@ class BehaviorEngine:
         where = f"[_models.{model.config.name}]"
         for fname, value in model.outputs().items():
             self._store(where, fname, value)
-
-    def _tick_ramp(self, fname: str, ramp: _ActiveRamp, dt: float) -> None:
-        target = self._live_number(ramp, ramp.target)
-        if target is None:
-            return
-        if ramp.value is None:
-            ramp.value = self._ramp_current(fname)
-        previous = ramp.value
-        step = 1.0 - math.exp(-dt / ramp.tau)
-        ramp.value += (target - ramp.value) * step
-        self._store(f"[ramp] {fname}", fname, self._noisy(ramp, ramp.value))
-        # Retire on tolerance, or when a step makes no float progress
-        # (very large magnitudes stall at ~1 ULP before the tolerance).
-        if abs(target - ramp.value) <= _RAMP_TOLERANCE or ramp.value == previous:
-            # land exactly on target, then retire — a noisy ramp degrades
-            # into a noisy hold there (settled but still breathing).
-            self._store(f"[ramp] {fname}", fname, target)
-            if ramp.noise:
-                # hold the landed number, not the @FIELD reference — noise
-                # must not turn a settled ramp into a live tracker.
-                self._behaviors[fname] = _ActiveHold(
-                    field=fname, value=target, noise=ramp.noise, rng=ramp.rng
-                )
-            else:
-                del self._behaviors[fname]
-            logger.debug("[ramp] %s reached %s; complete", fname, target)
-
-    def _tick_osc(self, fname: str, osc: _ActiveOsc, dt: float) -> None:
-        # The clock advances even while an @FIELD center is unresolved, so a
-        # late-arriving center doesn't shift this wave's phase against time
-        # (or against phase-staggered siblings).
-        osc.elapsed += dt
-        center = self._live_number(osc, osc.center)
-        if center is None:
-            return
-        frac = ((osc.elapsed + osc.phase) / osc.period) % 1.0
-        value = center + osc.amplitude * _wave(osc.shape, frac)
-        self._store(f"[oscillate] {fname}", fname, self._noisy(osc, value))
-
-    def _tick_hold(self, fname: str, hold: _ActiveHold) -> None:
-        value = self._live_number(hold, hold.value)
-        if value is None:
-            return
-        self._store(f"[hold] {fname}", fname, self._noisy(hold, value))
 
     @staticmethod
     def _noisy(beh, value: float) -> float:
@@ -399,20 +240,9 @@ class BehaviorEngine:
             # Deferred-template / copy case load validation could not see.
             logger.warning("%s: %s has a non-invertible calibrator; skipped", where, fname)
             return None
-        if isinstance(eff, SetEffect):
-            value = eff.value
-        elif isinstance(eff, CopyArgEffect):
-            if eff.arg not in args:
-                logger.warning("%s: argument %s missing from decode; skipped", where, eff.arg)
-                return None
-            # Same raw-value rule as templates: an enum argument arrives from
-            # decode as its label; store its raw value (the destination
-            # field's own enum may use different labels entirely).
-            value = self._raw_arg(command, args, eff.arg)
-        else:  # IncrementEffect — arithmetic in engineering units
-            current = self.state.get(fname, 0)
-            current = self._engineering(fname, current) if isinstance(current, (int, float)) else 0
-            value = current + eff.by
+        value = eff.value_for(self, command, args, where, fname)
+        if value is None:
+            return None
         stored = self._store(where, fname, value)
         if stored is None:
             return None

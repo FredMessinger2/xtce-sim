@@ -1,8 +1,10 @@
-"""Shared behavior vocabulary: the verb grammar, effect classes, and spec.
+"""Shared behavior vocabulary: the verb registry, effect bases, and spec.
 
-Single source of truth for what verbs exist and what each accepts; the
-loader validates against these tables and the engine executes the effect
-classes. The full DSL documentation is the package docstring
+Each verb module under ``verbs/`` owns everything about its verb — the
+effect dataclass, the TOML parsing, the runtime math — and registers a
+``Verb`` here. The loader and engine dispatch through the registry and
+the effect/active base classes, so adding a verb never touches them.
+The full DSL documentation is the package docstring
 (``xtce_sim/behavior/__init__.py``).
 """
 
@@ -11,26 +13,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, ClassVar, Optional
 
 from xtce_sim.dynamics.model import AdcsModelConfig
 
 _TEMPLATE_RE = re.compile(r"\{(\w+)\}")
 _EMIT_VALUES = ("interval", "immediate")
-# The verb grammar, single-sourced: per-verb attributes, the universal
-# attributes every verb accepts, and which verbs are continuous (tick-driven).
-# Everything else — the full key set, the signals filter, the dispatch order —
-# derives from these three, so a new verb or attribute is added in one place.
-_VERB_ATTRS = {
-    "set": set(),
-    "increment": set(),
-    "ramp_to": {"tau", "noise"},
-    "oscillate": {"amplitude", "period", "shape", "phase", "noise"},
-    "hold": {"noise"},
-}
+# Attributes every verb accepts, on top of its own (declared per Verb).
 _UNIVERSAL_ATTRS = {"emit"}
-_CONTINUOUS_VERBS = ("ramp_to", "oscillate", "hold")
-_VERB_KEYS = set(_VERB_ATTRS) | _UNIVERSAL_ATTRS | set().union(*_VERB_ATTRS.values())
-_WAVE_SHAPES = ("sine", "triangle", "sawtooth")
 # Templated args are expanded for load-time validation up to this many
 # combinations; beyond it (or for unbounded args) field checks defer to
 # execution time.
@@ -44,59 +34,86 @@ class BehaviorError(ValueError):
 
 
 @dataclass
-class SetEffect:
-    field: str  # possibly templated
-    value: Scalar  # number/bool, enum label, or string payload
-    emit: str = "interval"
+class Effect:
+    """Base of every verb's effect (the validated, loadable form).
+
+    Verbs subclass InstantEffect or ContinuousEffect, declare their own
+    fields, and implement the respective hooks. ``describe()`` is the
+    narration line, without the universal emit tail.
+    """
+
+    continuous: ClassVar[bool] = False
+
+    def describe(self) -> str:
+        raise NotImplementedError
 
 
 @dataclass
-class CopyArgEffect:
-    field: str
-    arg: str
-    emit: str = "interval"
+class InstantEffect(Effect):
+    """An effect applied once when its command executes (set/copy/increment)."""
+
+    def value_for(self, engine, command, args, where, fname):
+        """The value to store for *fname*, or None to skip this effect
+        (the implementation has already warned about why)."""
+        raise NotImplementedError
 
 
 @dataclass
-class IncrementEffect:
-    field: str
-    by: float
-    emit: str = "interval"
+class ContinuousEffect(Effect):
+    """A tick-driven behavior the engine registers and advances."""
+
+    continuous: ClassVar[bool] = True
+
+    @property
+    def reference(self):
+        """The number-or-@FIELD operand (ramp target, wave center, held value)."""
+        raise NotImplementedError
+
+    def describe_active(self, ref) -> str:
+        """Start-log phrasing for the registered behavior."""
+        raise NotImplementedError
+
+    def make_active(self, fname: str, ref, rng) -> "ActiveBehavior":
+        raise NotImplementedError
 
 
 @dataclass
-class RampEffect:
+class ActiveBehavior:
+    """Base of a running continuous behavior (the engine registry entry).
+
+    Subclasses implement ``advance(engine, dt)``, using the engine's
+    shared services (``_store``, ``_live_number``, ``_noisy``) and
+    mutating ``engine._behaviors`` on retirement.
+    """
+
     field: str
-    target: float | str  # number, or "@FIELD" (possibly templated)
-    tau: float
-    noise: float = 0.0  # gaussian stddev added to the emitted value
-    emit: str = "interval"
+
+    def advance(self, engine, dt: float) -> None:
+        raise NotImplementedError
 
 
-@dataclass
-class OscillateEffect:
-    field: str
-    center: float | str  # number, or "@FIELD" (possibly templated)
-    amplitude: float
-    period: float  # seconds (a period, never a frequency)
-    shape: str = "sine"  # sine | triangle | sawtooth
-    phase: float = 0.0  # seconds of offset into the cycle
-    noise: float = 0.0
-    emit: str = "interval"
+@dataclass(frozen=True)
+class Verb:
+    """One DSL verb: its grammar row and its parser.
+
+    ``parse(where, fname, spec, command, emit, ctx)`` validates the
+    verb-specific attributes and returns the Effect (None after reporting
+    errors to ctx). Registration order is meaningful: it is the order
+    verbs are listed in error messages.
+    """
+
+    name: str  # the TOML key ("set", "ramp_to", ...)
+    attrs: frozenset[str]  # verb-specific attribute keys
+    continuous: bool
+    parse: Callable[..., Optional[Effect]]
 
 
-@dataclass
-class HoldEffect:
-    field: str
-    value: float | str  # number, or "@FIELD" (tracked live)
-    noise: float = 0.0
-    emit: str = "interval"
+#: The verb registry, populated by the ``verbs`` package at import time.
+VERBS: dict[str, Verb] = {}
 
 
-Effect = SetEffect | CopyArgEffect | IncrementEffect | RampEffect | OscillateEffect | HoldEffect
-# The effect classes behind _CONTINUOUS_VERBS: registered as active behaviors
-# and advanced by tick(), versus the instant set/copy/increment.
-_CONTINUOUS_EFFECTS = (RampEffect, OscillateEffect, HoldEffect)
+def register_verb(verb: Verb) -> None:
+    VERBS[verb.name] = verb
 
 
 @dataclass
