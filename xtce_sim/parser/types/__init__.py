@@ -41,7 +41,9 @@ from xtce_sim.parser.types import (
 )
 
 # Uniform parser signature: (reader, elem, definition) -> parsed type.
-# Families that don't need the definition simply ignore it.
+# Only arrays and aggregates read the definition (to resolve element/member
+# types at parse time); the other families name the parameter _definition
+# to mark it as required-by-contract but deliberately unused.
 ParseFn = Callable[[ReaderMixin, ET.Element, XTCEDefinition], Any]
 
 

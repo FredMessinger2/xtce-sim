@@ -71,7 +71,7 @@ def _parse_reference_time(reader: ReaderMixin, elem: ET.Element) -> tuple[str, O
 
 
 def _parse_absolute_time_argument_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> AbsoluteTimeArgumentType:
     """
     Parse AbsoluteTimeArgumentType element.
@@ -101,7 +101,7 @@ def _parse_absolute_time_argument_type(
 
 
 def _parse_relative_time_argument_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> RelativeTimeArgumentType:
     """
     Parse RelativeTimeArgumentType element.
@@ -119,7 +119,7 @@ def _parse_relative_time_argument_type(
 
 
 def _parse_absolute_time_parameter_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> AbsoluteTimeParameterType:
     """
     Parse AbsoluteTimeParameterType element for telemetry.
@@ -152,7 +152,7 @@ def _parse_absolute_time_parameter_type(
 
 
 def _parse_relative_time_parameter_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> RelativeTimeParameterType:
     """
     Parse RelativeTimeParameterType element for telemetry.

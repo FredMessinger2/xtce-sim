@@ -21,7 +21,7 @@ from xtce_sim.parser.reader import ReaderMixin
 
 
 def _parse_float_argument_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> FloatArgumentType:
     """Parse FloatArgumentType element."""
     name = reader._get_attr(elem, "name")
@@ -49,7 +49,7 @@ def _parse_float_argument_type(
 
 
 def _parse_float_parameter_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> FloatParameterType:
     """Parse FloatParameterType element."""
     name = reader._get_attr(elem, "name")
