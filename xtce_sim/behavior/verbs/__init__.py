@@ -18,7 +18,7 @@ from xtce_sim.behavior.verbs.set import VERB as _SET
 from xtce_sim.behavior.verbs.set import CopyArgEffect, SetEffect, scalar_effect
 
 for _verb in (_SET, _INCREMENT, _RAMP, _OSCILLATE, _HOLD):
-    register_verb(_verb)
+    register_verb(_verb, replace=True)  # idempotent under importlib.reload
 
 __all__ = [
     "CopyArgEffect",

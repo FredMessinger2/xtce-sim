@@ -2154,10 +2154,33 @@ def test_duck_typed_signal_is_skipped_not_fatal(simdef, caplog):
 
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     spec.signals.append(NotAnEffect())
+    spec.signals.append(object())  # even field-less junk must not crash boot
     with caplog.at_level(logging.WARNING, logger="xtce_sim.behavior"):
         eng = behavior.BehaviorEngine(spec, simdef)  # must not raise
     assert "not a continuous behavior; skipped" in caplog.text
     assert eng.state  # the engine came up anyway
+
+
+def test_instance_shadow_cannot_misroute_continuity(simdef):
+    from xtce_sim.behavior import HoldEffect
+
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    eng = behavior.BehaviorEngine(spec, simdef)
+    h = HoldEffect(field="HK_ISSUED_TIMESTAMP", value=1.0)
+    h.continuous = False  # an instance shadow must not beat the class flag
+    eng.spec.commands.setdefault("NOOP", []).append(h)
+    eng.apply_command(_cmd(simdef, "NOOP"), {})
+    assert "HK_ISSUED_TIMESTAMP" in eng._behaviors  # routed continuous
+
+
+def test_verbs_package_reload_is_idempotent():
+    import importlib
+
+    import xtce_sim.behavior.verbs as verbs_pkg
+    from xtce_sim.behavior.spec import VERBS
+
+    importlib.reload(verbs_pkg)
+    assert list(VERBS) == ["set", "increment", "ramp_to", "oscillate", "hold"]
 
 
 def test_copyarg_skips_are_loud_never_silent(simdef, caplog):

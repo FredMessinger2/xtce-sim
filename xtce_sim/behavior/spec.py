@@ -137,8 +137,15 @@ class Verb:
 VERBS: dict[str, Verb] = {}
 
 
-def register_verb(verb: Verb) -> None:
-    if verb.name in VERBS:
+def register_verb(verb: Verb, *, replace: bool = False) -> None:
+    """Add a verb to the registry; a duplicate name is refused.
+
+    ``replace`` is for the code that owns the name — the verbs package
+    re-executing its registration loop (importlib.reload) must be
+    idempotent, while an outside registration colliding with a built-in
+    stays an error.
+    """
+    if not replace and verb.name in VERBS:
         raise ValueError(f"verb {verb.name!r} is already registered")
     VERBS[verb.name] = verb
 
