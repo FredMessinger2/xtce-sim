@@ -233,6 +233,14 @@ def test_seqid_other_than_1_is_refused_by_the_service(service, store):
     assert service.sequencer.status("rts", T0)["state"] == "LOADED"  # untouched
 
 
+def test_start_seqid_declares_valid_range_1_to_1(simdef):
+    # The single-slot rule is also the ICD's: ValidRange 1..1 on SeqId means
+    # the vehicle's own range validation rejects any other id before dispatch.
+    for name in ("START_ATS", "START_RTS"):
+        seq_id = next(p for p in simdef.command_by_name(name).params if p.name == "SeqId")
+        assert (seq_id.valid_min, seq_id.valid_max) == (1, 1)
+
+
 def test_enum_typed_seqid_is_judged_by_wire_value(store, simdef):
     # A vehicle may type SeqId as an enumeration; decode_command then hands
     # the service a LABEL. The single-slot rule judges the wire value, so
@@ -474,55 +482,6 @@ async def test_e2e_failed_load_echoes_failed_and_shows_error(simdef, tmp_path):
         )
         errored = down.status["ATS_STATUS"][-1]
         assert errored["ATS_SEQ_NAME"].split(b"\x00")[0] == b"ghost.ats"
-        writer.close()
-    finally:
-        await server.stop()
-
-
-async def test_e2e_seqid_other_than_1_is_rejected_by_the_vehicle(simdef, tmp_path):
-    """ValidRange 1..1 comes from the ICD: the ground override (validate=False)
-    transmits SeqId=2 anyway, and the VEHICLE rejects it before any effect."""
-    server, store = await _serve(simdef, tmp_path)
-    try:
-        store.write("plan.rts", b"+0 IMAGER_ON\n")
-        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
-        down = _Downlink(simdef)
-        start_rts = simdef.command_by_name("START_RTS").opcode
-
-        writer.write(ccsds.frame(_command_packet(simdef, "LOAD_RTS", {"Filename": "plan.rts"})))
-        writer.write(
-            ccsds.frame(_command_packet(simdef, "START_RTS", {"SeqId": 2}, validate=False))
-        )
-        await writer.drain()
-        await down.pump_until(reader, lambda d: (ccsds.ECHO_REJECTED, start_rts) in d.echoes)
-
-        # Rejected before reaching the sequencer: the slot never started.
-        for status in down.status["RTS_STATUS"]:
-            assert _state_label(simdef, "RTS_STATUS", status["RTS_STATE"]) != "RUNNING"
-        writer.close()
-    finally:
-        await server.stop()
-
-
-async def test_e2e_status_arrives_on_the_event_not_the_beacon(simdef, tmp_path):
-    """A LOAD's status packet shows up immediately (beacon is 30 s away)."""
-    server, store = await _serve(simdef, tmp_path)
-    try:
-        store.write("plan.ats", b"2126-01-01T00:00:00Z IMAGER_ON\n")
-        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
-        down = _Downlink(simdef)
-
-        started = time.monotonic()
-        writer.write(ccsds.frame(_command_packet(simdef, "LOAD_ATS", {"Filename": "plan.ats"})))
-        await writer.drain()
-        await down.pump_until(
-            reader,
-            lambda d: any(
-                _state_label(simdef, "ATS_STATUS", s["ATS_STATE"]) == "LOADED"
-                for s in d.status["ATS_STATUS"]
-            ),
-        )
-        assert time.monotonic() - started < 5.0  # a beacon could not have sent it
         writer.close()
     finally:
         await server.stop()

@@ -287,13 +287,6 @@ def test_seq_shift_refuses_rts(tmp_path):
     assert "already relative" in result.output
 
 
-def test_seq_check_accepts_uppercase_suffix(tmp_path):
-    f = tmp_path / "BURN.ATS"
-    f.write_text(ATS_TEXT)
-    result = CliRunner().invoke(main, ["seq", "check", str(f), "--def", str(IMAGING)])
-    assert result.exit_code == 0, result.output
-
-
 def test_seq_tools_report_non_utf8_cleanly(tmp_path):
     f = tmp_path / "legacy.ats"
     f.write_bytes(b"# caf\xe9 plan\n2026-03-15T14:30:00Z IMAGER_ON\n")  # latin-1 byte

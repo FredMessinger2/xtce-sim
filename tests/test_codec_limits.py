@@ -253,6 +253,7 @@ def test_float32_boundary_decides_identically_on_both_ends():
     # ...and the decoded (float32-rounded) wire value still passes.
     decoded = codec.decode_command(cmd, payload)
     assert decoded["Gain"] == _struct.unpack(">f", _struct.pack(">f", 0.1))[0]
+    assert decoded["Gain"] == pytest.approx(0.1)  # float32 round-trip is approximate
     assert codec.range_violations(cmd, decoded) == []
 
 

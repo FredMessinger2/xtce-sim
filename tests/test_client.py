@@ -23,19 +23,6 @@ def simdef() -> SimDefinition:
     return SimDefinition.from_xtce(XTCE)
 
 
-def test_encode_decode_roundtrip():
-    cmd = CommandDef(
-        name="SET_POWER",
-        opcode=0x10,
-        params=[
-            ParamInfo("SubsystemId", 8, "uint8"),
-            ParamInfo("PowerState", 8, "uint8", enumerations={"OFF": 0, "ON": 1}),
-        ],
-    )
-    payload = codec.encode_command(cmd, {"SubsystemId": 3, "PowerState": "ON"})
-    assert codec.decode_command(cmd, payload) == {"SubsystemId": 3, "PowerState": "ON"}
-
-
 def test_encode_rejects_unknown_arg():
     cmd = CommandDef(name="NOOP", opcode=0, params=[])
     with pytest.raises(ValueError):

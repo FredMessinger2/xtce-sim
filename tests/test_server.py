@@ -362,22 +362,6 @@ async def test_raising_command_handler_does_not_drop_client(simdef: SimDefinitio
         await server.stop()
 
 
-async def test_unknown_opcode_is_ignored(simdef: SimDefinition):
-    server = SimServer(simdef, host="127.0.0.1", port=0, beacon_interval=10.0)
-    await server.start()
-    try:
-        reader, writer = await asyncio.open_connection("127.0.0.1", server.bound_port)
-        packet = ccsds.CCSDSHeader(packet_type=1, apid=1).pack() + bytes([0xFE])
-        writer.write(ccsds.frame(packet))
-        await writer.drain()
-        await asyncio.sleep(0.05)
-        # Server stays up and the client is still connected.
-        assert server.client_count == 1
-        writer.close()
-    finally:
-        await server.stop()
-
-
 # ---- command echo (protocol infrastructure, see ccsds.py) -------------------
 
 

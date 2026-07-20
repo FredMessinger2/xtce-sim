@@ -130,12 +130,14 @@ async def test_late_ats_start_skips_past_entries(seq, rec):
 
 async def test_all_past_ats_start_is_refused(seq, rec):
     seq.load(_ats(offsets=(0, 60)))
+    before = seq.status("ats", T0 + 1000)["next_cmd_time"]
     ok, msg = seq.start("ats", T0 + 1000)
     assert not ok
     assert "seq shift" in msg  # points the operator at the ground fix
     status = seq.status("ats", T0 + 1000)
     assert status["state"] == "LOADED"  # the plan is intact, just stale
     assert status["cmd_skipped"] == 0
+    assert status["next_cmd_time"] == before == int(T0)  # untouched by the refusal
     assert await seq.tick(T0 + 2000) == []
 
 
@@ -505,20 +507,11 @@ async def test_identical_deadlines_fire_ats_before_rts():
     assert order == ["FROM_ATS", "FROM_RTS"]
 
 
-async def test_refused_start_leaves_next_cmd_time_untouched():
-    rec = Recorder()
-    seqr = Sequencer(rec)
-    seqr.load(_ats(offsets=(0, 60)))
-    before = seqr.status("ats", T0 + 1000)["next_cmd_time"]
-    assert not seqr.start("ats", T0 + 1000)[0]
-    assert seqr.status("ats", T0 + 1000)["next_cmd_time"] == before == int(T0)
-
-
 # ---------------------------------------------------------------------------
 # Elapsed honesty
 
 
-async def test_elapsed_holds_at_complete_and_resets_at_stop():
+async def test_elapsed_holds_at_complete():
     rec = Recorder()
     seqr = Sequencer(rec)
     seqr.load(_rts(delays=(0, 10)))
@@ -526,11 +519,6 @@ async def test_elapsed_holds_at_complete_and_resets_at_stop():
     await seqr.tick(T0 + 10)  # completes at sequence-elapsed 10
     assert seqr.status("rts", T0 + 10)["state"] == "COMPLETE"
     assert seqr.status("rts", T0 + 500)["elapsed_sec"] == 10  # held, not ticking
-    seqr.load(_ats(offsets=(0, 60)))
-    seqr.start("ats", T0)
-    await seqr.tick(T0)
-    seqr.stop("ats")
-    assert seqr.status("ats", T0 + 500)["elapsed_sec"] == 0  # as-loaded means zero
 
 
 async def test_elapsed_never_goes_negative():

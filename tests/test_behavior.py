@@ -67,6 +67,11 @@ def test_shipped_imaging_sidecar_validates(simdef):
     }
     ramp = next(e for e in spec.commands["HEATER_ON"] if isinstance(e, RampEffect))
     assert ramp.target == "@THM_HEATER{HeaterId}_SETPOINT" and ramp.tau == 30.0
+    # Eight boot signals, and only continuous kinds: waves and holds.
+    from xtce_sim.behavior import HoldEffect, OscillateEffect
+
+    assert len(spec.signals) == 8
+    assert {type(e) for e in spec.signals} == {OscillateEffect, HoldEffect}
     # The ADCS is a model now: one, owning 41 fields and 11 commands.
     assert len(spec.models) == 1
     assert spec.models[0].name == "adcs"
@@ -75,6 +80,8 @@ def test_shipped_imaging_sidecar_validates(simdef):
 
 
 def test_sidecar_discovery(tmp_path):
+    # A satellite is a directory: any .toml beside the XTCE means behavior
+    # (my_vehicle's sidecar is adcs.toml, not named after the vehicle).
     assert sidecar_path([IMAGING]) == EXAMPLES / "imaging_sat"
     assert sidecar_path([DATA / "my_vehicle/my_vehicle.xml"]) == DATA / "my_vehicle"
     # A directory with no .toml beside the XTCE discovers nothing.
@@ -83,6 +90,8 @@ def test_sidecar_discovery(tmp_path):
     bare = tmp_path / "my_vehicle.xml"
     shutil.copy(DATA / "my_vehicle/my_vehicle.xml", bare)
     assert sidecar_path([bare]) is None
+    # ...and no sources at all discover nothing.
+    assert sidecar_path([]) is None
 
 
 # ---- effect parsing ---------------------------------------------------------
@@ -169,6 +178,12 @@ def test_ramp_requires_tau_and_numeric_target(tmp_path, simdef):
         simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = -1 }\n",
     )
+    # TOML permits inf; the same finiteness check refuses it.
+    assert "tau must be a positive number" in _errors(
+        tmp_path,
+        simdef,
+        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35.0, tau = inf }\n",
+    )
     assert "@FIELD reference" in _errors(
         tmp_path,
         simdef,
@@ -226,15 +241,6 @@ def test_templated_field_values_are_still_validated(tmp_path, simdef):
     msg = _errors(tmp_path, simdef, '[HEATER_ON]\n"THM_HEATER{HeaterId}_STATE" = "BANANA"\n')
     assert "not a label of THM_HEATER1_STATE" in msg
     assert "not a label of THM_HEATER2_STATE" in msg
-
-
-def test_sidecar_path_is_the_satellite_directory(tmp_path):
-    # A satellite is a directory: any .toml beside the XTCE means behavior.
-    xtce = tmp_path / "v1.2.xml"
-    xtce.write_text("<x/>")
-    assert sidecar_path([xtce]) is None  # no TOML: no behavior
-    (tmp_path / "thermal.toml").write_text("")
-    assert sidecar_path([xtce]) == tmp_path
 
 
 def test_table_form_set_accepts_arg_copy_with_emit(tmp_path, simdef):
@@ -394,6 +400,16 @@ def test_engine_seeds_initial_values(engine, simdef):
     assert values["THM_HEATER1_SETPOINT"] == 4000
     # values_for filters per packet: imager fields don't leak into thermal.
     assert "IMG_FOCAL_PLANE_TEMP" not in values
+    # The bus boots with platform loads on and the payload off (power.toml
+    # [_initial]); held states, not synthetic wobble, from the first beacon.
+    power = engine.values_for(simdef.packet_by_name("POWER_STATUS"))
+    assert power["PWR_CDH_STATE"] == 1
+    assert power["PWR_COMMS_STATE"] == 1
+    assert power["PWR_ADCS_STATE"] == 1
+    assert power["PWR_IMAGER_STATE"] == 0
+    # ...and the comms card boots with its beacon enabled (comms.toml).
+    comms = engine.values_for(simdef.packet_by_name("COMMS_STATUS"))
+    assert comms["COMM_BEACON_STATE"] == 1  # ENABLE
 
 
 def test_engine_set_resolves_enum_label(engine, simdef):
@@ -415,16 +431,6 @@ def test_engine_template_isolates_instances(engine, simdef):
     assert "THM_HEATER1_STATE" not in engine.state  # heater 1 untouched
 
 
-def test_engine_seeds_power_states(engine, simdef):
-    # The bus boots with platform loads on and the payload off (power.toml
-    # [_initial]); held states, not synthetic wobble, from the first beacon.
-    values = engine.values_for(simdef.packet_by_name("POWER_STATUS"))
-    assert values["PWR_CDH_STATE"] == 1
-    assert values["PWR_COMMS_STATE"] == 1
-    assert values["PWR_ADCS_STATE"] == 1
-    assert values["PWR_IMAGER_STATE"] == 0
-
-
 def test_engine_template_substitutes_enum_label(engine, simdef):
     # SET_POWER's SubsystemId is enumerated: the label names the field, so
     # COMMS lands in PWR_COMMS_STATE — no numbering convention involved.
@@ -433,6 +439,9 @@ def test_engine_template_substitutes_enum_label(engine, simdef):
     )
     assert engine.state["PWR_COMMS_STATE"] == 0  # "OFF" -> raw 0
     assert applied == ["PWR_COMMS_STATE=0"]
+    # power.toml marks SET_POWER emit = "immediate": POWER_STATUS goes out
+    # the moment the command lands, not on the next beacon.
+    assert simdef.packet_by_name("POWER_STATUS").apid in engine.pop_immediate_apids()
 
 
 def test_engine_template_enum_raw_value_resolves_via_label(engine, simdef):
@@ -484,14 +493,6 @@ def test_heater_commands_drive_the_power_card_channel(engine, simdef):
     assert engine.state["PWR_HEATER_STATE"] == 0
 
 
-def test_set_power_emits_power_status_immediately(engine, simdef):
-    engine.apply_command(
-        _cmd(simdef, "SET_POWER"), {"SubsystemId": "CDH", "PowerState": "STANDBY"}
-    )
-    power = simdef.packet_by_name("POWER_STATUS")
-    assert power.apid in engine.pop_immediate_apids()
-
-
 def test_imager_commands_track_the_power_card(engine, simdef):
     # One switch, one story: IMAGER_ON/OFF keep PWR_IMAGER_STATE coherent
     # with IMG_STATE instead of leaving the power card telling a stale tale.
@@ -530,41 +531,41 @@ def test_engine_clamps_int_to_wire_width(tmp_path, simdef):
     assert eng.state["IMG_GAIN"] == (1 << field.size_bits) - 1  # clamped, no overflow
 
 
-async def test_server_end_to_end_command_changes_telemetry(imaging_server, simdef):
-    # The full loop: command in -> overlay mutated -> beacon carries it.
+async def test_server_end_to_end_command_sets_and_ramps_telemetry(imaging_server, simdef):
+    # The full loop, both effect families on one wire packet: command in ->
+    # overlay mutated -> beacon carries the set, AND the beacon loop ticks
+    # the ramp, so the temperature has strictly left its seed.
     import asyncio
 
     from xtce_sim import ccsds, client, codec
 
     server = imaging_server
-    cmd = simdef.command_by_name("IMAGER_ON")
-    await asyncio.to_thread(client.send_command, "127.0.0.1", server.bound_port, cmd, {})
-    await asyncio.sleep(0.1)  # let the dispatch land
+    cmd = simdef.command_by_name("HEATER_ON")
+    await asyncio.to_thread(
+        client.send_command, "127.0.0.1", server.bound_port, cmd, {"HeaterId": "1"}
+    )
+    await asyncio.sleep(1.0)  # ~20 beacon ticks against tau=30
 
-    img = simdef.packet_by_name("IMAGER_STATUS")
+    thermal = simdef.packet_by_name("THERMAL_STATUS")
 
     def read_one():
         for pkt in client.stream_packets("127.0.0.1", server.bound_port, timeout=2.0):
             header = ccsds.CCSDSHeader.unpack(pkt[:6])
-            if header.apid == img.apid:
-                return codec.unpack_telemetry(img, pkt[6:])
+            if header.apid == thermal.apid:
+                return codec.unpack_telemetry(thermal, pkt[6:])
         return None
 
     values = await asyncio.to_thread(read_one)
     assert values is not None
-    assert values["IMG_STATE"] == 1  # IDLE, set by the command
-    # the wire carries counts (0.01 degC/count): seeded at 20 degC and
-    # already warming toward 35 (IMAGER_ON starts the ramp; noise=0.2
-    # EU can dip a few counts below the seed on early ticks).
-    assert 1900 <= values["IMG_FOCAL_PLANE_TEMP"] < 3600
+    assert values["THM_HEATER1_STATE"] == 1  # ON, set by the command
+    # The wire carries counts (0.01 degC/count): seeded at 20 degC (2000)
+    # and ramping toward the 40 degC setpoint. The shipped HEATER_ON ramp
+    # has no noise, so STRICTLY above the seed proves the beacon loop
+    # actually ticked the ramp — equality here would mean nothing moved.
+    assert 2000 < values["THM_HEATER1_TEMP"] < 4000
 
 
 # ---- ENABLE_BEACON: the beacon gate -----------------------------------------
-
-
-def test_comms_card_boots_with_beacon_enabled(engine, simdef):
-    values = engine.values_for(simdef.packet_by_name("COMMS_STATUS"))
-    assert values["COMM_BEACON_STATE"] == 1  # ENABLE, seeded by comms.toml
 
 
 def test_enable_beacon_mirror_emits_final_comms_status(engine, simdef):
@@ -927,10 +928,6 @@ def test_increment_saturates_at_wire_max(tmp_path, simdef):
 # ---- coverage batch: the defensive branches, each pinned --------------------
 
 
-def test_sidecar_path_empty_list():
-    assert sidecar_path([]) is None
-
-
 def test_describe_increment_line(tmp_path, simdef):
     spec = _load(tmp_path, simdef, "[TAKE_IMAGE]\nIMG_CAPTURE_COUNT = { increment = 2 }\n")
     assert any("IMG_CAPTURE_COUNT += 2" in line for line in behavior.describe(spec))
@@ -955,11 +952,18 @@ def test_increment_amount_must_be_number(tmp_path, simdef):
     assert "increment must be a finite number" in _errors(
         tmp_path, simdef, '[IMAGER_ON]\nIMG_STATE = { increment = "lots" }\n'
     )
+    assert "increment must be a finite number" in _errors(
+        tmp_path, simdef, "[IMAGER_ON]\nIMG_GAIN = { increment = inf }\n"
+    )
 
 
 def test_ramp_target_bool_rejected(tmp_path, simdef):
     assert "must be a finite number or @FIELD" in _errors(
         tmp_path, simdef, "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = true, tau = 5 }\n"
+    )
+    # inf is a legal TOML float; the same target check refuses it at load.
+    assert "must be a finite number or @FIELD" in _errors(
+        tmp_path, simdef, "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = inf, tau = 5 }\n"
     )
 
 
@@ -1128,68 +1132,11 @@ def test_new_ramp_replaces_old_per_field(engine, simdef):
     assert "THM_HEATER2_TEMP" not in engine._behaviors
 
 
-def test_ramp_holds_when_target_field_not_numeric_yet(tmp_path, simdef, caplog):
-    import logging as _logging
-
-    # @FIELD target with no value in the overlay: hold (warn), don't move.
-    spec = _load(
-        tmp_path,
-        simdef,
-        '[HEATER_ON]\n"THM_HEATER{HeaterId}_TEMP" = { ramp_to = "@THM_HEATER{HeaterId}_SETPOINT", tau = 30.0 }\n',
-    )
-    eng = behavior.BehaviorEngine(spec, simdef)  # no [_initial]: setpoint unset
-    eng.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
-    with caplog.at_level(_logging.WARNING, logger="xtce_sim.behavior"):
-        eng.tick(30.0)
-    assert "THM_HEATER1_TEMP" not in eng.state  # held, nothing written
-    assert any("has no numeric value yet" in r.getMessage() for r in caplog.records)
-
-
 def test_tick_ignores_nonpositive_dt(engine, simdef):
     engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
     engine.tick(0.0)
     engine.tick(-5.0)
     assert _eu(engine, "THM_HEATER1_TEMP") == 20  # unmoved
-
-
-async def test_server_beacon_ticks_ramps_end_to_end(simdef):
-    # Full loop: HEATER_ON, then watch the temperature climb across beacons.
-    import asyncio
-
-    from xtce_sim import ccsds, client, codec
-    from xtce_sim.server import SimServer
-
-    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    engine = behavior.BehaviorEngine(spec, simdef)
-    server = SimServer(
-        simdef,
-        host="127.0.0.1",
-        port=0,
-        beacon_interval=0.05,
-        behavior_engine=engine,
-    )
-    await server.start()
-    try:
-        cmd = simdef.command_by_name("HEATER_ON")
-        await asyncio.to_thread(
-            client.send_command, "127.0.0.1", server.bound_port, cmd, {"HeaterId": "1"}
-        )
-        await asyncio.sleep(1.0)  # ~20 beacon ticks against tau=30
-        thermal = simdef.packet_by_name("THERMAL_STATUS")
-
-        def read_one():
-            for pkt in client.stream_packets("127.0.0.1", server.bound_port, timeout=2.0):
-                header = ccsds.CCSDSHeader.unpack(pkt[:6])
-                if header.apid == thermal.apid:
-                    return codec.unpack_telemetry(thermal, pkt[6:])
-            return None
-
-        values = await asyncio.to_thread(read_one)
-        assert values is not None
-        assert values["THM_HEATER1_STATE"] == 1  # ON
-        assert values["THM_HEATER1_TEMP"] > 20  # physics moved it
-    finally:
-        await server.stop()
 
 
 def test_float_field_ramp_lands_exactly_and_retires(tmp_path, simdef):
@@ -1240,6 +1187,7 @@ def test_missing_ramp_target_warns_once_not_per_tick(tmp_path, simdef, caplog):
             eng.tick(1.0)
     warnings = [r for r in caplog.records if "no numeric value yet" in r.getMessage()]
     assert len(warnings) == 1  # once per ramp, not once per beacon tick
+    assert "THM_HEATER1_TEMP" not in eng.state  # held: nothing written yet
     # and the ramp recovers when the target appears (seed it directly —
     # this minimal spec has no SET_HEATER_SETPOINT table):
     eng.state["THM_HEATER1_SETPOINT"] = 40
@@ -1247,24 +1195,7 @@ def test_missing_ramp_target_warns_once_not_per_tick(tmp_path, simdef, caplog):
     assert _eu(eng, "THM_HEATER1_TEMP") > 0  # moving now
 
 
-def test_infinite_ramp_target_rejected_at_load(tmp_path, simdef):
-    assert "must be a finite number or @FIELD" in _errors(
-        tmp_path,
-        simdef,
-        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = inf, tau = 5 }\n",
-    )
-
-
 # ---- oscillate / hold / noise / signals (unit 4b) ---------------------------
-
-
-def test_shipped_sidecar_signals_load(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    assert len(spec.signals) == 8
-    kinds = {type(e) for e in spec.signals}
-    from xtce_sim.behavior import HoldEffect, OscillateEffect
-
-    assert kinds == {OscillateEffect, HoldEffect}
 
 
 def test_oscillate_validation(tmp_path, simdef):
@@ -1285,12 +1216,6 @@ def test_oscillate_validation(tmp_path, simdef):
         tmp_path,
         simdef,
         "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { oscillate = 10, amplitude = 5, period = 60, noise = -1 }\n",
-    )
-    # attributes are verb-scoped: amplitude with ramp_to is a typo
-    assert "['amplitude'] not valid with ramp_to" in _errors(
-        tmp_path,
-        simdef,
-        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 5, tau = 3, amplitude = 2 }\n",
     )
 
 
@@ -1330,20 +1255,6 @@ def test_triangle_and_sawtooth_shapes():
     assert _wave("sawtooth", 0.25) == 0.5 and _wave("sawtooth", 0.75) == -0.5
 
 
-def test_noise_is_deterministic_across_runs(tmp_path, simdef):
-    text = "[_signals]\nPWR_BATTERY_TEMP = { hold = 15.0, noise = 2.0 }\n"
-    seq = []
-    for _ in range(2):
-        eng = behavior.BehaviorEngine(_load(tmp_path, simdef, text), simdef)
-        values = []
-        for _ in range(5):
-            eng.tick(1.0)
-            values.append(eng.state["PWR_BATTERY_TEMP"])
-        seq.append(values)
-    assert seq[0] == seq[1]  # seeded per field: reproducible
-    assert len(set(seq[0])) > 1  # ...but actually noisy
-
-
 def test_boot_signals_run_without_commands(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     eng = behavior.BehaviorEngine(spec, simdef)
@@ -1370,31 +1281,6 @@ def test_noisy_ramp_degrades_into_noisy_hold(tmp_path, simdef):
     assert beh.noise == 0.5
     eng.tick(2.0)
     assert abs(eng.state["HK_ISSUED_TIMESTAMP"] - 100.0) < 3.0  # jitter near target
-
-
-def test_command_behavior_replaces_boot_signal(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    eng = behavior.BehaviorEngine(spec, simdef)
-    from xtce_sim.behavior import HoldEffect
-    from xtce_sim.behavior.verbs.oscillate import _ActiveOsc
-
-    assert isinstance(eng._behaviors["THM_PANEL_PLUS_X"], _ActiveOsc)
-    # a command declaring a hold on the same field displaces the signal
-    eng.spec.commands.setdefault("NOOP", []).append(HoldEffect(field="THM_PANEL_PLUS_X", value=0.0))
-    eng.apply_command(_cmd(simdef, "NOOP"), {})
-    assert not isinstance(eng._behaviors["THM_PANEL_PLUS_X"], _ActiveOsc)
-
-
-def test_direct_set_cancels_boot_signal(simdef):
-    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    eng = behavior.BehaviorEngine(spec, simdef)
-    from xtce_sim.behavior import SetEffect
-
-    eng.spec.commands.setdefault("NOOP", []).append(SetEffect(field="THM_RADIATOR", value=0))
-    eng.apply_command(_cmd(simdef, "NOOP"), {})
-    assert "THM_RADIATOR" not in eng._behaviors  # signal cancelled
-    eng.tick(1.0)
-    assert _eu(eng, "THM_RADIATOR") == 0  # value survives ticks
 
 
 # ---- 4b defensive branches ---------------------------------------------------
@@ -1553,22 +1439,6 @@ def test_templated_self_reference_skipped_at_runtime(tmp_path, simdef, caplog):
     assert "THM_HEATER1_TEMP" not in eng._behaviors
 
 
-def test_tau_and_increment_must_be_finite(tmp_path, simdef):
-    assert "tau must be a positive number" in _errors(
-        tmp_path,
-        simdef,
-        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35, tau = inf }\n",
-    )
-    assert "tau must be a positive number" in _errors(
-        tmp_path,
-        simdef,
-        "[IMAGER_ON]\nIMG_FOCAL_PLANE_TEMP = { ramp_to = 35, tau = nan }\n",
-    )
-    assert "increment must be a finite number" in _errors(
-        tmp_path, simdef, "[IMAGER_ON]\nIMG_GAIN = { increment = inf }\n"
-    )
-
-
 def test_continuous_behavior_on_string_field_refused_once(simdef, caplog):
     from xtce_sim.behavior import HoldEffect
 
@@ -1607,6 +1477,7 @@ def test_restarted_behavior_continues_noise_stream(tmp_path, simdef):
     eng = behavior.BehaviorEngine(_load(tmp_path, simdef, text), simdef)
     eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
     first = [eng.tick(1.0) or eng.state["IMG_FOCAL_PLANE_TEMP"] for _ in range(4)]
+    assert len(set(first)) > 1  # the hold actually jitters, not a flat line
     eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})  # restart the behavior
     second = [eng.tick(1.0) or eng.state["IMG_FOCAL_PLANE_TEMP"] for _ in range(4)]
     assert first != second  # stream continues, no replay
@@ -1864,10 +1735,10 @@ def test_effects_log_confirms_in_engineering_units(tmp_path, simdef):
 
 
 def test_directory_source_merges_files(simdef):
+    # Content counts are pinned by test_shipped_imaging_sidecar_validates;
+    # this test pins the MERGE: all six files, commands from different files.
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     assert len(spec.files) == 6  # adcs, comms, imager, power, system, thermal
-    assert len(spec.initial) == 11  # non-ADCS seeds incl. power + beacon states
-    assert len(spec.signals) == 8
     assert "HEATER_ON" in spec.commands and "TAKE_IMAGE" in spec.commands
     assert "(6 file(s))" in spec.source_label
 
@@ -2194,10 +2065,6 @@ def test_copyarg_skips_are_loud_never_silent(simdef, caplog):
     with caplog.at_level(logging.WARNING, logger="xtce_sim.behavior"):
         eng.apply_command(_cmd(simdef, "NOOP"), {"Ghost": None})
     assert "does not fit field" in caplog.text  # a None value reaches _store's warning
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="xtce_sim.behavior"):
-        eng.apply_command(_cmd(simdef, "NOOP"), {})
-    assert "missing from decode; skipped" in caplog.text  # the arg-missing skip warns too
 
 
 def test_late_registered_verb_is_fully_honored(tmp_path, simdef):

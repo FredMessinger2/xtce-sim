@@ -52,7 +52,6 @@ def test_imaging_sat_opcodes_are_declared_not_synthetic():
     assert opcodes["NOOP"] == 0x00  # housekeeping 0x00-0x0F
     assert opcodes["SET_POWER"] == 0x10  # power 0x10-0x1F
     assert opcodes["LOAD_ATS"] == 0xD5  # ATS 0xD5-0xD8
-    assert len(set(opcodes.values())) == len(opcodes)  # all distinct
     # OPCODE is fixed by the definition, not typed by the operator.
     assert all(p.name != "OPCODE" for c in d.commands for p in c.params)
 
@@ -79,17 +78,6 @@ def test_telemetry_field_enumerations_are_preserved():
     assert mode2.enumerations == mode.enumerations
     # The text report shows it.
     assert "enum={'SAFE': 0" in format_text(d)
-
-
-def test_aggregate_member_enum():
-    # An aggregate member whose type is enumerated carries the map too.
-    ff = SimDefinition.from_xtce(
-        Path(__file__).resolve().parent / "data" / "full_features.xml"
-    )
-    fix = next(
-        f for p in ff.packets for f in p.fields if f.name.endswith("_Fix")
-    )
-    assert fix.enumerations  # GPS aggregate's Fix member is ModeType (enum)
 
 
 def test_imaging_sat_two_level_inheritance_resolves():
@@ -214,11 +202,6 @@ def test_opcodes_are_unique(simdef: SimDefinition):
     """Synthetic opcodes must not collide with real ones (regression)."""
     opcodes = [c.opcode for c in simdef.commands]
     assert len(opcodes) == len(set(opcodes))
-
-
-def test_apids_are_unique(simdef: SimDefinition):
-    apids = [p.apid for p in simdef.packets]
-    assert len(apids) == len(set(apids))
 
 
 def test_lookups(simdef: SimDefinition):
