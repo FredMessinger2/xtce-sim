@@ -66,23 +66,15 @@ size; ``@FIELD`` targets are re-read live; a new ramp on a field replaces
 the old one).
 """
 
-from xtce_sim.behavior.engine import (
-    BehaviorEngine,
-    _ActiveHold,
-    _ActiveOsc,
-    _wave,
-)
+from xtce_sim.behavior.engine import BehaviorEngine
 from xtce_sim.behavior.loader import describe, load_behavior, sidecar_path
-from xtce_sim.behavior.spec import (
-    BehaviorError,
-    BehaviorSpec,
+from xtce_sim.behavior.spec import BehaviorError, BehaviorSpec, Effect, Scalar
+from xtce_sim.behavior.verbs import (
     CopyArgEffect,
-    Effect,
     HoldEffect,
     IncrementEffect,
     OscillateEffect,
     RampEffect,
-    Scalar,
     SetEffect,
 )
 
@@ -101,7 +93,4 @@ __all__ = [
     "describe",
     "load_behavior",
     "sidecar_path",
-    "_ActiveHold",
-    "_ActiveOsc",
-    "_wave",
 ]

@@ -1323,7 +1323,7 @@ def test_oscillate_wave_math_no_noise(tmp_path, simdef):
 
 
 def test_triangle_and_sawtooth_shapes():
-    from xtce_sim.behavior import _wave
+    from xtce_sim.behavior.verbs.oscillate import _wave
 
     assert _wave("triangle", 0.25) == 1.0 and _wave("triangle", 0.75) == -1.0
     assert _wave("triangle", 0.0) == 0.0 and _wave("triangle", 0.5) == 0.0
@@ -1353,7 +1353,7 @@ def test_boot_signals_run_without_commands(simdef):
 
 
 def test_noisy_ramp_degrades_into_noisy_hold(tmp_path, simdef):
-    from xtce_sim.behavior import _ActiveHold
+    from xtce_sim.behavior.verbs.hold import _ActiveHold
 
     spec = _load(
         tmp_path,
@@ -1375,7 +1375,8 @@ def test_noisy_ramp_degrades_into_noisy_hold(tmp_path, simdef):
 def test_command_behavior_replaces_boot_signal(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     eng = behavior.BehaviorEngine(spec, simdef)
-    from xtce_sim.behavior import HoldEffect, _ActiveOsc
+    from xtce_sim.behavior import HoldEffect
+    from xtce_sim.behavior.verbs.oscillate import _ActiveOsc
 
     assert isinstance(eng._behaviors["THM_PANEL_PLUS_X"], _ActiveOsc)
     # a command declaring a hold on the same field displaces the signal
@@ -1473,7 +1474,8 @@ def test_hold_with_unresolvable_template_ref_skips(simdef, caplog, tmp_path):
 
 
 def test_tick_skips_behavior_with_missing_live_ref(simdef, caplog, tmp_path):
-    from xtce_sim.behavior import _ActiveHold, _ActiveOsc
+    from xtce_sim.behavior.verbs.hold import _ActiveHold
+    from xtce_sim.behavior.verbs.oscillate import _ActiveOsc
 
     spec = behavior.BehaviorSpec(path=tmp_path, initial={}, commands={})
     eng = behavior.BehaviorEngine(spec, simdef)
