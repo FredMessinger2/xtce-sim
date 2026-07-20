@@ -5,14 +5,21 @@ parser and the ParameterType parser — as functions taking the parser
 (``reader``) first. The registry below drives the two type-set walks in
 commands.py and telemetry.py.
 
-REGISTRATION ORDER IS SEMANTIC. Each tuple reproduces the exact order of
-the ladder it replaced: types land in the definition's dict in walk
-order (insertion order is observable), and the _findall consumption
-bookkeeping behind the ignored-element report records elements in walk
-order too. The two sides historically differed — the argument walk reads
-Binary before String, the parameter walk String before Binary — so each
-side keeps its own tuple. Arrays and aggregates come last on purpose:
-they resolve element/member types that must already be parsed.
+REGISTRATION ORDER IS SEMANTIC, for two reasons:
+
+1. Arrays and aggregates must come last in each tuple. Their parsers
+   (types/arrays.py, types/aggregate.py) resolve element/member type
+   references against the definition at parse time, so every type they
+   can reference must already be in the definition's dict when they run.
+   Reordering them ahead of the scalar families yields size_in_bits 0
+   and unresolved element/member types.
+
+2. Within each side, the walk order is observable and pinned: types land
+   in the definition's dict in walk order (insertion order is visible to
+   consumers), and the per-type DEBUG trace is emitted in walk order
+   (the equivalence baseline pins both). The two sides genuinely differ
+   — the argument walk reads Binary before String, the parameter walk
+   String before Binary — so each side keeps its own tuple.
 """
 
 import xml.etree.ElementTree as ET
@@ -20,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from xtce_sim.models import XTCEDefinition
+from xtce_sim.parser.reader import ReaderMixin
 from xtce_sim.parser.types import (
     aggregate,
     arrays,
@@ -34,7 +42,7 @@ from xtce_sim.parser.types import (
 
 # Uniform parser signature: (reader, elem, definition) -> parsed type.
 # Families that don't need the definition simply ignore it.
-ParseFn = Callable[[Any, ET.Element, XTCEDefinition], Any]
+ParseFn = Callable[[ReaderMixin, ET.Element, XTCEDefinition], Any]
 
 
 @dataclass(frozen=True)

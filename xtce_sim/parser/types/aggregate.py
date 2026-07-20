@@ -13,10 +13,11 @@ from xtce_sim.parser.fields import (
     _parse_context_alarm_list,
     _parse_static_alarm_ranges,
 )
+from xtce_sim.parser.reader import ReaderMixin
 
 
 def _parse_aggregate_argument_type(
-    reader, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
 ) -> AggregateArgumentType:
     """
     Parse AggregateArgumentType element.
@@ -45,7 +46,7 @@ def _parse_aggregate_argument_type(
 
 
 def _parse_aggregate_parameter_type(
-    reader, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
 ) -> AggregateParameterType:
     """
     Parse AggregateParameterType element.

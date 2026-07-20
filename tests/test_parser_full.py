@@ -255,6 +255,27 @@ def test_argument_type_kinds(defn):
     assert at["StateArg"].get_value("MISSING") is None
 
 
+def test_argument_array_element_type_resolved_at_parse(defn):
+    # Pins the ARGUMENT_FAMILIES registration order in xtce_sim.parser.types:
+    # array parsers resolve their element type against the definition at parse
+    # time, so the Array family must run after the scalar families. If it ran
+    # first, U8Arg would not exist yet and ArrArg would come out with
+    # element_type None and size_in_bits 0.
+    arr = defn.argument_types["ArrArg"]
+    assert arr.element_type is defn.argument_types["U8Arg"]
+    assert arr.dimensions == [(2, False, None)]  # indices 0..1 inclusive
+    assert arr.size_in_bits == 2 * 8  # 2 elements x 8-bit U8Arg
+
+
+def test_argument_aggregate_member_types_resolved_at_parse(defn):
+    # Same ordering pin for the Aggregate family: member sizes are summed from
+    # already-parsed member types at parse time. If Aggregate ran before the
+    # scalar families, F32Arg would be missing and VecArg's size would be 0.
+    vec = defn.argument_types["VecArg"]
+    assert [m.type_ref for m in vec.members] == ["F32Arg", "F32Arg"]
+    assert vec.size_in_bits == 2 * 32  # X + Y, 32-bit IEEE754 floats
+
+
 def test_build_sim_definition_flattens_aggregate(defn):
     simdef = build_sim_definition(defn)
     health = next(p for p in simdef.packets if p.name == "HEALTH")

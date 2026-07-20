@@ -8,10 +8,11 @@ from xtce_sim.parser.fields import (
     _parse_context_alarm_list,
     _parse_static_alarm_ranges,
 )
+from xtce_sim.parser.reader import ReaderMixin
 
 
 def _parse_boolean_argument_type(
-    reader, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
 ) -> BooleanArgumentType:
     """Parse BooleanArgumentType element."""
     name, zero_str, one_str, initial_value, size_in_bits = _parse_boolean_fields(reader, elem)
@@ -25,7 +26,7 @@ def _parse_boolean_argument_type(
 
 
 def _parse_boolean_parameter_type(
-    reader, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
 ) -> BooleanParameterType:
     """Parse BooleanParameterType element for telemetry (boolean fields + alarms)."""
     name, zero_str, one_str, initial_value, size_in_bits = _parse_boolean_fields(reader, elem)

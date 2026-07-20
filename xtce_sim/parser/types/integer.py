@@ -11,43 +11,33 @@ from xtce_sim.models import (
 from xtce_sim.parser.fields import (
     _parse_calibrator,
     _parse_context_alarm_list,
+    _parse_scalar_data_encoding,
     _parse_static_alarm_ranges,
     _parse_unit_set_enhanced,
+    _parse_unit_text,
     _parse_valid_range,
 )
+from xtce_sim.parser.reader import ReaderMixin
 
 
 def _parse_integer_argument_type(
-    reader, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
 ) -> IntegerArgumentType:
     """Parse IntegerArgumentType element."""
     name = reader._get_attr(elem, "name")
     signed = reader._get_attr(elem, "signed", "false").lower() == "true"
 
-    # Default values
+    # Defaults when no IntegerDataEncoding is declared.
     size_in_bits = 32
     encoding = DataEncoding.UNSIGNED
-    unit = None
-    valid_range = None
 
-    # Parse IntegerDataEncoding
-    data_enc = reader._find(elem, "IntegerDataEncoding")
-    if data_enc is not None:
-        size_in_bits = int(reader._get_attr(data_enc, "sizeInBits", "8"))
-        enc_str = reader._get_attr(data_enc, "encoding", "unsigned")
-        try:
-            encoding = DataEncoding(enc_str)
-        except ValueError:
-            encoding = DataEncoding.UNSIGNED
+    enc = _parse_scalar_data_encoding(
+        reader, elem, tag="IntegerDataEncoding", default_bits="8", fallback=DataEncoding.UNSIGNED
+    )
+    if enc is not None:
+        size_in_bits, encoding, _ = enc
 
-    # Parse UnitSet
-    unit_set = reader._find(elem, "UnitSet")
-    if unit_set is not None:
-        unit_elem = reader._find(unit_set, "Unit")
-        if unit_elem is not None and unit_elem.text:
-            unit = unit_elem.text
-
-    # Parse ValidRange
+    unit = _parse_unit_text(reader, elem)
     valid_range = _parse_valid_range(reader, elem)
 
     return IntegerArgumentType(
@@ -61,25 +51,22 @@ def _parse_integer_argument_type(
 
 
 def _parse_integer_parameter_type(
-    reader, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
 ) -> IntegerParameterType:
     """Parse IntegerParameterType element."""
     name = reader._get_attr(elem, "name")
     signed = reader._get_attr(elem, "signed", "false").lower() == "true"
 
+    # Defaults when no IntegerDataEncoding is declared.
     size_in_bits = 32
     encoding = DataEncoding.UNSIGNED
     calibrator = None
 
-    # Parse IntegerDataEncoding
-    data_enc = reader._find(elem, "IntegerDataEncoding")
-    if data_enc is not None:
-        size_in_bits = int(reader._get_attr(data_enc, "sizeInBits", "8"))
-        enc_str = reader._get_attr(data_enc, "encoding", "unsigned")
-        try:
-            encoding = DataEncoding(enc_str)
-        except ValueError:
-            encoding = DataEncoding.UNSIGNED
+    enc = _parse_scalar_data_encoding(
+        reader, elem, tag="IntegerDataEncoding", default_bits="8", fallback=DataEncoding.UNSIGNED
+    )
+    if enc is not None:
+        size_in_bits, encoding, data_enc = enc
         calibrator = _parse_calibrator(reader, data_enc)
 
     # Parse UnitSet with full metadata
