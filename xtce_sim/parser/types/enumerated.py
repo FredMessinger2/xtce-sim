@@ -13,16 +13,13 @@ from xtce_sim.parser.fields import (
     _parse_context_alarm_list,
     _parse_static_alarm_ranges,
 )
+from xtce_sim.parser.reader import ReaderMixin
 
 logger = logging.getLogger("xtce_sim.parser")
 
 
-def _parse_enumerated_argument_type(
-    reader, elem: ET.Element, definition: XTCEDefinition
-) -> EnumeratedArgumentType:
-    """Parse EnumeratedArgumentType element."""
-    name = reader._get_attr(elem, "name")
-
+def _parse_enumeration_list(reader: ReaderMixin, elem: ET.Element) -> list[EnumerationValue]:
+    """Parse a type's ``<EnumerationList>`` into label/value pairs."""
     enumerations = []
     enum_list = reader._find(elem, "EnumerationList")
     if enum_list is not None:
@@ -30,6 +27,15 @@ def _parse_enumerated_argument_type(
             label = reader._get_attr(enum_elem, "label")
             value = int(reader._get_attr(enum_elem, "value", "0"))
             enumerations.append(EnumerationValue(label=label, value=value))
+    return enumerations
+
+
+def _parse_enumerated_argument_type(
+    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+) -> EnumeratedArgumentType:
+    """Parse EnumeratedArgumentType element."""
+    name = reader._get_attr(elem, "name")
+    enumerations = _parse_enumeration_list(reader, elem)
 
     # Get size from IntegerDataEncoding if present
     data_enc = reader._find(elem, "IntegerDataEncoding")
@@ -55,18 +61,11 @@ def _parse_enumerated_argument_type(
 
 
 def _parse_enumerated_parameter_type(
-    reader, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
 ) -> EnumeratedParameterType:
     """Parse EnumeratedParameterType element."""
     name = reader._get_attr(elem, "name")
-
-    enumerations = []
-    enum_list = reader._find(elem, "EnumerationList")
-    if enum_list is not None:
-        for enum_elem in reader._findall(enum_list, "Enumeration"):
-            label = reader._get_attr(enum_elem, "label")
-            value = int(reader._get_attr(enum_elem, "value", "0"))
-            enumerations.append(EnumerationValue(label=label, value=value))
+    enumerations = _parse_enumeration_list(reader, elem)
 
     # Get size from IntegerDataEncoding
     size_in_bits = 8

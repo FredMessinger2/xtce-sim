@@ -7,13 +7,18 @@ import math
 import xml.etree.ElementTree as ET
 from typing import Optional
 
-# Import all models from the models module
 from xtce_sim.models import (
     Parameter,
     SequenceContainer,
     XTCEDefinition,
 )
-from xtce_sim.parser.types import PARAMETER_FAMILIES
+
+# Module import (not from-import) so the family registry is read at call time.
+# The tuples are immutable, so extending/reordering means rebinding the module
+# attribute — a from-import would freeze the tuple at import time and silently
+# ignore the rebinding (the behavior package's VERBS registry is live the same
+# way: names resolve to current registry state when the walk runs).
+from xtce_sim.parser import types as type_families
 
 logger = logging.getLogger("xtce_sim.parser")
 
@@ -44,7 +49,7 @@ class TelemetryParsingMixin:
         Walks the family registry in its semantic order (scalars first;
         arrays and aggregates last so their element/member types resolve).
         """
-        for family in PARAMETER_FAMILIES:
+        for family in type_families.PARAMETER_FAMILIES:
             for elem in self._findall(param_type_set, family.tag + "ParameterType"):
                 param_type = family.parse_parameter(self, elem, definition)
                 self._store_type(definition.parameter_types, param_type)

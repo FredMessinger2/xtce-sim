@@ -4,7 +4,6 @@ after all files merge.
 
 import logging
 
-# Import all models from the models module
 from xtce_sim.models import (
     XTCEDefinition,
 )

@@ -9,8 +9,6 @@ import logging
 import xml.etree.ElementTree as ET
 from typing import Optional
 
-# Import all models from the models module
-
 logger = logging.getLogger("xtce_sim.parser")
 
 XTCE_NAMESPACES = [
@@ -80,6 +78,16 @@ class ReaderMixin:
     def _get_attr(self, element: ET.Element, name: str, default: str = "") -> str:
         """Get attribute value with default."""
         return element.attrib.get(name, default)
+
+    def _store_type(self, store: dict, parsed) -> None:
+        """Store a parsed argument/parameter type, tracing it at firehose level."""
+        store[parsed.name] = parsed
+        logger.debug(
+            "    %s %r: %s bits",
+            type(parsed).__name__,
+            parsed.name,
+            getattr(parsed, "size_in_bits", "?"),
+        )
 
     def _strip_path_ref(self, ref: str) -> str:
         """Strip XTCE path-qualified reference down to the leaf name.

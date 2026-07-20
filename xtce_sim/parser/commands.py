@@ -6,7 +6,6 @@ import logging
 import xml.etree.ElementTree as ET
 from typing import Optional
 
-# Import all models from the models module
 from xtce_sim.models import (
     # Command structures
     Argument,
@@ -16,23 +15,19 @@ from xtce_sim.models import (
     # Top-level
     XTCEDefinition,
 )
-from xtce_sim.parser.types import ARGUMENT_FAMILIES
+
+# Module import (not from-import) so the family registry is read at call time.
+# The tuples are immutable, so extending/reordering means rebinding the module
+# attribute — a from-import would freeze the tuple at import time and silently
+# ignore the rebinding (the behavior package's VERBS registry is live the same
+# way: names resolve to current registry state when the walk runs).
+from xtce_sim.parser import types as type_families
 
 logger = logging.getLogger("xtce_sim.parser")
 
 
 class CommandParsingMixin:
     """CommandMetaData: ArgumentTypeSet and MetaCommandSet."""
-
-    def _store_type(self, store: dict, parsed) -> None:
-        """Store a parsed argument/parameter type, tracing it at firehose level."""
-        store[parsed.name] = parsed
-        logger.debug(
-            "    %s %r: %s bits",
-            type(parsed).__name__,
-            parsed.name,
-            getattr(parsed, "size_in_bits", "?"),
-        )
 
     def _parse_command_metadata(self, cmd_metadata: ET.Element, definition: XTCEDefinition):
         """Parse CommandMetaData section."""
@@ -52,7 +47,7 @@ class CommandParsingMixin:
         Walks the family registry in its semantic order (scalars first;
         arrays and aggregates last so their element/member types resolve).
         """
-        for family in ARGUMENT_FAMILIES:
+        for family in type_families.ARGUMENT_FAMILIES:
             for elem in self._findall(arg_type_set, family.tag + "ArgumentType"):
                 arg_type = family.parse_argument(self, elem, definition)
                 self._store_type(definition.argument_types, arg_type)

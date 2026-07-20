@@ -17,15 +17,17 @@ from xtce_sim.models import (
     Calibrator,
     ContextAlarm,
     ContextMatch,
+    DataEncoding,
     StaticAlarmRanges,
     Unit,
     ValidRange,
 )
+from xtce_sim.parser.reader import ReaderMixin
 
 logger = logging.getLogger("xtce_sim.parser")
 
 
-def _fixed_size_in_bits(reader, size_bits: ET.Element) -> Optional[int]:
+def _fixed_size_in_bits(reader: ReaderMixin, size_bits: ET.Element) -> Optional[int]:
     """Read a fixed bit count from a ``<SizeInBits>`` element.
 
     Accepts either ``<SizeInBits><FixedValue>N</FixedValue></SizeInBits>``
@@ -43,7 +45,7 @@ def _fixed_size_in_bits(reader, size_bits: ET.Element) -> Optional[int]:
     return None
 
 
-def _binary_encoding_size_bits(reader, elem: ET.Element) -> Optional[int]:
+def _binary_encoding_size_bits(reader: ReaderMixin, elem: ET.Element) -> Optional[int]:
     """Fixed bit count from an element's ``<BinaryDataEncoding><SizeInBits>``.
 
     Returns None when there is no BinaryDataEncoding, no SizeInBits, or no
@@ -58,7 +60,7 @@ def _binary_encoding_size_bits(reader, elem: ET.Element) -> Optional[int]:
     return _fixed_size_in_bits(reader, size_bits)
 
 
-def _binary_size_in_bits(reader, elem: ET.Element) -> int:
+def _binary_size_in_bits(reader: ReaderMixin, elem: ET.Element) -> int:
     """Fixed size (in bits) of a binary type's BinaryDataEncoding.
 
     Prefers ``<BinaryDataEncoding><SizeInBits>`` (with or without the
@@ -86,7 +88,7 @@ def _binary_size_in_bits(reader, elem: ET.Element) -> int:
 _SUPPORTED_STRING_CHARSETS = ("UTF-8", "US-ASCII", "ASCII")
 
 
-def _string_size_and_length(reader, elem: ET.Element) -> tuple[int, Optional[int]]:
+def _string_size_and_length(reader: ReaderMixin, elem: ET.Element) -> tuple[int, Optional[int]]:
     """Fixed size and byte length from a String type's StringDataEncoding.
 
     Returns ``(size_in_bits, max_length)`` where max_length is
@@ -117,7 +119,9 @@ def _string_size_and_length(reader, elem: ET.Element) -> tuple[int, Optional[int
     return bits, bits // 8
 
 
-def _parse_boolean_fields(reader, elem: ET.Element) -> tuple[str, str, str, Optional[bool], int]:
+def _parse_boolean_fields(
+    reader: ReaderMixin, elem: ET.Element
+) -> tuple[str, str, str, Optional[bool], int]:
     """Shared parsing for Boolean argument/parameter types.
 
     Returns ``(name, zero_string, one_string, initial_value, size_in_bits)``.
@@ -151,7 +155,37 @@ def _parse_boolean_fields(reader, elem: ET.Element) -> tuple[str, str, str, Opti
     return name, zero_str, one_str, initial_value, size_in_bits
 
 
-def _parse_valid_range(reader, elem: ET.Element) -> Optional[ValidRange]:
+def _parse_scalar_data_encoding(
+    reader: ReaderMixin,
+    elem: ET.Element,
+    *,
+    tag: str,
+    default_bits: str,
+    fallback: DataEncoding,
+) -> Optional[tuple[int, DataEncoding, ET.Element]]:
+    """Read a scalar ``<*DataEncoding>`` child of an Integer/Float type.
+
+    Returns ``(size_in_bits, encoding, data_enc)``, handing back the
+    encoding element so callers that support a calibrator can parse it
+    from there; returns None when *elem* has no *tag* child, in which
+    case callers keep their family defaults. ``fallback`` doubles as the
+    default when no ``encoding`` attribute is present (its enum value is
+    the attribute string) and as the recovery when the declared string is
+    not a DataEncoding the codec knows.
+    """
+    data_enc = reader._find(elem, tag)
+    if data_enc is None:
+        return None
+    size_in_bits = int(reader._get_attr(data_enc, "sizeInBits", default_bits))
+    enc_str = reader._get_attr(data_enc, "encoding", fallback.value)
+    try:
+        encoding = DataEncoding(enc_str)
+    except ValueError:
+        encoding = fallback
+    return size_in_bits, encoding, data_enc
+
+
+def _parse_valid_range(reader: ReaderMixin, elem: ET.Element) -> Optional[ValidRange]:
     """Parse ValidRange element from argument type."""
     # Check for ValidRange directly
     vr = reader._find(elem, "ValidRange")
@@ -185,7 +219,7 @@ def _parse_valid_range(reader, elem: ET.Element) -> Optional[ValidRange]:
     return valid_range
 
 
-def _parse_alarm_range(reader, elem: ET.Element) -> AlarmRange:
+def _parse_alarm_range(reader: ReaderMixin, elem: ET.Element) -> AlarmRange:
     """Parse a single alarm range element (WarningRange, CriticalRange, etc.)."""
     alarm = AlarmRange()
 
@@ -208,7 +242,9 @@ def _parse_alarm_range(reader, elem: ET.Element) -> AlarmRange:
     return alarm
 
 
-def _parse_static_alarm_ranges(reader, elem: ET.Element) -> Optional[StaticAlarmRanges]:
+def _parse_static_alarm_ranges(
+    reader: ReaderMixin, elem: ET.Element
+) -> Optional[StaticAlarmRanges]:
     """
     Parse StaticAlarmRanges element for telemetry alarm thresholds.
 
@@ -254,7 +290,7 @@ def _parse_static_alarm_ranges(reader, elem: ET.Element) -> Optional[StaticAlarm
     return alarms
 
 
-def _parse_context_alarm_list(reader, elem: ET.Element) -> list[ContextAlarm]:
+def _parse_context_alarm_list(reader: ReaderMixin, elem: ET.Element) -> list[ContextAlarm]:
     """
     Parse ContextAlarmList for context-dependent alarm definitions.
 
@@ -306,7 +342,29 @@ def _parse_context_alarm_list(reader, elem: ET.Element) -> list[ContextAlarm]:
     return context_alarms
 
 
-def _parse_unit_set_enhanced(reader, elem: ET.Element) -> tuple[Optional[str], Optional[Unit]]:
+def _parse_unit_text(reader: ReaderMixin, elem: ET.Element) -> Optional[str]:
+    """The raw ``<UnitSet><Unit>`` text of an argument-side type, or None.
+
+    Deliberately NOT unified with _parse_unit_set_enhanced: that
+    parameter-side helper strips the unit text, while the argument-side
+    call sites (Integer/Float/RelativeTime argument types) have always
+    stored it verbatim, whitespace included. Unifying the two — picking
+    one stripping behavior for both sides — is a deliberate future
+    decision, not a refactor to make in passing; either choice changes
+    parsed output.
+    """
+    unit_set = reader._find(elem, "UnitSet")
+    if unit_set is None:
+        return None
+    unit_elem = reader._find(unit_set, "Unit")
+    if unit_elem is not None and unit_elem.text:
+        return unit_elem.text
+    return None
+
+
+def _parse_unit_set_enhanced(
+    reader: ReaderMixin, elem: ET.Element
+) -> tuple[Optional[str], Optional[Unit]]:
     """
     Parse UnitSet with full XTCE 1.3 support.
 
@@ -341,7 +399,7 @@ def _parse_unit_set_enhanced(reader, elem: ET.Element) -> tuple[Optional[str], O
     return (simple_unit, unit_info)
 
 
-def _parse_aggregate_members(reader, elem: ET.Element) -> list[AggregateMember]:
+def _parse_aggregate_members(reader: ReaderMixin, elem: ET.Element) -> list[AggregateMember]:
     """
     Parse MemberList for aggregate types.
 
@@ -373,7 +431,7 @@ def _parse_aggregate_members(reader, elem: ET.Element) -> list[AggregateMember]:
     return members
 
 
-def _parse_index_element(reader, idx_elem: ET.Element) -> tuple[int, Optional[str]]:
+def _parse_index_element(reader: ReaderMixin, idx_elem: ET.Element) -> tuple[int, Optional[str]]:
     """Read one array-dimension index (``<StartingIndex>``/``<EndingIndex>``).
 
     Returns ``(index, dynamic_ref)``: the fixed index value (0 if not
@@ -393,7 +451,7 @@ def _parse_index_element(reader, idx_elem: ET.Element) -> tuple[int, Optional[st
     return index, dynamic_ref
 
 
-def _parse_dimension(reader, dim: ET.Element) -> tuple[int, bool, Optional[str]]:
+def _parse_dimension(reader: ReaderMixin, dim: ET.Element) -> tuple[int, bool, Optional[str]]:
     """
     Parse a Dimension element for array types.
 
@@ -430,7 +488,7 @@ def _parse_dimension(reader, dim: ET.Element) -> tuple[int, bool, Optional[str]]
     return (size, is_dynamic, dynamic_ref)
 
 
-def _parse_calibrator(reader, data_enc: ET.Element) -> Optional[Calibrator]:
+def _parse_calibrator(reader: ReaderMixin, data_enc: ET.Element) -> Optional[Calibrator]:
     """Parse DefaultCalibrator: PolynomialCalibrator or SplineCalibrator."""
     default_cal = reader._find(data_enc, "DefaultCalibrator")
     if default_cal is None:
