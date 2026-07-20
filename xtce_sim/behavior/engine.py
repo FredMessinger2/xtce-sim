@@ -67,13 +67,17 @@ class BehaviorEngine:
         # The loader only emits continuous effects here; gate anyway so a
         # hand-built spec can't crash the constructor with a discrete one.
         for eff in spec.signals:
-            # getattr, not attribute access: a hand-built spec may hold an
-            # object that is not an Effect at all, and the answer is the
-            # warning below, never a constructor crash.
-            if getattr(eff, "continuous", False):
+            # The CLASS flag, read duck-safely: a hand-built spec may hold
+            # an object that is not an Effect (skip it below, don't crash),
+            # and an instance attribute must not shadow what the class
+            # declares for a genuine Effect.
+            if getattr(type(eff), "continuous", False):
                 self._start_behavior(None, eff, {})
             else:
-                logger.warning("[_signals] %s: not a continuous behavior; skipped", eff.field)
+                logger.warning(
+                    "[_signals] %s: not a continuous behavior; skipped",
+                    getattr(eff, "field", eff),
+                )
         # Physics models: instantiate, route their commands, seed outputs so
         # the very first beacon already carries a live attitude.
         self.models = [AdcsModel(cfg) for cfg in spec.models]
@@ -117,7 +121,7 @@ class BehaviorEngine:
                 # "the command took effect".
                 self._pending_immediate |= {self._field_apid[f] for f in model.config.outputs}
         for eff in self.spec.commands.get(command.name, []):
-            if getattr(eff, "continuous", False):
+            if getattr(type(eff), "continuous", False):
                 desc = self._start_behavior(command, eff, args)
             else:
                 desc = self._apply_effect(command, eff, args)

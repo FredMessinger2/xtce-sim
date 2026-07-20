@@ -313,7 +313,7 @@ def _load_signals(body, ctx: _Context) -> list[Effect]:
         if not isinstance(spec, dict) or not any(k in spec for k in _continuous_verbs()):
             ctx.error(
                 f"{where}: signals must be continuous behaviors "
-                "(ramp_to/oscillate/hold); use [_initial] for one-shot values"
+                f"({'/'.join(_continuous_verbs())}); use [_initial] for one-shot values"
             )
             continue
         eff = _parse_effect_table(where, fname, spec, None, ctx)
