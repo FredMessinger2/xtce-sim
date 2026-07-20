@@ -2143,3 +2143,108 @@ def test_my_vehicle_unwired_roles_are_simply_absent(mv_engine):
         "wheel_disable",
         "wheel_enable",
     ]
+
+
+# ---- verb-registry refactor pins ---------------------------------------------
+
+
+def test_duck_typed_signal_is_skipped_not_fatal(simdef, caplog):
+    class NotAnEffect:
+        field = "THM_RADIATOR"
+
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    spec.signals.append(NotAnEffect())
+    with caplog.at_level(logging.WARNING, logger="xtce_sim.behavior"):
+        eng = behavior.BehaviorEngine(spec, simdef)  # must not raise
+    assert "not a continuous behavior; skipped" in caplog.text
+    assert eng.state  # the engine came up anyway
+
+
+def test_copyarg_skips_are_loud_never_silent(simdef, caplog):
+    from xtce_sim.behavior import CopyArgEffect
+
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.spec.commands.setdefault("NOOP", []).append(
+        CopyArgEffect(field="HK_ISSUED_TIMESTAMP", arg="Ghost")
+    )
+    with caplog.at_level(logging.WARNING, logger="xtce_sim.behavior"):
+        eng.apply_command(_cmd(simdef, "NOOP"), {"Ghost": None})
+    assert "does not fit field" in caplog.text  # a None value reaches _store's warning
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="xtce_sim.behavior"):
+        eng.apply_command(_cmd(simdef, "NOOP"), {})
+    assert "missing from decode; skipped" in caplog.text  # the arg-missing skip warns too
+
+
+def test_late_registered_verb_is_fully_honored(tmp_path, simdef):
+    from xtce_sim.behavior import HoldEffect
+    from xtce_sim.behavior.spec import VERBS, Verb, register_verb
+
+    def parse(where, fname, spec, command, emit, ctx):
+        return HoldEffect(field=fname, value=float(spec["pulse"]), emit=emit)
+
+    register_verb(Verb(name="pulse", attrs=frozenset({"width"}), continuous=True, parse=parse))
+    try:
+        spec = _load(
+            tmp_path,
+            simdef,
+            "[_signals]\nHK_ISSUED_TIMESTAMP = { pulse = 5.0, width = 1.0 }\n",
+        )
+        [eff] = spec.signals
+        assert isinstance(eff, HoldEffect)
+        assert eff.value == 5.0
+    finally:
+        del VERBS["pulse"]
+
+
+def test_register_verb_refuses_duplicate_names():
+    from xtce_sim.behavior.spec import VERBS, register_verb
+
+    with pytest.raises(ValueError, match="already registered"):
+        register_verb(VERBS["hold"])
+
+
+def test_verb_and_effect_continuity_agree():
+    from xtce_sim.behavior import (
+        CopyArgEffect,
+        HoldEffect,
+        IncrementEffect,
+        OscillateEffect,
+        RampEffect,
+        SetEffect,
+    )
+    from xtce_sim.behavior.spec import VERBS
+
+    assert {name: verb.continuous for name, verb in VERBS.items()} == {
+        "set": False,
+        "increment": False,
+        "ramp_to": True,
+        "oscillate": True,
+        "hold": True,
+    }
+    assert not SetEffect.continuous
+    assert not CopyArgEffect.continuous
+    assert not IncrementEffect.continuous
+    assert RampEffect.continuous
+    assert OscillateEffect.continuous
+    assert HoldEffect.continuous
+
+
+def test_behavior_registry_key_governs_store_and_retirement(simdef):
+    from xtce_sim.behavior.verbs.ramp import _ActiveRamp
+
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.state["HK_ISSUED_TIMESTAMP"] = 100
+    other_before = eng.state.get("HK_RECEIVED_TIMESTAMP")
+    # Hand-seeded entry whose .field disagrees with its key: the KEY is
+    # authoritative for stores and retirement, and completion must not
+    # raise KeyError out of tick() (which would kill the beacon loop).
+    eng._behaviors["HK_ISSUED_TIMESTAMP"] = _ActiveRamp(
+        field="HK_RECEIVED_TIMESTAMP", target=100.0, tau=1.0
+    )
+    eng.tick(1.0)
+    assert "HK_ISSUED_TIMESTAMP" not in eng._behaviors  # retired under its key
+    assert eng.state["HK_ISSUED_TIMESTAMP"] == 100
+    assert eng.state.get("HK_RECEIVED_TIMESTAMP") == other_before  # never written

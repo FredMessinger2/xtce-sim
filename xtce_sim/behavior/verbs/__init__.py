@@ -6,16 +6,19 @@ import — because the order is part of the loader's pinned error text
 """
 
 from xtce_sim.behavior.spec import register_verb
-from xtce_sim.behavior.verbs import hold, increment, oscillate, ramp
-from xtce_sim.behavior.verbs import set as set_
-from xtce_sim.behavior.verbs.hold import HoldEffect, _ActiveHold
+from xtce_sim.behavior.verbs.hold import VERB as _HOLD
+from xtce_sim.behavior.verbs.hold import HoldEffect
+from xtce_sim.behavior.verbs.increment import VERB as _INCREMENT
 from xtce_sim.behavior.verbs.increment import IncrementEffect
-from xtce_sim.behavior.verbs.oscillate import OscillateEffect, _ActiveOsc, _wave
-from xtce_sim.behavior.verbs.ramp import RampEffect, _ActiveRamp
+from xtce_sim.behavior.verbs.oscillate import VERB as _OSCILLATE
+from xtce_sim.behavior.verbs.oscillate import OscillateEffect
+from xtce_sim.behavior.verbs.ramp import VERB as _RAMP
+from xtce_sim.behavior.verbs.ramp import RampEffect
+from xtce_sim.behavior.verbs.set import VERB as _SET
 from xtce_sim.behavior.verbs.set import CopyArgEffect, SetEffect, scalar_effect
 
-for _verb_module in (set_, increment, ramp, oscillate, hold):
-    register_verb(_verb_module.VERB)
+for _verb in (_SET, _INCREMENT, _RAMP, _OSCILLATE, _HOLD):
+    register_verb(_verb)
 
 __all__ = [
     "CopyArgEffect",
@@ -25,8 +28,4 @@ __all__ = [
     "RampEffect",
     "SetEffect",
     "scalar_effect",
-    "_ActiveHold",
-    "_ActiveOsc",
-    "_ActiveRamp",
-    "_wave",
 ]

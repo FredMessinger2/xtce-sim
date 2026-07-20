@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from typing import Optional
 
@@ -16,31 +15,24 @@ class _ActiveHold(ActiveBehavior):
     """Keeps re-asserting a value (or tracking @FIELD), optionally noisy."""
 
     value: float | str
-    noise: float = 0.0
-    warned: bool = False
-    rng: Optional[random.Random] = None
 
-    def advance(self, engine, dt: float) -> None:
+    def advance(self, engine, fname: str, dt: float) -> None:
         value = engine._live_number(self, self.value)
         if value is None:
             return
-        engine._store(f"[hold] {self.field}", self.field, engine._noisy(self, value))
+        engine._store(f"[hold] {fname}", fname, engine._noisy(self, value))
 
 
 @dataclass
 class HoldEffect(ContinuousEffect):
-    field: str
     value: float | str  # number, or "@FIELD" (tracked live)
-    noise: float = 0.0
-    emit: str = "interval"
 
     @property
     def reference(self):
         return self.value
 
     def describe(self) -> str:
-        noise = f" ±noise({self.noise})" if self.noise else ""
-        return f"{self.field} holds at {self.value}{noise}"
+        return f"{self.field} holds at {self.value}{self._noise_suffix()}"
 
     def describe_active(self, ref) -> str:
         return f"holding at {ref}"
