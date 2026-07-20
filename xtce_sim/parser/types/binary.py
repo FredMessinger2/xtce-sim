@@ -12,7 +12,7 @@ from xtce_sim.parser.reader import ReaderMixin
 
 
 def _parse_binary_argument_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> BinaryArgumentType:
     """Parse BinaryArgumentType element."""
     name = reader._get_attr(elem, "name")
@@ -20,7 +20,7 @@ def _parse_binary_argument_type(
 
 
 def _parse_binary_parameter_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> BinaryParameterType:
     """Parse BinaryParameterType element."""
     name = reader._get_attr(elem, "name")

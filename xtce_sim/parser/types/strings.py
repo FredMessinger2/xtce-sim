@@ -12,7 +12,7 @@ from xtce_sim.parser.reader import ReaderMixin
 
 
 def _parse_string_argument_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> StringArgumentType:
     """Parse StringArgumentType element."""
     name = reader._get_attr(elem, "name")
@@ -21,7 +21,7 @@ def _parse_string_argument_type(
 
 
 def _parse_string_parameter_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> StringParameterType:
     """Parse StringParameterType element."""
     name = reader._get_attr(elem, "name")

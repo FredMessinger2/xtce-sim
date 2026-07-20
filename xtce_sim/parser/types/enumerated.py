@@ -31,7 +31,7 @@ def _parse_enumeration_list(reader: ReaderMixin, elem: ET.Element) -> list[Enume
 
 
 def _parse_enumerated_argument_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> EnumeratedArgumentType:
     """Parse EnumeratedArgumentType element."""
     name = reader._get_attr(elem, "name")
@@ -61,7 +61,7 @@ def _parse_enumerated_argument_type(
 
 
 def _parse_enumerated_parameter_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> EnumeratedParameterType:
     """Parse EnumeratedParameterType element."""
     name = reader._get_attr(elem, "name")

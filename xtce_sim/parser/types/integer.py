@@ -21,7 +21,7 @@ from xtce_sim.parser.reader import ReaderMixin
 
 
 def _parse_integer_argument_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> IntegerArgumentType:
     """Parse IntegerArgumentType element."""
     name = reader._get_attr(elem, "name")
@@ -51,7 +51,7 @@ def _parse_integer_argument_type(
 
 
 def _parse_integer_parameter_type(
-    reader: ReaderMixin, elem: ET.Element, definition: XTCEDefinition
+    reader: ReaderMixin, elem: ET.Element, _definition: XTCEDefinition
 ) -> IntegerParameterType:
     """Parse IntegerParameterType element."""
     name = reader._get_attr(elem, "name")
