@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import random
 from dataclasses import dataclass
 from typing import Optional
 
@@ -43,12 +42,9 @@ class _ActiveOsc(ActiveBehavior):
     period: float
     shape: str
     phase: float
-    noise: float = 0.0
     elapsed: float = 0.0  # seconds since the behavior started
-    warned: bool = False
-    rng: Optional[random.Random] = None
 
-    def advance(self, engine, dt: float) -> None:
+    def advance(self, engine, fname: str, dt: float) -> None:
         # The clock advances even while an @FIELD center is unresolved, so a
         # late-arriving center doesn't shift this wave's phase against time
         # (or against phase-staggered siblings).
@@ -58,29 +54,25 @@ class _ActiveOsc(ActiveBehavior):
             return
         frac = ((self.elapsed + self.phase) / self.period) % 1.0
         value = center + self.amplitude * _wave(self.shape, frac)
-        engine._store(f"[oscillate] {self.field}", self.field, engine._noisy(self, value))
+        engine._store(f"[oscillate] {fname}", fname, engine._noisy(self, value))
 
 
 @dataclass
 class OscillateEffect(ContinuousEffect):
-    field: str
     center: float | str  # number, or "@FIELD" (possibly templated)
     amplitude: float
     period: float  # seconds (a period, never a frequency)
     shape: str = "sine"  # sine | triangle | sawtooth
     phase: float = 0.0  # seconds of offset into the cycle
-    noise: float = 0.0
-    emit: str = "interval"
 
     @property
     def reference(self):
         return self.center
 
     def describe(self) -> str:
-        noise = f" ±noise({self.noise})" if self.noise else ""
         return (
             f"{self.field} oscillates ({self.shape}) around {self.center} "
-            f"amplitude {self.amplitude}, period {self.period}s{noise}"
+            f"amplitude {self.amplitude}, period {self.period}s{self._noise_suffix()}"
         )
 
     def describe_active(self, ref) -> str:

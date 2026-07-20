@@ -1,30 +1,31 @@
 """Shared behavior vocabulary: the verb registry, effect bases, and spec.
 
 Each verb module under ``verbs/`` owns everything about its verb — the
-effect dataclass, the TOML parsing, the runtime math — and registers a
-``Verb`` here. The loader and engine dispatch through the registry and
-the effect/active base classes, so adding a verb never touches them.
-The full DSL documentation is the package docstring
-(``xtce_sim/behavior/__init__.py``).
+effect dataclass, the TOML parsing, the runtime math — and declares a
+``Verb`` entry that ``verbs/__init__`` registers here. The loader and
+engine dispatch through the registry and the effect/active base classes,
+so adding a verb never touches them. The full DSL documentation is the
+package docstring (``xtce_sim/behavior/__init__.py``).
 """
 
 from __future__ import annotations
 
+import random
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from pathlib import Path
 from typing import Callable, ClassVar, Optional
 
 from xtce_sim.dynamics.model import AdcsModelConfig
 
 _TEMPLATE_RE = re.compile(r"\{(\w+)\}")
-_EMIT_VALUES = ("interval", "immediate")
-# Attributes every verb accepts, on top of its own (declared per Verb).
-_UNIVERSAL_ATTRS = {"emit"}
-# Templated args are expanded for load-time validation up to this many
-# combinations; beyond it (or for unbounded args) field checks defer to
-# execution time.
-_MAX_EXPANSIONS = 100
+
+#: Sentinel returned by ``InstantEffect.value_for`` to skip an effect the
+#: implementation has already warned about. Distinct from None, which is a
+#: real (unstorable) value that must still reach ``_store`` so the skip is
+#: logged there — every skipped effect leaves a trace somewhere.
+_SKIP = object()
 
 Scalar = int | float | bool | str
 
@@ -37,10 +38,15 @@ class BehaviorError(ValueError):
 class Effect:
     """Base of every verb's effect (the validated, loadable form).
 
-    Verbs subclass InstantEffect or ContinuousEffect, declare their own
-    fields, and implement the respective hooks. ``describe()`` is the
-    narration line, without the universal emit tail.
+    Declares the structure every effect shares — the (possibly templated)
+    target ``field`` and the universal ``emit`` attribute — so verb
+    modules only add their own operands. Verbs subclass InstantEffect or
+    ContinuousEffect and implement the respective hooks; ``describe()``
+    is the narration line, without the universal emit tail.
     """
+
+    field: str  # possibly templated
+    emit: str = dc_field(default="interval", kw_only=True)
 
     continuous: ClassVar[bool] = False
 
@@ -53,14 +59,20 @@ class InstantEffect(Effect):
     """An effect applied once when its command executes (set/copy/increment)."""
 
     def value_for(self, engine, command, args, where, fname):
-        """The value to store for *fname*, or None to skip this effect
-        (the implementation has already warned about why)."""
+        """The value to store for *fname*, or the ``_SKIP`` sentinel to skip
+        this effect (the implementation has already warned about why)."""
         raise NotImplementedError
 
 
 @dataclass
 class ContinuousEffect(Effect):
-    """A tick-driven behavior the engine registers and advances."""
+    """A tick-driven behavior the engine registers and advances.
+
+    All continuous verbs accept ``noise`` (gaussian stddev added to the
+    emitted value), so it lives here.
+    """
+
+    noise: float = dc_field(default=0.0, kw_only=True)
 
     continuous: ClassVar[bool] = True
 
@@ -76,19 +88,28 @@ class ContinuousEffect(Effect):
     def make_active(self, fname: str, ref, rng) -> "ActiveBehavior":
         raise NotImplementedError
 
+    def _noise_suffix(self) -> str:
+        return f" ±noise({self.noise})" if self.noise else ""
+
 
 @dataclass
 class ActiveBehavior:
     """Base of a running continuous behavior (the engine registry entry).
 
-    Subclasses implement ``advance(engine, dt)``, using the engine's
-    shared services (``_store``, ``_live_number``, ``_noisy``) and
-    mutating ``engine._behaviors`` on retirement.
+    Declares the state every active shares: the resolved ``field``, the
+    ``noise``/``rng`` pair driving ``engine._noisy``, and the ``warned``
+    once-per-behavior latch driving ``engine._live_number``. Subclasses
+    implement ``advance(engine, fname, dt)`` — *fname* is the engine
+    registry key the behavior runs under, and is what stores and
+    retirements must use (``self.field`` is narration/warning identity).
     """
 
     field: str
+    noise: float = dc_field(default=0.0, kw_only=True)
+    warned: bool = dc_field(default=False, kw_only=True)
+    rng: Optional[random.Random] = dc_field(default=None, kw_only=True)
 
-    def advance(self, engine, dt: float) -> None:
+    def advance(self, engine, fname: str, dt: float) -> None:
         raise NotImplementedError
 
 
@@ -98,8 +119,10 @@ class Verb:
 
     ``parse(where, fname, spec, command, emit, ctx)`` validates the
     verb-specific attributes and returns the Effect (None after reporting
-    errors to ctx). Registration order is meaningful: it is the order
-    verbs are listed in error messages.
+    errors to ctx). ``continuous`` must match the ``continuous`` flag of
+    every Effect class the parser returns — the loader gates on the Verb,
+    the engine on the Effect (pinned by test). Registration order is
+    meaningful: it is the order verbs are listed in error messages.
     """
 
     name: str  # the TOML key ("set", "ramp_to", ...)
@@ -109,10 +132,14 @@ class Verb:
 
 
 #: The verb registry, populated by the ``verbs`` package at import time.
+#: Late registration (a new verb from outside the package) is supported:
+#: the loader derives its key sets from the live dict.
 VERBS: dict[str, Verb] = {}
 
 
 def register_verb(verb: Verb) -> None:
+    if verb.name in VERBS:
+        raise ValueError(f"verb {verb.name!r} is already registered")
     VERBS[verb.name] = verb
 
 
@@ -124,11 +151,11 @@ class BehaviorSpec:
     initial: dict[str, Scalar]
     commands: dict[str, list[Effect]]  # command name -> effects
     # Continuous behaviors started at boot.
-    signals: list[Effect] = field(default_factory=list)
-    files: list[Path] = field(default_factory=list)  # the merged .toml files
+    signals: list[Effect] = dc_field(default_factory=list)
+    files: list[Path] = dc_field(default_factory=list)  # the merged .toml files
     # Physics models declared under [_models]: each owns its output fields
     # (no other table may write them) and consumes its bound commands.
-    models: list[AdcsModelConfig] = field(default_factory=list)
+    models: list[AdcsModelConfig] = dc_field(default_factory=list)
 
     @property
     def source_label(self) -> str:

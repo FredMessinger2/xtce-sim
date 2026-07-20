@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from xtce_sim.behavior.spec import Effect, InstantEffect, Scalar, Verb
+from xtce_sim.behavior.spec import _SKIP, Effect, InstantEffect, Scalar, Verb
 from xtce_sim.behavior.validate import (
     _check_invertible,
     _check_scalar_for_field,
@@ -25,9 +25,7 @@ logger = logging.getLogger("xtce_sim.behavior")
 
 @dataclass
 class SetEffect(InstantEffect):
-    field: str  # possibly templated
     value: Scalar  # number/bool, enum label, or string payload
-    emit: str = "interval"
 
     def describe(self) -> str:
         return f"{self.field} = {self.value!r}"
@@ -38,9 +36,7 @@ class SetEffect(InstantEffect):
 
 @dataclass
 class CopyArgEffect(InstantEffect):
-    field: str
     arg: str
-    emit: str = "interval"
 
     def describe(self) -> str:
         return f"{self.field} = @arg:{self.arg}"
@@ -48,7 +44,7 @@ class CopyArgEffect(InstantEffect):
     def value_for(self, engine, command, args, where, fname):
         if self.arg not in args:
             logger.warning("%s: argument %s missing from decode; skipped", where, self.arg)
-            return None
+            return _SKIP
         # Same raw-value rule as templates: an enum argument arrives from
         # decode as its label; store its raw value (the destination
         # field's own enum may use different labels entirely).

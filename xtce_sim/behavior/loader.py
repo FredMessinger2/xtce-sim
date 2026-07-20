@@ -16,9 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from xtce_sim.behavior.spec import (
-    _EMIT_VALUES,
     _TEMPLATE_RE,
-    _UNIVERSAL_ATTRS,
     VERBS,
     BehaviorError,
     BehaviorSpec,
@@ -31,10 +29,20 @@ from xtce_sim.behavior.verbs import scalar_effect  # populates VERBS on import
 from xtce_sim.definition import CommandDef, SimDefinition
 from xtce_sim.dynamics.model import AdcsModelConfig, parse_model
 
-# Derived from the registry (populated by the verbs import above): the
-# full key vocabulary of an effect table, and the tick-driven verb names.
-_VERB_KEYS = set(VERBS) | _UNIVERSAL_ATTRS | set().union(*(v.attrs for v in VERBS.values()))
-_CONTINUOUS_VERBS = tuple(name for name, verb in VERBS.items() if verb.continuous)
+_EMIT_VALUES = ("interval", "immediate")
+# Attributes every verb accepts, on top of its own (declared per Verb).
+_UNIVERSAL_ATTRS = {"emit"}
+
+
+def _verb_keys() -> set[str]:
+    """The full key vocabulary of an effect table, from the LIVE registry
+    (a verb registered after import is honored, not half-visible)."""
+    return set(VERBS) | _UNIVERSAL_ATTRS | set().union(*(v.attrs for v in VERBS.values()))
+
+
+def _continuous_verbs() -> list[str]:
+    """The tick-driven verb names, from the live registry."""
+    return [name for name, verb in VERBS.items() if verb.continuous]
 
 
 def sidecar_path(xtce_paths: list[Path]) -> Optional[Path]:
@@ -302,7 +310,7 @@ def _load_signals(body, ctx: _Context) -> list[Effect]:
         if fname not in ctx.fields:
             ctx.error(f"{where}: unknown telemetry field")
             continue
-        if not isinstance(spec, dict) or not any(k in spec for k in _CONTINUOUS_VERBS):
+        if not isinstance(spec, dict) or not any(k in spec for k in _continuous_verbs()):
             ctx.error(
                 f"{where}: signals must be continuous behaviors "
                 "(ramp_to/oscillate/hold); use [_initial] for one-shot values"
@@ -339,9 +347,10 @@ def _parse_effect(
 def _parse_effect_table(
     where: str, fname: str, spec: dict, command: CommandDef | None, ctx: _Context
 ) -> Optional[Effect]:
-    unknown = set(spec) - _VERB_KEYS
+    keys = _verb_keys()
+    unknown = set(spec) - keys
     if unknown:
-        ctx.error(f"{where}: unknown key(s) {sorted(unknown)}; valid: {sorted(_VERB_KEYS)}")
+        ctx.error(f"{where}: unknown key(s) {sorted(unknown)}; valid: {sorted(keys)}")
         return None
     emit = spec.get("emit", "interval")
     if emit not in _EMIT_VALUES:

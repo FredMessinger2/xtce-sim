@@ -12,8 +12,13 @@ import itertools
 import math
 from typing import Optional
 
-from xtce_sim.behavior.spec import _MAX_EXPANSIONS, _TEMPLATE_RE, Scalar
+from xtce_sim.behavior.spec import _TEMPLATE_RE
 from xtce_sim.definition import CommandDef, SimDefinition
+
+# Templated args are expanded for load-time validation up to this many
+# combinations; beyond it (or for unbounded args) field checks defer to
+# execution time.
+_MAX_EXPANSIONS = 100
 
 
 class _Context:
@@ -221,21 +226,3 @@ def _product_size(value_sets: list[list[str]]) -> int:
     for values in value_sets:
         size *= max(1, len(values))
     return size
-
-
-__all__ = [
-    "Scalar",
-    "_Context",
-    "_arg_values",
-    "_check_field_template",
-    "_check_invertible",
-    "_check_numeric_field",
-    "_check_scalar_against",
-    "_check_scalar_for_field",
-    "_expansions",
-    "_finite_number",
-    "_has_arg",
-    "_parse_center",
-    "_parse_noise",
-    "_product_size",
-]

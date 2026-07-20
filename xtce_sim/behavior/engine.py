@@ -18,7 +18,7 @@ import random
 import re
 from typing import Optional
 
-from xtce_sim.behavior.spec import _TEMPLATE_RE, ActiveBehavior, BehaviorSpec
+from xtce_sim.behavior.spec import _SKIP, _TEMPLATE_RE, ActiveBehavior, BehaviorSpec
 from xtce_sim.definition import SimDefinition, label_for
 from xtce_sim.dynamics.model import AdcsModel
 
@@ -67,7 +67,10 @@ class BehaviorEngine:
         # The loader only emits continuous effects here; gate anyway so a
         # hand-built spec can't crash the constructor with a discrete one.
         for eff in spec.signals:
-            if eff.continuous:
+            # getattr, not attribute access: a hand-built spec may hold an
+            # object that is not an Effect at all, and the answer is the
+            # warning below, never a constructor crash.
+            if getattr(eff, "continuous", False):
                 self._start_behavior(None, eff, {})
             else:
                 logger.warning("[_signals] %s: not a continuous behavior; skipped", eff.field)
@@ -114,7 +117,7 @@ class BehaviorEngine:
                 # "the command took effect".
                 self._pending_immediate |= {self._field_apid[f] for f in model.config.outputs}
         for eff in self.spec.commands.get(command.name, []):
-            if eff.continuous:
+            if getattr(eff, "continuous", False):
                 desc = self._start_behavior(command, eff, args)
             else:
                 desc = self._apply_effect(command, eff, args)
@@ -173,9 +176,11 @@ class BehaviorEngine:
         if dt <= 0:
             return
         # Iterate a snapshot: completed ramps delete themselves mid-loop.
+        # The registry KEY is the authoritative field a behavior runs under
+        # (stores and retirements use it), so it is passed to advance.
         snapshot = self._behaviors.copy()
-        for beh in snapshot.values():
-            beh.advance(self, dt)
+        for fname, beh in snapshot.items():
+            beh.advance(self, fname, dt)
         for model in self.models:
             model.advance(dt)
             self._store_model_outputs(model)
@@ -211,7 +216,9 @@ class BehaviorEngine:
             return float(self._engineering(ref[1:], value))
         return float(ref)
 
-    def _ramp_current(self, fname: str) -> float:
+    def _current_engineering(self, fname: str) -> float:
+        """The field's overlay value in engineering units (0.0 when the
+        overlay holds nothing numeric) — the seed for arithmetic verbs."""
         current = self.state.get(fname, 0)
         if not isinstance(current, (int, float)):
             return 0.0
@@ -241,7 +248,7 @@ class BehaviorEngine:
             logger.warning("%s: %s has a non-invertible calibrator; skipped", where, fname)
             return None
         value = eff.value_for(self, command, args, where, fname)
-        if value is None:
+        if value is _SKIP:  # already warned; None is a real (unstorable) value
             return None
         stored = self._store(where, fname, value)
         if stored is None:

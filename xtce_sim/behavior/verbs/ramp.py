@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import math
-import random
 from dataclasses import dataclass
 from typing import Optional
 
@@ -46,18 +45,14 @@ class _ActiveRamp(ActiveBehavior):
 
     target: float | str  # number, or "@FIELD" (already template-resolved)
     tau: float
-    noise: float = 0.0
     value: Optional[float] = None  # seeded from the overlay on first tick
-    warned: bool = False  # missing-target warning already issued (warn once)
-    rng: Optional[random.Random] = None
 
-    def advance(self, engine, dt: float) -> None:
-        fname = self.field
+    def advance(self, engine, fname: str, dt: float) -> None:
         target = engine._live_number(self, self.target)
         if target is None:
             return
         if self.value is None:
-            self.value = engine._ramp_current(fname)
+            self.value = engine._current_engineering(fname)
         previous = self.value
         step = 1.0 - math.exp(-dt / self.tau)
         self.value += (target - self.value) * step
@@ -81,19 +76,15 @@ class _ActiveRamp(ActiveBehavior):
 
 @dataclass
 class RampEffect(ContinuousEffect):
-    field: str
     target: float | str  # number, or "@FIELD" (possibly templated)
     tau: float
-    noise: float = 0.0  # gaussian stddev added to the emitted value
-    emit: str = "interval"
 
     @property
     def reference(self):
         return self.target
 
     def describe(self) -> str:
-        noise = f" ±noise({self.noise})" if self.noise else ""
-        return f"{self.field} ramps to {self.target} (tau={self.tau}s){noise}"
+        return f"{self.field} ramps to {self.target} (tau={self.tau}s){self._noise_suffix()}"
 
     def describe_active(self, ref) -> str:
         return f"ramping to {ref} (tau={self.tau}s)"

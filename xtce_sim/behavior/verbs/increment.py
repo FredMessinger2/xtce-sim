@@ -12,19 +12,13 @@ from xtce_sim.definition import CommandDef
 
 @dataclass
 class IncrementEffect(InstantEffect):
-    field: str
     by: float
-    emit: str = "interval"
 
     def describe(self) -> str:
         return f"{self.field} += {self.by}"
 
     def value_for(self, engine, command, args, where, fname):
-        # Arithmetic in engineering units: read the overlay back through
-        # the calibrator, add, and let the store re-invert.
-        current = engine.state.get(fname, 0)
-        current = engine._engineering(fname, current) if isinstance(current, (int, float)) else 0
-        return current + self.by
+        return engine._current_engineering(fname) + self.by
 
 
 def _parse(
