@@ -14,10 +14,12 @@ from xtce_sim.behavior.verbs.oscillate import VERB as _OSCILLATE
 from xtce_sim.behavior.verbs.oscillate import OscillateEffect
 from xtce_sim.behavior.verbs.ramp import VERB as _RAMP
 from xtce_sim.behavior.verbs.ramp import RampEffect
+from xtce_sim.behavior.verbs.regulate import VERB as _REGULATE
+from xtce_sim.behavior.verbs.regulate import RegulateEffect
 from xtce_sim.behavior.verbs.set import VERB as _SET
 from xtce_sim.behavior.verbs.set import CopyArgEffect, SetEffect, scalar_effect
 
-for _verb in (_SET, _INCREMENT, _RAMP, _OSCILLATE, _HOLD):
+for _verb in (_SET, _INCREMENT, _RAMP, _OSCILLATE, _HOLD, _REGULATE):
     register_verb(_verb, replace=True)  # idempotent under importlib.reload
 
 __all__ = [
@@ -26,6 +28,7 @@ __all__ = [
     "IncrementEffect",
     "OscillateEffect",
     "RampEffect",
+    "RegulateEffect",
     "SetEffect",
     "scalar_effect",
 ]

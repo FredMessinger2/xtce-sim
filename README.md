@@ -137,11 +137,11 @@ xtce-sim inspect examples/imaging_sat/imaging_sat.xml
 
 ```text
 parsing examples/imaging_sat/imaging_sat.xml (SpaceSystem 'ImagingSat')
-resolved inheritance: 41 command(s) with a base command (41 fixing inherited args via assignments), ...
+resolved inheritance: 42 command(s) with a base command (42 fixing inherited args via assignments), ...
 significance: 11 command(s) declare non-normal criticality (2 vital, 9 critical)
 ~ aggregate 'ADCS_ATT_QUAT' flattened to 4 field(s) (ADCS_ATT_QUAT_Q1...)
 ...
-built ImagingSat: 40 dispatchable command(s), 12 telemetry packet(s)
+built ImagingSat: 41 dispatchable command(s), 13 telemetry packet(s)
 
 Behavior (examples/imaging_sat):
   initial values: 5 field(s)
@@ -149,11 +149,11 @@ Behavior (examples/imaging_sat):
   boot signals: 8
     THM_PANEL_PLUS_X oscillates (sine) around 10.0 amplitude 25.0, period 5400.0s ±noise(0.5)
     ...
-  HEATER_ON:
-    THM_HEATER{HeaterId}_STATE = 'ON'  [emit: immediate]
-    THM_HEATER{HeaterId}_TEMP ramps to @THM_HEATER{HeaterId}_SETPOINT (tau=30.0s)
+  HEATER_AUTO:
+    THM_HEATER{HeaterId}_STATE = 'AUTO'  [emit: immediate]
+    THM_HEATER{HeaterId}_TEMP regulates around @THM_HEATER{HeaterId}_SETPOINT band 2.0 (heats to 60.0 tau=30.0s, cools to 20.0 tau=45.0s)
   ...
-OK: ImagingSat — 40 command(s), 13 packet(s)
+OK: ImagingSat — 41 command(s), 13 packet(s)
 ```
 
 Lines marked `~` are **inferences and gaps** — places the parser filled a gap
@@ -728,9 +728,11 @@ behavior, and the same interface files work unmodified in OpenC3/Yamcs.
 [_initial]                       # seeded once at boot
 THM_HEATER1_SETPOINT = 40.0
 
-[HEATER_ON]                      # effects applied when HEATER_ON executes
-"THM_HEATER{HeaterId}_STATE" = { set = "ON", emit = "immediate" }
-"THM_HEATER{HeaterId}_TEMP" = { ramp_to = "@THM_HEATER{HeaterId}_SETPOINT", tau = 30.0 }
+[HEATER_AUTO]                    # effects applied when HEATER_AUTO executes
+"THM_HEATER{HeaterId}_STATE" = { set = "AUTO", emit = "immediate" }
+"THM_HEATER{HeaterId}_TEMP" = { regulate = "@THM_HEATER{HeaterId}_SETPOINT",
+                                band = 2.0, heats_to = 60.0, tau_heat = 30.0,
+                                cools_to = 20.0, tau_cool = 45.0 }
 
 [SET_HEATER_SETPOINT]
 "THM_HEATER{HeaterId}_SETPOINT" = "@arg:Setpoint"
@@ -740,21 +742,26 @@ THM_PANEL_PLUS_X = { oscillate = 10.0, amplitude = 25.0, period = 5400, noise = 
 PWR_BATTERY_VOLTAGE = { hold = 24.0, noise = 0.3 }
 ```
 
-That is a working thermal subsystem: `HEATER_ON HeaterId=1` flips the state
-enum (acknowledged instantly — see below) and starts the temperature on a
-first-order exponential toward the setpoint. Change the setpoint mid-climb and
-the ramp bends toward it live, because `@FIELD` targets are re-read every tick.
-Meanwhile the panel rides a 90-minute orbit sine and the battery bus jitters
-around 24 V, no commands required.
+That is a working thermal subsystem: `HEATER_AUTO HeaterId=1` flips the state
+enum (acknowledged instantly — see below) and starts a real thermostat loop:
+the heating element drives the temperature up at one rate, cuts out at the
+top of the hysteresis band around the setpoint, lets it relax toward ambient
+at another rate, cuts back in at the bottom — the sawtooth a real thermostat
+draws. The setpoint is re-read live forever, so commanding a new one recenters
+the loop at any time. Meanwhile the panel rides a 90-minute orbit sine and
+the battery bus jitters around 24 V, no commands required.
 
 **The verbs.** A bare scalar sets a field when the command executes;
 `"@arg:Name"` copies a command argument (enum labels arrive as labels, stored
-as raw values); `{ increment = n }` adds. Three verbs are *continuous* —
+as raw values); `{ increment = n }` adds. Four verbs are *continuous* —
 registered per field and advanced by the beacon clock: `ramp_to`/`tau`
 (first-order approach, dt-independent), `oscillate` with `amplitude`, `period`
 (seconds — always periods, never Hz), optional `shape` (`sine`, `triangle`,
-`sawtooth`) and `phase`, and `hold` (keeps re-asserting a value or tracking an
-`@FIELD`). The continuous verbs compose with `noise = stddev` — Gaussian
+`sawtooth`) and `phase`, `hold` (keeps re-asserting a value or tracking an
+`@FIELD`), and `regulate` (bang-bang regulation: an internal element heats
+toward `heats_to` or relaxes toward `cools_to`, flipping at the edges of the
+hysteresis `band` around a live center — it never retires, so a changed
+setpoint is always honored). The continuous verbs compose with `noise = stddev` — Gaussian
 jitter with one seeded RNG per field, so runs reproduce exactly. One behavior
 per field: a new command's behavior replaces the old (HEATER_OFF's cooling
 displaces HEATER_ON's warming), and a direct set cancels it — last command

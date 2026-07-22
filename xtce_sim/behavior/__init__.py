@@ -21,11 +21,17 @@ argument; ``{ increment = n }`` adds; ``{ ramp_to = X, tau = S }`` starts a
 first-order approach toward X (a number, or ``"@FIELD"`` read live each
 tick); ``{ oscillate = C, amplitude = A, period = P }`` runs a continuous
 wave around center C (``shape`` = "sine"/"triangle"/"sawtooth", optional
-``phase`` seconds); ``{ hold = V }`` keeps re-asserting V. An ``@FIELD``
+``phase`` seconds); ``{ hold = V }`` keeps re-asserting V;
+``{ regulate = C, band = B, heats_to = H, tau_heat = S, cools_to = L,
+tau_cool = S }`` runs a bang-bang loop (a thermostat generalized): an
+internal element drives the field toward H or lets it relax toward L,
+flipping at the edges of the hysteresis band around C — the center is
+re-read live forever (regulate never retires), so a changed setpoint is
+always honored. An ``@FIELD``
 reference must not name the field itself — feeding a field its own output
 turns noise/waves into unbounded drift — so literal self-references are
 load errors and a template that resolves to its own field is skipped at
-execution. Continuous verbs (ramp_to/oscillate/hold) accept ``noise =
+execution. Continuous verbs (ramp_to/oscillate/hold/regulate) accept ``noise =
 stddev`` — one seeded RNG per field per engine, so separate runs reproduce
 each other while a restarted behavior continues its stream — and a
 completed noisy ramp degrades into a noisy hold at its target. An optional ``[_signals]`` table starts continuous
@@ -75,6 +81,7 @@ from xtce_sim.behavior.verbs import (
     IncrementEffect,
     OscillateEffect,
     RampEffect,
+    RegulateEffect,
     SetEffect,
 )
 
@@ -88,6 +95,7 @@ __all__ = [
     "IncrementEffect",
     "OscillateEffect",
     "RampEffect",
+    "RegulateEffect",
     "Scalar",
     "SetEffect",
     "describe",

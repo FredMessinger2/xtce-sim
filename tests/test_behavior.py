@@ -59,14 +59,22 @@ def test_shipped_imaging_sidecar_validates(simdef):
         "ENABLE_BEACON",
         "HEATER_ON",
         "HEATER_OFF",
+        "HEATER_AUTO",
         "SET_HEATER_SETPOINT",
         "IMAGER_ON",
         "IMAGER_OFF",
         "SET_EXPOSURE",
         "TAKE_IMAGE",
     }
+    # HEATER_ON is the manual override: open-loop toward element capability.
     ramp = next(e for e in spec.commands["HEATER_ON"] if isinstance(e, RampEffect))
-    assert ramp.target == "@THM_HEATER{HeaterId}_SETPOINT" and ramp.tau == 30.0
+    assert ramp.target == 60.0 and ramp.tau == 30.0
+    # HEATER_AUTO is the thermostat: regulate around the live setpoint.
+    from xtce_sim.behavior import RegulateEffect
+
+    reg = next(e for e in spec.commands["HEATER_AUTO"] if isinstance(e, RegulateEffect))
+    assert reg.center == "@THM_HEATER{HeaterId}_SETPOINT" and reg.band == 2.0
+    assert (reg.heats_to, reg.tau_heat, reg.cools_to, reg.tau_cool) == (60.0, 30.0, 20.0, 45.0)
     # Eight boot signals, and only continuous kinds: waves and holds.
     from xtce_sim.behavior import HoldEffect, OscillateEffect
 
@@ -1070,15 +1078,16 @@ def test_ramp_advances_toward_target_and_completes(engine, simdef):
     import math
 
     engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
-    # tau=30 toward the 40.0 setpoint from 20.0: one 30s tick covers 1-1/e.
+    # manual override: tau=30 open-loop toward the element's 60.0 capability
+    # from 20.0; one 30s tick covers 1-1/e.
     engine.tick(30.0)
-    expected = 20.0 + (40.0 - 20.0) * (1.0 - math.exp(-1.0))
+    expected = 20.0 + (60.0 - 20.0) * (1.0 - math.exp(-1.0))
     # counts quantize at 0.01 degC, so the EU view is exact to a centidegree
     assert abs(_eu(engine, "THM_HEATER1_TEMP") - expected) < 0.01
     # after many time constants the ramp lands exactly and retires
     for _ in range(20):
         engine.tick(30.0)
-    assert _eu(engine, "THM_HEATER1_TEMP") == 40
+    assert _eu(engine, "THM_HEATER1_TEMP") == 60
     assert "THM_HEATER1_TEMP" not in engine._behaviors
 
 
@@ -1106,30 +1115,134 @@ def test_ramp_integer_field_does_not_stall_on_small_steps(engine, simdef):
     engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
     for _ in range(4000):  # 0.1s steps against tau=30
         engine.tick(0.1)
-    assert _eu(engine, "THM_HEATER1_TEMP") == 40  # reached, not stalled at 20
+    assert _eu(engine, "THM_HEATER1_TEMP") == 60  # reached, not stalled at 20
 
 
-def test_ramp_target_reread_live_each_tick(engine, simdef):
-    engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
-    engine.tick(30.0)
-    part_way = _eu(engine, "THM_HEATER1_TEMP")
+def test_ramp_target_reread_live_each_tick(tmp_path, simdef):
+    # HEATER_ON no longer references the setpoint (it is the open-loop manual
+    # override), so pin ramp's live @FIELD re-read with an explicit sidecar.
+    spec = _load(
+        tmp_path,
+        simdef,
+        "[_initial]\nTHM_HEATER1_SETPOINT = 40.0\nHK_ISSUED_TIMESTAMP = 20.0\n"
+        '[IMAGER_ON]\nHK_ISSUED_TIMESTAMP = { ramp_to = "@THM_HEATER1_SETPOINT", tau = 30 }\n'
+        '[SET_HEATER_SETPOINT]\n"THM_HEATER{HeaterId}_SETPOINT" = "@arg:Setpoint"\n',
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    eng.tick(30.0)
+    part_way = eng.state["HK_ISSUED_TIMESTAMP"]
     # raise the setpoint mid-ramp: the curve bends toward the new target
-    engine.apply_command(_cmd(simdef, "SET_HEATER_SETPOINT"), {"HeaterId": 1, "Setpoint": 55})
+    eng.apply_command(_cmd(simdef, "SET_HEATER_SETPOINT"), {"HeaterId": 1, "Setpoint": 55})
     for _ in range(20):
-        engine.tick(30.0)
-    assert part_way < 40 < _eu(engine, "THM_HEATER1_TEMP") == 55
+        eng.tick(30.0)
+    assert part_way < 40 < eng.state["HK_ISSUED_TIMESTAMP"] == 55
 
 
 def test_new_ramp_replaces_old_per_field(engine, simdef):
     engine.apply_command(_cmd(simdef, "HEATER_ON"), {"HeaterId": 1})
     for _ in range(10):
-        engine.tick(30.0)  # warm up toward 40
+        engine.tick(30.0)  # warm up toward 60
     engine.apply_command(_cmd(simdef, "HEATER_OFF"), {"HeaterId": 1})  # cooling replaces
     for _ in range(30):
         engine.tick(30.0)
     assert _eu(engine, "THM_HEATER1_TEMP") == 20  # cooled back to ambient
     # heater 2 was never involved
     assert "THM_HEATER2_TEMP" not in engine._behaviors
+
+
+# ---- regulate: the bang-bang thermostat loop --------------------------------
+
+
+def test_regulate_validation(tmp_path, simdef):
+    line = '"THM_HEATER1_TEMP" = {{ regulate = 40.0{rest} }}'
+
+    def errs(rest: str) -> str:
+        return _errors(tmp_path, simdef, "[HEATER_AUTO]\n" + line.format(rest=rest) + "\n")
+
+    assert "regulate requires band, heats_to, tau_heat, cools_to, tau_cool" in errs("")
+    full = ", heats_to = 60.0, tau_heat = 30.0, cools_to = 20.0, tau_cool = 45.0"
+    assert "band must be a positive number" in errs(", band = 0" + full)
+    assert "tau_heat must be a positive number of seconds" in errs(
+        ", band = 2.0, heats_to = 60.0, tau_heat = -1, cools_to = 20.0, tau_cool = 45.0"
+    )
+    assert "heats_to string value must be an @FIELD reference" in errs(
+        ', band = 2.0, heats_to = "hot", tau_heat = 30.0, cools_to = 20.0, tau_cool = 45.0'
+    )
+    assert "noise must be a non-negative number" in errs(", band = 2.0" + full + ", noise = -1")
+    # templated side references are refused at load: the engine resolves
+    # templates only for the center, so these could never work at runtime
+    assert "cools_to must not use {templates}" in _errors(
+        tmp_path,
+        simdef,
+        '[HEATER_AUTO]\n"THM_HEATER1_TEMP" = { regulate = 40.0, band = 2.0, '
+        'heats_to = 60.0, tau_heat = 30.0, cools_to = "@THM_HEATER{HeaterId}_SETPOINT", '
+        "tau_cool = 45.0 }\n",
+    )
+
+
+def test_regulate_sawtooths_inside_band_and_never_retires(engine, simdef):
+    engine.apply_command(_cmd(simdef, "HEATER_AUTO"), {"HeaterId": 1})
+    series = []
+    for _ in range(3000):  # 1500 s at 0.5 s ticks
+        engine.tick(0.5)
+        series.append(_eu(engine, "THM_HEATER1_TEMP"))
+    # After the initial climb from 20, the loop lives inside the hysteresis
+    # band around the 40.0 setpoint (39..41 plus at most one integration step
+    # of overshoot at either edge).
+    first_peak = next(i for i, v in enumerate(series) if v >= 41.0)
+    tail = series[first_peak:]
+    assert min(tail) > 38.5 and max(tail) < 41.5
+    # It sawtooths: the element cycles many times (direction reversals),
+    # rather than settling to a flat line.
+    reversals = sum(
+        1 for a, b, c in zip(tail, tail[1:], tail[2:]) if (b - a) * (c - b) < 0
+    )
+    assert reversals > 20
+    # And it NEVER retires — arrival is the start of its job, not the end.
+    assert "THM_HEATER1_TEMP" in engine._behaviors
+
+
+def test_regulate_follows_setpoint_change_after_settling(engine, simdef):
+    # THE regression for the old asymmetry: a settled loop must still honor
+    # a later SET_HEATER_SETPOINT (the retired ramp never did).
+    engine.apply_command(_cmd(simdef, "HEATER_AUTO"), {"HeaterId": 1})
+    for _ in range(1200):
+        engine.tick(0.5)  # settle into the 39..41 band
+    assert 38.5 < _eu(engine, "THM_HEATER1_TEMP") < 41.5
+    engine.apply_command(_cmd(simdef, "SET_HEATER_SETPOINT"), {"HeaterId": 1, "Setpoint": 55})
+    for _ in range(1200):
+        engine.tick(0.5)
+    # regulating around the new setpoint now (54..56 plus edge overshoot)
+    assert 53.5 < _eu(engine, "THM_HEATER1_TEMP") < 56.5
+    assert "THM_HEATER1_TEMP" in engine._behaviors
+
+
+def test_regulate_underpowered_element_settles_at_capability(tmp_path, simdef):
+    # heats_to below the band: the element can never reach the loop's bottom
+    # edge, so it stays on and the value settles at what the element can do —
+    # an underpowered heater behaves physically instead of erroring.
+    spec = _load(
+        tmp_path,
+        simdef,
+        "[_initial]\nHK_ISSUED_TIMESTAMP = 0.0\n"
+        "[IMAGER_ON]\nHK_ISSUED_TIMESTAMP = { regulate = 40.0, band = 2.0, "
+        "heats_to = 30.0, tau_heat = 5.0, cools_to = 0.0, tau_cool = 5.0 }\n",
+    )
+    eng = behavior.BehaviorEngine(spec, simdef)
+    eng.apply_command(_cmd(simdef, "IMAGER_ON"), {})
+    for _ in range(400):
+        eng.tick(0.5)
+    assert abs(eng.state["HK_ISSUED_TIMESTAMP"] - 30.0) < 0.1
+    assert "HK_ISSUED_TIMESTAMP" in eng._behaviors
+
+
+def test_regulate_describe_lines(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    assert any(
+        "regulates around @THM_HEATER{HeaterId}_SETPOINT band 2.0" in line
+        for line in behavior.describe(spec)
+    )
 
 
 def test_tick_ignores_nonpositive_dt(engine, simdef):
@@ -2051,7 +2164,7 @@ def test_verbs_package_reload_is_idempotent():
     from xtce_sim.behavior.spec import VERBS
 
     importlib.reload(verbs_pkg)
-    assert list(VERBS) == ["set", "increment", "ramp_to", "oscillate", "hold"]
+    assert list(VERBS) == ["set", "increment", "ramp_to", "oscillate", "hold", "regulate"]
 
 
 def test_copyarg_skips_are_loud_never_silent(simdef, caplog):
@@ -2102,6 +2215,7 @@ def test_verb_and_effect_continuity_agree():
         IncrementEffect,
         OscillateEffect,
         RampEffect,
+        RegulateEffect,
         SetEffect,
     )
     from xtce_sim.behavior.spec import VERBS
@@ -2112,6 +2226,7 @@ def test_verb_and_effect_continuity_agree():
         "ramp_to": True,
         "oscillate": True,
         "hold": True,
+        "regulate": True,
     }
     assert not SetEffect.continuous
     assert not CopyArgEffect.continuous
@@ -2119,6 +2234,7 @@ def test_verb_and_effect_continuity_agree():
     assert RampEffect.continuous
     assert OscillateEffect.continuous
     assert HoldEffect.continuous
+    assert RegulateEffect.continuous
 
 
 def test_behavior_registry_key_governs_store_and_retirement(simdef):
