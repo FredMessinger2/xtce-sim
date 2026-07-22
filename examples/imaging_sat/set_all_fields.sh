@@ -48,10 +48,11 @@ send SET_POWER SubsystemId=CDH PowerState=ON
 send SET_POWER SubsystemId=ADCS PowerState=STANDBY
 send SET_POWER SubsystemId=ADCS PowerState=ON
 
-echo "== thermal: heater states cycle OFF->ON, setpoints (temps ramp toward setpoints) =="
+echo "== thermal: heater modes OFF->ON->AUTO, setpoints (AUTO thermostats around them) =="
 send HEATER_OFF HeaterId=1
 send HEATER_ON HeaterId=1
-send HEATER_ON HeaterId=2
+send HEATER_AUTO HeaterId=1
+send HEATER_AUTO HeaterId=2
 send SET_HEATER_SETPOINT HeaterId=1 Setpoint=32
 send SET_HEATER_SETPOINT HeaterId=2 Setpoint=27
 

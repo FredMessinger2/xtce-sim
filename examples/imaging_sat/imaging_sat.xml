@@ -962,8 +962,9 @@
       <!-- The subsystems addressable by SET_POWER: the switchable loads on
            the power bus. EPS is not a load on itself, and thermal's
            switchable element is the heater, whose power channel
-           (PWR_HEATER_STATE) is driven by HEATER_ON/HEATER_OFF rather than
-           by SET_POWER. Values match SubsystemIdType (pinned by a test). -->
+           (PWR_HEATER_STATE) is driven by the heater mode commands
+           (HEATER_ON/HEATER_OFF/HEATER_AUTO) rather than by SET_POWER.
+           Values match SubsystemIdType (pinned by a test). -->
       <xtce:EnumeratedArgumentType name="PowerLoadIdType">
         <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
         <xtce:EnumerationList>
@@ -1333,8 +1334,10 @@
 
       <!-- ===== Thermal Commands (opcodes 0x20-0x2F) ===== -->
 
-      <!-- HEATER_ON: Enable heater -->
-      <xtce:MetaCommand name="HEATER_ON" shortDescription="Enable a thermal heater">
+      <!-- HEATER_ON: Force a heater element on (manual override).
+           The element drives open-loop toward its capability; it does NOT
+           seek the setpoint. Thermostatic control is HEATER_AUTO. -->
+      <xtce:MetaCommand name="HEATER_ON" shortDescription="Force a heater element on (manual override)">
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
             <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x20" />
@@ -1352,7 +1355,7 @@
         </xtce:CommandContainer>
       </xtce:MetaCommand>
 
-      <!-- HEATER_OFF: Disable heater -->
+      <!-- HEATER_OFF: Disable a heater (element off, passive cooling) -->
       <xtce:MetaCommand name="HEATER_OFF" shortDescription="Disable a thermal heater">
         <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
           <xtce:ArgumentAssignmentList>
@@ -1363,6 +1366,25 @@
           <xtce:Argument name="HeaterId" argumentTypeRef="HeaterIdType" />
         </xtce:ArgumentList>
         <xtce:CommandContainer name="HEATER_OFF_Container">
+          <xtce:EntryList>
+            <xtce:ArgumentRefEntry argumentRef="OPCODE" />
+            <xtce:ArgumentRefEntry argumentRef="HeaterId" />
+          </xtce:EntryList>
+          <xtce:BaseContainer containerRef="CCSDSCommandContainer" />
+        </xtce:CommandContainer>
+      </xtce:MetaCommand>
+
+      <!-- HEATER_AUTO: Thermostatic control — regulate to the setpoint -->
+      <xtce:MetaCommand name="HEATER_AUTO" shortDescription="Enable thermostatic control of a heater">
+        <xtce:BaseMetaCommand metaCommandRef="ImagingSatCommand">
+          <xtce:ArgumentAssignmentList>
+            <xtce:ArgumentAssignment argumentName="OPCODE" argumentValue="0x23" />
+          </xtce:ArgumentAssignmentList>
+        </xtce:BaseMetaCommand>
+        <xtce:ArgumentList>
+          <xtce:Argument name="HeaterId" argumentTypeRef="HeaterIdType" />
+        </xtce:ArgumentList>
+        <xtce:CommandContainer name="HEATER_AUTO_Container">
           <xtce:EntryList>
             <xtce:ArgumentRefEntry argumentRef="OPCODE" />
             <xtce:ArgumentRefEntry argumentRef="HeaterId" />

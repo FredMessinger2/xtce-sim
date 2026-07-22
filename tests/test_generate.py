@@ -37,7 +37,7 @@ def test_imaging_sat_example_builds_and_is_generic():
     # source vendor branding was scrubbed when it was brought into the repo.
     d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
     assert d.space_system_name == "ImagingSat"
-    assert len(d.commands) == 40
+    assert len(d.commands) == 41
     assert len(d.packets) == 13  # incl. COMMS_STATUS (APID 28, ENABLE_BEACON's card)
     assert "VendorA" not in IMAGING_SAT_XTCE.read_text()
 
