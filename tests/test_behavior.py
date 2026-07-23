@@ -50,9 +50,9 @@ def _errors(tmp_path, simdef, text: str) -> str:
 
 def test_shipped_imaging_sidecar_validates(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    # 5 non-ADCS seeds + 5 boot power states + the beacon state (the ADCS
-    # model owns its fields)
-    assert len(spec.initial) == 11
+    # 6 non-ADCS seeds (incl. the imager's dark boot) + 5 boot power states
+    # + the beacon state (the ADCS model owns its fields)
+    assert len(spec.initial) == 12
     assert set(spec.commands) == {
         "SET_MODE",
         "SET_POWER",

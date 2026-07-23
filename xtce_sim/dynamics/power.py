@@ -27,9 +27,11 @@ discharging.
     charge_current_max = 2.0     # A, controller limit (tapers near full)
     initial_soc = 0.75
 
-    [_models.power.loads]        # amps drawn while PWR_<name>_STATE is ON
-    CDH = 0.3
-    ADCS = 0.5
+    [_models.power.loads]        # every load gates on PWR_<name>_STATE == ON
+    CDH = 0.3                    # the simple form: flat amps while ON
+    ADCS = { base = 0.3, wheels = true }
+    IMAGER = { by = "IMG_STATE", amps = { IDLE = 0.2, CAPTURING = 0.8 } }
+    HEATER = { per_element = 0.4, elements = { THM_HEATER1_STATE = "THM_HEATER1_TEMP" } }
 
     [_models.power.outputs]      # model outputs -> XTCE fields
     PWR_SOLAR_VOLTAGE = "solar_voltage"
@@ -53,8 +55,18 @@ recorded here rather than hidden):
 - The charge controller tapers linearly over the top 10% of charge and
   shunts excess generation (a full battery in full sun simply wastes
   the surplus, as real shunt regulators do).
-- Loads draw their flat configured current when ON and nothing in
-  STANDBY (per-activity draws are the next bank).
+- A load's draw composes up to four physical parts, all gated by its LCL
+  (PWR_<name>_STATE == ON; anything else draws nothing): a flat ``base``;
+  an activity-keyed part (``by`` names an enum field, ``amps`` gives the
+  draw per label, unlisted labels draw 0); the ADCS model's live wheel
+  currents (``wheels = true`` — the same amps ADCS_WHEELS telemeters);
+  and duty-cycled elements (``per_element`` amps each, ``elements`` maps
+  a mode field to the field it regulates — the element draws while its
+  mode reads ON, or in AUTO exactly while the regulate loop's element is
+  on, so the thermostat's duty sawtooth becomes a power sawtooth).
+- Switching an LCL OFF only stops the draw — it does not halt the
+  subsystem behind it (the ADCS keeps flying with its power "off"; LCL
+  feedback into the models is a documented limit).
 """
 
 from __future__ import annotations
@@ -79,12 +91,29 @@ _SOURCE_KEYS = frozenset(
 
 
 @dataclass(frozen=True)
-class LoadParams:
-    """One switched load: the state field that gates it and its draw."""
+class ElementParams:
+    """One duty-cycled element: forced by its mode field, thermostat-driven
+    in AUTO (the regulate loop on ``duty_field`` says whether it is heating
+    right now)."""
 
-    state_field: str  # e.g. PWR_CDH_STATE
-    draw_a: float  # amps while the field reads ON
-    on_raw: int  # the field's raw value for the ON label
+    mode_field: str  # e.g. THM_HEATER1_STATE
+    on_raw: int  # the mode field's ON raw value (element forced on)
+    auto_raw: Optional[int]  # the AUTO raw value; None when the ICD has none
+    duty_field: str  # the regulated field whose loop carries the duty
+
+
+@dataclass(frozen=True)
+class LoadParams:
+    """One switched load: the LCL gate plus its composed draw parts."""
+
+    state_field: str  # e.g. PWR_CDH_STATE — the LCL gate
+    on_raw: int  # the gate field's raw value for the ON label
+    base_a: float  # flat amps while the gate reads ON
+    by_field: Optional[str]  # activity enum field, e.g. IMG_STATE
+    by_amps: tuple[tuple[int, float], ...]  # (label raw value, amps) pairs
+    wheels: bool  # add the ADCS model's live wheel currents
+    per_element_a: float  # amps per lit element
+    elements: tuple[ElementParams, ...]
 
 
 @dataclass
@@ -119,9 +148,12 @@ class PowerModel:
 
     Reads the shared Environment for sun and eclipse, an attitude source
     (the ADCS model's plant truth) for wing pointing, and a field reader
-    (the engine's overlay) for the LCL switch states. Owns no commands in
-    this bank — SET_POWER drives the switches through ordinary behavior,
-    and this model feels the consequences.
+    (the engine's overlay) for the LCL switch states and activity fields.
+    Two more probes feed the activity-driven draws: ``element_on`` asks
+    the engine whether the regulate loop on a field currently has its
+    element lit, and ``wheel_current`` is the ADCS model's summed wheel
+    amps. Owns no commands in this bank — SET_POWER drives the switches
+    through ordinary behavior, and this model feels the consequences.
     """
 
     def __init__(
@@ -130,11 +162,15 @@ class PowerModel:
         environment: Environment,
         read_raw: Callable[[str], object],
         attitude: Optional[Callable[[], al.Quat]] = None,
+        element_on: Optional[Callable[[str], bool]] = None,
+        wheel_current: Optional[Callable[[], float]] = None,
     ) -> None:
         self.config = config
         self.environment = environment
         self._read_raw = read_raw
         self._attitude = attitude
+        self._element_on = element_on or (lambda _fname: False)
+        self._wheel_current = wheel_current
         self.t = 0.0
         self.soc = config.initial_soc
         self._solar_current = 0.0  # array-side amps
@@ -178,10 +214,29 @@ class PowerModel:
         return max(0.0, 1.0 - along_axis * along_axis) ** 0.5
 
     def _load_current(self) -> float:
-        total = 0.0
-        for load in self.config.loads:
-            if self._read_raw(load.state_field) == load.on_raw:
-                total += load.draw_a
+        return sum(
+            self._one_load_current(load)
+            for load in self.config.loads
+            if self._read_raw(load.state_field) == load.on_raw
+        )
+
+    def _one_load_current(self, load: LoadParams) -> float:
+        """The composed draw of one switched-on load, part by part."""
+        total = load.base_a
+        if load.by_field is not None:
+            raw = self._read_raw(load.by_field)
+            total += next((amps for value, amps in load.by_amps if raw == value), 0.0)
+        if load.wheels and self._wheel_current is not None:
+            total += self._wheel_current()
+        for elem in load.elements:
+            mode = self._read_raw(elem.mode_field)
+            lit = mode == elem.on_raw or (
+                elem.auto_raw is not None
+                and mode == elem.auto_raw
+                and self._element_on(elem.duty_field)
+            )
+            if lit:
+                total += load.per_element_a
         return total
 
     def _charge_limit(self) -> float:
@@ -302,15 +357,17 @@ def _sub_table(body: dict, key: str, where: str, err) -> dict:
 
 def _parse_loads(table, simdef, where: str, err) -> tuple[LoadParams, ...]:
     """Each load key K gates on PWR_K_STATE, which must exist with an ON
-    label — the load list is checked against the ICD like everything else."""
-    from xtce_sim.dynamics.model import _positive
+    label — the load list is checked against the ICD like everything else.
 
+    A load's value is either flat amps (the whole draw) or a table
+    composing base / by+amps / wheels / per_element+elements parts.
+    """
     if not isinstance(table, dict):
         err(f"{where}.loads: must be a table")
         return ()
     fields = {f.name: f for p in simdef.packets for f in p.fields}
     loads = []
-    for key, draw in table.items():
+    for key, spec in table.items():
         state_field = f"PWR_{key}_STATE"
         field = fields.get(state_field)
         if field is None:
@@ -319,10 +376,122 @@ def _parse_loads(table, simdef, where: str, err) -> tuple[LoadParams, ...]:
         if not field.enumerations or "ON" not in field.enumerations:
             err(f"{where}.loads: {key}: {state_field} has no ON label to gate on")
             continue
-        amps = _positive(draw, f"{where}.loads.{key}", err)
-        if amps is not None:
-            loads.append(LoadParams(state_field, amps, int(field.enumerations["ON"])))
+        load = _parse_one_load(
+            spec, fields, state_field, int(field.enumerations["ON"]), f"{where}.loads.{key}", err
+        )
+        if load is not None:
+            loads.append(load)
     return tuple(loads)
+
+
+def _parse_one_load(spec, fields, state_field, on_raw, where: str, err) -> Optional[LoadParams]:
+    from xtce_sim.dynamics.model import _ErrorCounter, _positive
+
+    if isinstance(spec, (int, float)) and not isinstance(spec, bool):
+        amps = _positive(spec, where, err)
+        if amps is None:
+            return None
+        return LoadParams(state_field, on_raw, amps, None, (), False, 0.0, ())
+    if not isinstance(spec, dict):
+        err(f"{where}: must be amps or a table of draw parts")
+        return None
+    problems = _ErrorCounter(err)
+    perr = problems.error
+    known = {"base", "by", "amps", "wheels", "per_element", "elements"}
+    for key in sorted(set(spec) - known):
+        perr(f"{where}: unknown key {key!r}")
+    if not (spec.keys() & known):
+        perr(f"{where}: declares no draw part")
+    base = _positive(spec["base"], f"{where}.base", perr) if "base" in spec else 0.0
+    by_field, by_amps = _parse_by_part(spec, fields, where, perr)
+    wheels = spec.get("wheels", False)
+    if not isinstance(wheels, bool):
+        perr(f"{where}.wheels: must be true or false")
+    per_element, elements = _parse_element_part(spec, fields, where, perr)
+    if problems.count:
+        return None
+    return LoadParams(state_field, on_raw, base, by_field, by_amps, wheels, per_element, elements)
+
+
+def _parse_by_part(spec, fields, where: str, err):
+    """The activity-keyed part: ``by`` names an enum field, ``amps`` maps
+    its labels to draws. Unlisted labels draw 0 at runtime."""
+    from xtce_sim.dynamics.model import _positive
+
+    if ("by" in spec) != ("amps" in spec):
+        err(f"{where}: by and amps must appear together")
+        return None, ()
+    if "by" not in spec:
+        return None, ()
+    by = spec["by"]
+    field = fields.get(by) if isinstance(by, str) else None
+    if field is None:
+        err(f"{where}.by: no field {by!r} in the definition")
+        return None, ()
+    if not field.enumerations:
+        err(f"{where}.by: {by} is not an enumerated field")
+        return None, ()
+    amps_table = spec["amps"]
+    if not isinstance(amps_table, dict) or not amps_table:
+        err(f"{where}.amps: must be a non-empty table of label = amps")
+        return None, ()
+    pairs = []
+    for label, amps in amps_table.items():
+        if label not in field.enumerations:
+            err(f"{where}.amps: {by} has no label {label!r}")
+            continue
+        value = _positive(amps, f"{where}.amps.{label}", err)
+        if value is not None:
+            pairs.append((int(field.enumerations[label]), value))
+    return by, tuple(pairs)
+
+
+def _parse_element_part(spec, fields, where: str, err):
+    """The duty-cycled part: ``elements`` maps each element's mode field
+    (needing an ON label; AUTO defers to the regulate loop on the mapped
+    field) to the field it regulates."""
+    from xtce_sim.dynamics.model import _positive
+
+    if ("per_element" in spec) != ("elements" in spec):
+        err(f"{where}: per_element and elements must appear together")
+        return 0.0, ()
+    if "elements" not in spec:
+        return 0.0, ()
+    per_element = _positive(spec["per_element"], f"{where}.per_element", err) or 0.0
+    table = spec["elements"]
+    if not isinstance(table, dict) or not table:
+        err(f"{where}.elements: must be a non-empty table of mode field = regulated field")
+        return per_element, ()
+    elements = []
+    for mode_name, duty_name in table.items():
+        elem = _parse_one_element(mode_name, duty_name, fields, where, err)
+        if elem is not None:
+            elements.append(elem)
+    return per_element, tuple(elements)
+
+
+def _parse_one_element(mode_name, duty_name, fields, where: str, err) -> Optional[ElementParams]:
+    mode = fields.get(mode_name)
+    if mode is None:
+        err(f"{where}.elements: no field {mode_name!r} in the definition")
+        return None
+    if not mode.enumerations or "ON" not in mode.enumerations:
+        err(f"{where}.elements: {mode_name} has no ON label")
+        return None
+    duty = fields.get(duty_name) if isinstance(duty_name, str) else None
+    if duty is None:
+        err(f"{where}.elements: {mode_name}: no field {duty_name!r} in the definition")
+        return None
+    if duty.python_type in ("string", "bytes"):
+        err(f"{where}.elements: {mode_name}: {duty_name} is not a numeric field")
+        return None
+    auto = mode.enumerations.get("AUTO")
+    return ElementParams(
+        mode_name,
+        int(mode.enumerations["ON"]),
+        int(auto) if auto is not None else None,
+        duty_name,
+    )
 
 
 def _parse_power_outputs(table, simdef, where: str, err) -> dict[str, str]:

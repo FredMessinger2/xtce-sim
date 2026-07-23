@@ -5,6 +5,9 @@
 
 [_initial]
 IMG_FOCAL_PLANE_TEMP = 20.0
+# The imager boots dark — a real state, not synthetic wobble, so the power
+# model's IMG_STATE-keyed draw reads the truth from the first beacon.
+IMG_STATE = "OFF"
 
 [IMAGER_ON]
 IMG_STATE = { set = "IDLE", emit = "immediate" }

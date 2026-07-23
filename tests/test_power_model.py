@@ -52,11 +52,11 @@ def _eclipsed_env() -> Environment:
     )
 
 
-def _model(simdef, env, states=None, attitude=None, **overrides):
+def _model(simdef, env, states=None, attitude=None, element_on=None, wheel_current=None, **overrides):
     cfg, errors = _parse(simdef, _minimal_table(**overrides))
     assert errors == [], errors
     reader = (states or {}).get
-    return PowerModel(cfg, env, reader, attitude)
+    return PowerModel(cfg, env, reader, attitude, element_on, wheel_current)
 
 
 # ---- parsing ----------------------------------------------------------------
@@ -200,3 +200,171 @@ def test_switch_states_gate_the_draws(simdef):
 def test_without_an_attitude_source_wings_are_sun_pointed(simdef):
     m = _model(simdef, _sunlit_env(), attitude=None)
     assert m.outputs()["PWR_SOLAR_CURRENT"] == pytest.approx(120.0 / 28.0)
+
+
+# ---- composed loads (bank two: activity-driven draws) ------------------------
+
+
+_HEATER_ELEMENTS = {
+    "THM_HEATER1_STATE": "THM_HEATER1_TEMP",
+    "THM_HEATER2_STATE": "THM_HEATER2_TEMP",
+}
+
+
+def test_parse_composed_load_parts(simdef):
+    cfg, errors = _parse(
+        simdef,
+        _minimal_table(
+            loads={
+                "ADCS": {"base": 0.3, "wheels": True},
+                "IMAGER": {"by": "IMG_STATE", "amps": {"IDLE": 0.2, "CAPTURING": 0.8}},
+                "HEATER": {"per_element": 0.4, "elements": _HEATER_ELEMENTS},
+            }
+        ),
+    )
+    assert errors == [], errors
+    by_key = {load.state_field: load for load in cfg.loads}
+    adcs = by_key["PWR_ADCS_STATE"]
+    assert adcs.base_a == 0.3 and adcs.wheels and adcs.by_field is None
+    imager = by_key["PWR_IMAGER_STATE"]
+    assert imager.by_field == "IMG_STATE"
+    assert dict(imager.by_amps) == {1: 0.2, 2: 0.8}  # IDLE=1, CAPTURING=2
+    heater = by_key["PWR_HEATER_STATE"]
+    assert heater.per_element_a == 0.4 and len(heater.elements) == 2
+    elem = heater.elements[0]
+    # HeaterStateType: OFF=0, ON=1, AUTO=2
+    assert (elem.mode_field, elem.on_raw, elem.auto_raw, elem.duty_field) == (
+        "THM_HEATER1_STATE",
+        1,
+        2,
+        "THM_HEATER1_TEMP",
+    )
+
+
+def test_parse_rejects_bad_load_parts(simdef):
+    cases = {
+        "unknown key 'warp'": {"CDH": {"base": 0.3, "warp": 1}},
+        "declares no draw part": {"CDH": {}},
+        "by and amps must appear together": {"CDH": {"by": "IMG_STATE"}},
+        "no field 'WARP_STATE'": {"CDH": {"by": "WARP_STATE", "amps": {"ON": 1.0}}},
+        "is not an enumerated field": {"CDH": {"by": "PWR_BATTERY_VOLTAGE", "amps": {"ON": 1.0}}},
+        "IMG_STATE has no label 'WARP'": {"CDH": {"by": "IMG_STATE", "amps": {"WARP": 1.0}}},
+        "amps: must be a non-empty table": {"CDH": {"by": "IMG_STATE", "amps": {}}},
+        "wheels: must be true or false": {"CDH": {"wheels": "yes"}},
+        "per_element and elements must appear together": {"CDH": {"per_element": 0.4}},
+        "IMG_STATE has no ON label": {
+            "CDH": {"per_element": 0.4, "elements": {"IMG_STATE": "THM_HEATER1_TEMP"}}
+        },
+        "no field 'WARP_TEMP'": {
+            "CDH": {"per_element": 0.4, "elements": {"THM_HEATER1_STATE": "WARP_TEMP"}}
+        },
+        "must be amps or a table of draw parts": {"CDH": "lots"},
+    }
+    for expected, loads in cases.items():
+        cfg, errors = _parse(simdef, _minimal_table(loads=loads))
+        assert cfg is None and any(expected in e for e in errors), (expected, errors)
+
+
+def test_wheels_without_an_adcs_model_is_a_load_error(simdef, tmp_path):
+    from xtce_sim.behavior.loader import BehaviorError, load_behavior
+
+    toml = tmp_path / "power_only.toml"
+    toml.write_text(
+        """
+[_models.power]
+kind = "power"
+loads = { ADCS = { base = 0.3, wheels = true } }
+outputs = { PWR_BATTERY_CURRENT = "battery_current" }
+"""
+    )
+    with pytest.raises(BehaviorError, match="needs an ADCS model"):
+        load_behavior(toml, simdef)
+
+
+def test_activity_keyed_draw_follows_the_state_field(simdef):
+    states = {"PWR_IMAGER_STATE": 1, "IMG_STATE": 1}
+    m = _model(
+        simdef,
+        _eclipsed_env(),
+        states=states,
+        loads={"IMAGER": {"by": "IMG_STATE", "amps": {"IDLE": 0.2, "CAPTURING": 0.8}}},
+    )
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-0.2)
+    states["IMG_STATE"] = 2  # CAPTURING
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-0.8)
+    states["IMG_STATE"] = 0  # OFF: unlisted labels draw nothing
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(0.0)
+    # The LCL always wins: a capturing imager with its switch pulled is dark.
+    states.update({"IMG_STATE": 2, "PWR_IMAGER_STATE": 0})
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(0.0)
+
+
+def test_wheel_currents_ride_the_adcs_load(simdef):
+    states = {"PWR_ADCS_STATE": 1}
+    m = _model(
+        simdef,
+        _eclipsed_env(),
+        states=states,
+        wheel_current=lambda: 0.45,
+        loads={"ADCS": {"base": 0.3, "wheels": True}},
+    )
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-0.75)
+    # No wheel source wired (a hand-built spec): the base still draws.
+    bare = _model(
+        simdef,
+        _eclipsed_env(),
+        states=states,
+        loads={"ADCS": {"base": 0.3, "wheels": True}},
+    )
+    assert bare.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-0.3)
+
+
+def test_elements_follow_mode_and_duty(simdef):
+    states = {"PWR_HEATER_STATE": 1, "THM_HEATER1_STATE": 0, "THM_HEATER2_STATE": 0}
+    duty = {"THM_HEATER1_TEMP": False}
+    m = _model(
+        simdef,
+        _eclipsed_env(),
+        states=states,
+        element_on=lambda fname: duty.get(fname, False),
+        loads={"HEATER": {"per_element": 0.4, "elements": _HEATER_ELEMENTS}},
+    )
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(0.0)
+    states["THM_HEATER1_STATE"] = 1  # ON: manual override forces the element
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-0.4)
+    states["THM_HEATER2_STATE"] = 1  # both elements lit
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-0.8)
+    # AUTO defers to the regulate loop's element: the duty sawtooth as amps.
+    states.update({"THM_HEATER1_STATE": 2, "THM_HEATER2_STATE": 0})
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(0.0)
+    duty["THM_HEATER1_TEMP"] = True
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-0.4)
+
+
+def test_engine_wires_duty_and_wheels_into_the_power_model(simdef):
+    from xtce_sim.behavior.engine import BehaviorEngine
+    from xtce_sim.behavior.loader import load_behavior
+    from xtce_sim.dynamics.model import AdcsModel
+
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    engine = BehaviorEngine(spec, simdef)
+    power = next(m for m in engine.models if isinstance(m, PowerModel))
+    adcs = next(m for m in engine.models if isinstance(m, AdcsModel))
+    assert power._wheel_current == adcs.wheel_current_total
+    # The heaters boot cold and off: no duty anywhere.
+    assert engine._regulate_element_on("THM_HEATER1_TEMP") is False
+    before = power._load_current()
+    heater_auto = next(c for c in simdef.commands if c.name == "HEATER_AUTO")
+    engine.apply_command(heater_auto, {"HeaterId": 1})
+    engine.tick(1.0)
+    # 20 degrees against a 40-degree setpoint: the thermostat element must
+    # be lit, and the power model must feel it as 0.4 A on the heater LCL.
+    assert engine._regulate_element_on("THM_HEATER1_TEMP") is True
+    assert power._load_current() == pytest.approx(before + 0.4)

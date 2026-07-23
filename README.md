@@ -983,8 +983,13 @@ target and generation drops by the cosine of what the wings can no longer
 reach). The battery is a state, not a signal: charge integrates every tick,
 terminal voltage follows charge and sags under load, and the charge
 controller tapers near full and shunts the surplus. Each switched load draws
-its configured current while its `PWR_*_STATE` reads ON — so `SET_POWER
-SubsystemId=IMAGER PowerState=ON` genuinely moves `PWR_BATTERY_CURRENT`
+what the vehicle is actually *doing* while its `PWR_*_STATE` reads ON: the
+ADCS load includes the live wheel currents the dynamics model computes (a
+slew pulls real amps), the imager's draw follows `IMG_STATE` (idle
+keep-alive vs the full capture draw), COMMS adds beacon transmit while
+`COMM_BEACON_STATE` reads ENABLE, and each heater element draws when forced
+ON — or, under `HEATER_AUTO`, exactly while its thermostat's element is lit,
+so the regulate loop's duty sawtooth appears in `PWR_BATTERY_CURRENT`
 (signed: positive charging, negative discharging). Fly an orbit and the
 battery breathes: discharge through eclipse, recharge in the sun.
 
