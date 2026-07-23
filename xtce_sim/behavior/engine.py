@@ -80,7 +80,7 @@ class BehaviorEngine:
                 )
         # Physics models: instantiate, route their commands, seed outputs so
         # the very first beacon already carries a live attitude.
-        self.models = [AdcsModel(cfg) for cfg in spec.models]
+        self.models = [AdcsModel(cfg, spec.environment) for cfg in spec.models]
         self._model_by_command = {
             name: model for model in self.models for name in model.config.commands.values()
         }

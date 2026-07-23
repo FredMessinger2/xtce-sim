@@ -39,7 +39,7 @@ inertia = 0.015
 max_torque = 0.04
 max_speed = 500.0
 
-[_models.adcs.orbit]
+[_environment.orbit]
 altitude_km = 550.0
 inclination_deg = 97.6 # sun-synchronous
 

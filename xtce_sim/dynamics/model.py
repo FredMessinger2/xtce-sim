@@ -5,7 +5,7 @@ A model owns a slice of the telemetry space the way ramps and waves never
 could: the ADCS fields are OUTPUTS of a simulated plant + sensor + control
 stack, advanced every beacon tick, and the ADCS commands are INPUTS to it.
 The TOML declares the physical configuration (inertia, wheel cluster,
-orbit, controller response) and binds model outputs to XTCE fields
+controller response) and binds model outputs to XTCE fields
 explicitly — every binding validated at load against the definition, in
 the behavior engine's strict-and-total style:
 
@@ -22,9 +22,9 @@ the behavior engine's strict-and-total style:
     max_torque = 0.05                    # N·m
     max_speed = 600.0                    # rad/s
 
-    [_models.adcs.orbit]
-    altitude_km = 500.0
-    inclination_deg = 51.6
+    [_environment.orbit]         # the shared world, NOT model-owned:
+    altitude_km = 500.0          # one solar system per vehicle, every
+    inclination_deg = 51.6       # model a tenant (see parse_environment)
 
     [_models.adcs.controller]
     response_time = 10.0                 # s (a duration, not a bandwidth)
@@ -101,8 +101,6 @@ class AdcsModelConfig:
     name: str
     inertia: al.Mat3
     wheels: tuple[WheelParams, ...]
-    orbit: CircularOrbit
-    sun_direction: al.Vec3
     sun_axis_body: al.Vec3
     response_time: float
     substep: float
@@ -113,12 +111,40 @@ class AdcsModelConfig:
 
     def describe(self) -> list[str]:
         return [
-            f"model {self.name}: rigid-body ADCS ({len(self.wheels)} wheels, "
-            f"orbit {self.orbit.altitude / 1e3:.0f} km @ "
-            f"{math.degrees(self.orbit.inclination):.1f} deg) "
+            f"model {self.name}: rigid-body ADCS ({len(self.wheels)} wheels) "
             f"driving {len(self.outputs)} field(s), "
             f"{len(self.commands)} command(s)"
         ]
+
+
+def parse_environment(body, error: Callable[[str], None]) -> Environment | None:
+    """Validate the vehicle-level [_environment] table and build the world.
+
+    There is exactly ONE solar system per vehicle — orbit, sun, eclipse,
+    magnetic field — and every model is a tenant in it, not an owner of
+    it. An absent table builds the default world (500 km at 51.6 deg,
+    sun along ECI +X), matching the defaults the tables carry.
+    """
+    where = "[_environment]"
+    if not isinstance(body, dict):
+        error(f"{where}: must be a table")
+        return None
+    problems = _ErrorCounter(error)
+    err = problems.error
+    for key in sorted(set(body) - {"orbit", "sun_direction"}):
+        err(f"{where}: unknown key {key!r}")
+    orbit = _parse_orbit(body.get("orbit", {}), where, err)
+    sun_direction = _unit_vec(
+        body.get("sun_direction", [1.0, 0.0, 0.0]), f"{where}.sun_direction", err
+    )
+    if problems.count or orbit is None:
+        return None
+    return Environment(orbit=orbit, sun_direction=sun_direction or (1.0, 0.0, 0.0))
+
+
+def default_environment() -> Environment:
+    """The world used when no [_environment] table is declared."""
+    return Environment(orbit=CircularOrbit(altitude=500.0e3))
 
 
 def _source_keys(wheel_count: int) -> set[str]:
@@ -179,29 +205,29 @@ def parse_model(name: str, body, simdef, error: Callable[[str], None]) -> AdcsMo
         "substep",
         "body",
         "wheels",
-        "orbit",
-        "sun",
         "controller",
         "mtq",
         "sensors",
         "outputs",
         "commands",
     }
-    for key in set(body) - known:
+    # The world moved out of the model: one solar system per vehicle,
+    # declared once at [_environment], shared by every model.
+    for moved in ("orbit", "sun"):
+        if moved in body:
+            err(
+                f"{where}.{moved}: the world is shared, not model-owned — "
+                f"declare it under [_environment] "
+                f"({'orbit' if moved == 'orbit' else 'sun_direction'})"
+            )
+    for key in set(body) - known - {"orbit", "sun"}:
         err(f"{where}: unknown key {key!r}")
 
     inertia = _parse_inertia(body.get("body", {}), where, err)
     wheels = _parse_wheels(body.get("wheels"), where, err)
-    orbit = _parse_orbit(body.get("orbit", {}), where, err)
-    sun = _sub_table(body, "sun", {"direction"}, where, err)
     controller = _sub_table(body, "controller", {"response_time", "sun_axis"}, where, err)
     mtq = _sub_table(body, "mtq", {"max_dipole"}, where, err)
     sensors = _sub_table(body, "sensors", {"seed"}, where, err)
-    sun_direction = _unit_vec(
-        sun.get("direction", [1.0, 0.0, 0.0]),
-        f"{where}.sun.direction",
-        err,
-    )
     sun_axis = _unit_vec(
         controller.get("sun_axis", [0.0, 0.0, -1.0]),
         f"{where}.controller.sun_axis",
@@ -229,14 +255,12 @@ def parse_model(name: str, body, simdef, error: Callable[[str], None]) -> AdcsMo
         body.get("outputs", {}), simdef, len(wheels or ()), mode_labels, where, err
     )
 
-    if problems_before.count or inertia is None or wheels is None or orbit is None:
+    if problems_before.count or inertia is None or wheels is None:
         return None
     return AdcsModelConfig(
         name=name,
         inertia=inertia,
         wheels=wheels,
-        orbit=orbit,
-        sun_direction=sun_direction or (1.0, 0.0, 0.0),
         sun_axis_body=sun_axis or (0.0, 0.0, -1.0),
         response_time=response_time or 10.0,
         substep=substep or 0.1,
@@ -514,14 +538,14 @@ class AdcsModel:
     """The runtime: plant + sensors + estimator + controller + mode machine,
     advanced in fixed substeps and read out through the output bindings."""
 
-    def __init__(self, config: AdcsModelConfig) -> None:
+    def __init__(self, config: AdcsModelConfig, environment: Environment) -> None:
         self.config = config
+        self.environment = environment
         plant = Plant(inertia=config.inertia, wheels=config.wheels)
         controller = AttitudeController(
             plant=plant,
             gains=PDGains.critically_damped(config.inertia, 1.0 / config.response_time),
         )
-        environment = Environment(orbit=config.orbit, sun_direction=config.sun_direction)
         self.machine = ModeMachine(
             plant=plant,
             controller=controller,

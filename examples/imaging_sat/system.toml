@@ -3,6 +3,14 @@
 # converted to raw wire counts by the engine. Full schema: README, section
 # 'Behavior: making commands change telemetry'.
 
+# The shared world: one orbit, one sun, one eclipse, for every model on
+# this vehicle. Declared here at the vehicle level — the ADCS reads it,
+# and the future power model will read the same one. (The sun defaults
+# to ECI +X; declare sun_direction to change it.)
+[_environment.orbit]
+altitude_km = 500.0
+inclination_deg = 51.6
+
 # Mode changes are acknowledged instantly: the ground should not wait a
 # beacon interval to learn the vehicle obeyed.
 [SET_MODE]

@@ -931,15 +931,25 @@ inertia = 0.02
 max_torque = 0.05
 max_speed = 600.0
 
-[_models.adcs.orbit]
-altitude_km = 500.0
-inclination_deg = 51.6
-
 [_models.adcs.outputs]       # model outputs -> XTCE fields, explicitly
 ADCS_MODE = "mode"
 ADCS_ATT_QUAT_Q1 = "quat_q1"
 # ... 41 bindings in the shipped file
 ```
+
+The world the model flies in is *not* the model's property. One vehicle has
+exactly one solar system — orbit, sun, eclipse, magnetic field — declared
+once at the vehicle level (the example puts it in `system.toml`) and shared
+by every model:
+
+```toml
+[_environment.orbit]
+altitude_km = 500.0
+inclination_deg = 51.6
+```
+
+Declaring an orbit inside a model is a load error pointing here; two models
+can therefore never disagree about where the sun is.
 
 Behind those bindings runs owned, dependency-free physics: Euler's rigid-body
 equation with wheel momentum exchange integrated by RK4, a quaternion-feedback

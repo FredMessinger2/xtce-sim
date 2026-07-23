@@ -2031,15 +2031,51 @@ def test_two_models_cannot_consume_the_same_command(tmp_path, simdef):
         text += (
             f"[_models.{name}]\n"
             f"[_models.{name}.body]\ninertia = [12.0, 14.0, 9.0]\n"
-            + wheel
-            % name
-            + f"[_models.{name}.orbit]\naltitude_km = 500.0\n"
-            f"[_models.{name}.outputs]\n{binding}\n"
+            + wheel % name
+            + f"[_models.{name}.outputs]\n{binding}\n"
         )
     (tmp_path / "two.behavior.toml").write_text(text)
     with pytest.raises(behavior.BehaviorError) as exc:
         load_behavior(tmp_path, simdef)
     assert "command ADCS_SET_MODE: consumed by both 'a' and 'b'" in str(exc.value)
+
+
+# ---- [_environment]: the one shared world -----------------------------------
+
+
+def test_environment_table_builds_the_spec_world(tmp_path, simdef):
+    spec = _load(
+        tmp_path,
+        simdef,
+        "[_environment.orbit]\naltitude_km = 700.0\ninclination_deg = 98.0\n",
+    )
+    assert spec.environment.orbit.altitude == pytest.approx(700e3)
+    # absent table -> the documented default world
+    bare = _load(tmp_path, simdef, "[_initial]\nIMG_GAIN = 1\n")
+    assert bare.environment.orbit.altitude == pytest.approx(500e3)
+
+
+def test_environment_declared_twice_is_a_conflict(tmp_path, simdef):
+    (tmp_path / "a.behavior.toml").write_text("[_environment.orbit]\naltitude_km = 500.0\n")
+    (tmp_path / "b.behavior.toml").write_text("[_environment.orbit]\naltitude_km = 700.0\n")
+    with pytest.raises(behavior.BehaviorError) as exc:
+        load_behavior(tmp_path, simdef)
+    assert "[_environment] world: already declared in" in str(exc.value)
+
+
+def test_every_model_shares_the_one_spec_environment(engine, simdef):
+    # The unit's whole point: models are tenants of ONE world object —
+    # identity, not equality, so two suns can never disagree.
+    assert engine.models, "shipped example must have a model"
+    for model in engine.models:
+        assert model.environment is engine.spec.environment
+
+
+def test_environment_is_narrated(simdef):
+    spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
+    assert any(
+        line.startswith("environment: orbit 500 km @ 51.6 deg") for line in behavior.describe(spec)
+    )
 
 
 def test_templated_effect_cannot_teleport_a_model_wheel_speed(tmp_path, simdef, caplog):
