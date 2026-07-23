@@ -145,7 +145,7 @@ built ImagingSat: 41 dispatchable command(s), 13 telemetry packet(s)
 
 Behavior (examples/imaging_sat):
   environment: orbit 500 km @ 51.6 deg, sun [1.0, 0.0, 0.0] (shared by all models)
-  initial values: 11 field(s)
+  initial values: 13 field(s)
     ...
   boot signals: 6
     THM_PANEL_PLUS_X oscillates (sine) around 10.0 amplitude 25.0, period 5400.0s ±noise(0.5)
@@ -913,6 +913,46 @@ that ends it:
 06:34:13 [sat-a]   beacon enabled
 ```
 
+### Downlink sessions: DOWNLINK_START and DOWNLINK_STOP
+
+A vehicle whose XTCE declares `DOWNLINK_START`/`DOWNLINK_STOP` commands
+gets a real stored-data downlink session (same opt-in-by-declaration
+convention). The command name carries the unambiguous half — start versus
+stop — so the session always obeys it; `DOWNLINK_START`'s label-driven
+`Priority` argument rides along for the playback ordering, falling back to
+NORMAL with a warning rather than blocking a pass. The imaging satellite
+mirrors the session into `COMM_DOWNLINK_STATE` on the COMMS_STATUS card
+(`comms.toml`), fulfilling the source XTCE's original annotations, which
+targeted a field no packet defined:
+
+```
+11:37:42 [dlsmoke] command 0x50 DOWNLINK_START args={'Priority': 'NORMAL'}
+11:37:42 [dlsmoke]   effects: COMM_DOWNLINK_STATE=1
+11:37:42 [dlsmoke]   downlink started (priority NORMAL; data products stream once the playback unit lands — the session carries idle frames)
+11:38:38 [dlsmoke] command 0x51 DOWNLINK_STOP args={}
+11:38:38 [dlsmoke]   effects: COMM_DOWNLINK_STATE=0
+11:38:38 [dlsmoke]   downlink stopped
+```
+
+The log line says exactly where this unit's honesty boundary sits: the
+session is real state with a real power cost — the power model charges
+1.6 A of X-band transmitter against `COMM_DOWNLINK_STATE = ACTIVE`, the
+single biggest switch on the bus — but the products that stream during a
+pass arrive with the playback unit, so until then an active session
+carries idle frames, exactly as a real transmitter with an empty queue
+does. The power coupling makes ground-pass planning real today: in full
+sun the array has the margin (battery charging barely moves), while a
+transmitter keyed mid-slew rides the battery hard:
+
+```
+=== session ACTIVE in full sun: the array has margin, still charging 2 A ===
+BATTERY_CURRENT=1.999
+=== 90-deg slew mid-pass: the transmitter rides the battery ===
+BATTERY_CURRENT=-2.407
+=== session stopped: back to the platform draw ===
+BATTERY_CURRENT=-0.942
+```
+
 ### Physics models: the ADCS flies
 
 Some subsystems are too coupled for per-field verbs: an attitude slew is not
@@ -987,7 +1027,8 @@ what the vehicle is actually *doing* while its `PWR_*_STATE` reads ON: the
 ADCS load includes the live wheel currents the dynamics model computes (a
 slew pulls real amps), the imager's draw follows `IMG_STATE` (idle
 keep-alive vs the full capture draw), COMMS adds beacon transmit while
-`COMM_BEACON_STATE` reads ENABLE, and each heater element draws when forced
+`COMM_BEACON_STATE` reads ENABLE and the 1.6 A X-band transmitter while a
+downlink session is ACTIVE, and each heater element draws when forced
 ON — or, under `HEATER_AUTO`, exactly while its thermostat's element is lit,
 so the regulate loop's duty sawtooth appears in `PWR_BATTERY_CURRENT`
 (signed: positive charging, negative discharging). Fly an orbit and the

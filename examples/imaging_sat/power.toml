@@ -64,8 +64,9 @@ initial_soc = 0.75           # boots at 24.0 V open-circuit
 #            the LIVE wheel currents the dynamics model computes — the
 #            same amps ADCS_WHEELS telemeters, so a slew pulls real power.
 #   COMMS  — 0.1 A S-band receiver, always listening; +0.25 A of beacon
-#            transmit while COMM_BEACON_STATE reads ENABLE. The big
-#            X-band downlink draw arrives with the downlink arc.
+#            transmit while COMM_BEACON_STATE reads ENABLE; +1.6 A of
+#            X-band transmitter while COMM_DOWNLINK_STATE reads ACTIVE —
+#            a downlink pass is the single biggest switch on the bus.
 #   IMAGER — keyed on IMG_STATE: idle focal-plane keep-alive vs the full
 #            capture draw (labels not listed, OFF/ERROR, draw nothing).
 #   HEATER — two thermostat elements: each draws when its THM_HEATERn_STATE
@@ -74,7 +75,7 @@ initial_soc = 0.75           # boots at 24.0 V open-circuit
 [_models.power.loads]
 CDH = 0.3
 ADCS = { base = 0.3, wheels = true }
-COMMS = { base = 0.1, by = "COMM_BEACON_STATE", amps = { ENABLE = 0.25 } }
+COMMS = { base = 0.1, by = { COMM_BEACON_STATE = { ENABLE = 0.25 }, COMM_DOWNLINK_STATE = { ACTIVE = 1.6 } } }
 IMAGER = { by = "IMG_STATE", amps = { IDLE = 0.2, CAPTURING = 0.8, PROCESSING = 0.4 } }
 HEATER = { per_element = 0.4, elements = { THM_HEATER1_STATE = "THM_HEATER1_TEMP", THM_HEATER2_STATE = "THM_HEATER2_TEMP" } }
 

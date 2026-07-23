@@ -17,15 +17,8 @@ inclination_deg = 51.6
 HK_SYSTEM_MODE = { set = "@arg:Mode", emit = "immediate" }
 
 # ---------------------------------------------------------------------------
-# Dangling in the source XTCE: the original annotations below targeted a
-# COMM_DOWNLINK_ACTIVE field that no packet defines yet, so they could never
-# have taken effect. Preserved as intent; enable them when the downlink
-# commands become real. (ENABLE_BEACON's twin annotation came true when
-# COMMS_STATUS was added — it lives in comms.toml now, and the server
-# actually gates the beacon.)
-#
-# [DOWNLINK_START]
-# COMM_DOWNLINK_ACTIVE = 1
-#
-# [DOWNLINK_STOP]
-# COMM_DOWNLINK_ACTIVE = 0
+# The source XTCE's original DOWNLINK_START/STOP annotations targeted a
+# COMM_DOWNLINK_ACTIVE field no packet defined; they came true when
+# COMM_DOWNLINK_STATE was added to COMMS_STATUS — the live mirrors are in
+# comms.toml, and the server owns the real session state (DOWNLINK_COMMANDS
+# in server.py), the same split ENABLE_BEACON uses.

@@ -206,8 +206,11 @@ Bank one of this model is IMPLEMENTED (`[_models.power]` in
   plus the live wheel currents the dynamics model computes (the same amps
   `ADCS_WHEELS` telemeters, so a slew genuinely triples the draw); the
   imager's draw is keyed on `IMG_STATE` (idle keep-alive, capture,
-  processing); COMMS is the always-on receiver plus beacon transmit while
-  `COMM_BEACON_STATE` reads ENABLE; and each heater element draws when
+  processing); COMMS is the always-on receiver, plus beacon transmit while
+  `COMM_BEACON_STATE` reads ENABLE, plus the 1.6 A X-band transmitter
+  while `COMM_DOWNLINK_STATE` reads ACTIVE (DOWNLINK_START/STOP are real
+  session commands now — the biggest switch on the bus, from this
+  document's repointing-transient analysis); and each heater element draws when
   forced ON or, in AUTO, exactly while its thermostat's regulate loop has
   the element lit — the thermostat's duty sawtooth appears directly in
   `PWR_BATTERY_CURRENT`.
@@ -217,8 +220,10 @@ Bank one of this model is IMPLEMENTED (`[_models.power]` in
   future work), and the SADA motor draw remains unmodeled (a blind spot
   the schematic shows in black).
 
-Still ahead: the big X-band transmit draw arrives with the downlink arc,
-and thermal coupling (battery temperature is still a behavioral hold).
+Still ahead: the data products themselves — an active session currently
+carries idle frames (as a real transmitter with an empty queue does)
+until the playback unit gives it stored products to stream — and thermal
+coupling (battery temperature is still a behavioral hold).
 
 ## Sources
 
