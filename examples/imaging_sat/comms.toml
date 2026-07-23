@@ -3,10 +3,11 @@
 # counts by the engine. Full schema: README, section 'Behavior: making
 # commands change telemetry'.
 
-# The beacon boots enabled — held state on the COMMS card from the first
-# packet, not synthetic wobble.
+# The beacon boots enabled, the downlink session idle — held state on the
+# COMMS card from the first packet, not synthetic wobble.
 [_initial]
 COMM_BEACON_STATE = "ENABLE"
+COMM_DOWNLINK_STATE = "IDLE"
 
 # ENABLE_BEACON really gates the beacon — the SERVER stops/starts periodic
 # telemetry (BEACON_COMMANDS in server.py). This mirror copies the commanded
@@ -14,3 +15,16 @@ COMM_BEACON_STATE = "ENABLE"
 # control').
 [ENABLE_BEACON]
 COMM_BEACON_STATE = { set = "@arg:BeaconState", emit = "immediate" }
+
+# DOWNLINK_START/STOP really open and close the session — the SERVER owns
+# the state (DOWNLINK_COMMANDS in server.py); these mirrors put it in
+# telemetry, and the power model charges the X-band transmitter's draw
+# against ACTIVE (power.toml). Until the playback unit lands, an active
+# session carries idle frames, exactly as a real transmitter with an empty
+# queue does. These two effects fulfill the source XTCE's original
+# COMM_DOWNLINK_ACTIVE annotations, dormant until this field existed.
+[DOWNLINK_START]
+COMM_DOWNLINK_STATE = { set = "ACTIVE", emit = "immediate" }
+
+[DOWNLINK_STOP]
+COMM_DOWNLINK_STATE = { set = "IDLE", emit = "immediate" }

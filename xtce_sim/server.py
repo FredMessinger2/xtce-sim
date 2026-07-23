@@ -59,6 +59,16 @@ STATUS_COMMANDS = ("GET_STATUS",)
 #: Same opt-in-by-declaration rule as BEACON_COMMANDS.
 TLM_RATE_COMMANDS = ("SET_TLM_RATE",)
 
+#: Conventional command names that open and close a stored-data downlink
+#: session. In this unit the session is REAL STATE with a real power cost
+#: (the sidecar mirror drives COMM_DOWNLINK_STATE, whose ACTIVE label the
+#: power model charges the X-band transmitter draw against); the data
+#: products that stream during a session arrive with the playback unit —
+#: until then an active session carries idle frames, as a real transmitter
+#: with an empty queue does. Same opt-in-by-declaration rule as
+#: BEACON_COMMANDS.
+DOWNLINK_COMMANDS = ("DOWNLINK_START", "DOWNLINK_STOP")
+
 #: Hard floor on a commanded beacon period. The ICD's ValidRange guards
 #: wire commands where one is declared; this guards every vehicle against
 #: a period faster than the scheduler's own wake clamp (a downlink flood).
@@ -104,6 +114,11 @@ class SimServer:
         # False silences the periodic beacon only; command-caused emissions
         # still flow and the behavior engine keeps ticking.
         self.beacon_enabled = True
+        # Stored-data downlink session: DOWNLINK_START/STOP (DOWNLINK_COMMANDS)
+        # flip this; the priority label rides along for the playback unit,
+        # which will use it to order the product queue.
+        self.downlink_active = False
+        self.downlink_priority = "NORMAL"
         # Per-packet beacon periods (seconds): each packet's declared XTCE
         # DefaultRateInStream period, falling back to --interval where the
         # ICD declares none. SET_TLM_RATE (TLM_RATE_COMMANDS) retimes one
@@ -652,6 +667,8 @@ class SimServer:
             self._set_beacon_enabled(command, args)
         if command.name in TLM_RATE_COMMANDS:
             self._set_tlm_period(command, args)
+        if command.name in DOWNLINK_COMMANDS:
+            self._set_downlink(command, args)
         if command.name in STATUS_COMMANDS:
             # A commanded snapshot bypasses the beacon gate on purpose:
             # answering the ground is command-caused transmission, and this
@@ -767,6 +784,45 @@ class SimServer:
             packet_def.name if packet_def else f"APID 0x{apid:X}",
             period_ms / 1000.0,
         )
+
+    def _set_downlink(self, command: CommandDef, args: dict) -> None:
+        """Open or close the stored-data downlink session.
+
+        The command NAME carries the unambiguous half (start vs stop), so
+        the session always obeys it. DOWNLINK_START's Priority argument is
+        label-driven like every link convention; a missing or unresolvable
+        priority falls back to NORMAL with a warning rather than blocking
+        the pass — ordering only matters once the playback unit gives the
+        session products to order. A START while active re-asserts the
+        session (real transmitters honor the latest priority); a STOP while
+        idle is a harmless no-op, logged as such.
+        """
+        if command.name == "DOWNLINK_STOP":
+            self.logger.info(
+                "  downlink %s", "stopped" if self.downlink_active else "already idle"
+            )
+            self.downlink_active = False
+            return
+        value = args.get("Priority")
+        param = next((p for p in command.params if p.name == "Priority"), None)
+        resolved = (
+            resolve_enum_arg(param.enumerations, value)
+            if param is not None and param.enumerations
+            else None
+        )
+        if resolved is None:
+            self.logger.warning(
+                "downlink start without a usable Priority=%r; using NORMAL", value
+            )
+        else:
+            self.downlink_priority = resolved[0]
+        self.logger.info(
+            "  downlink %s (priority %s; data products stream once the "
+            "playback unit lands — the session carries idle frames)",
+            "re-asserted" if self.downlink_active else "started",
+            self.downlink_priority,
+        )
+        self.downlink_active = True
 
     # ---- sequencing ----------------------------------------------------------
 

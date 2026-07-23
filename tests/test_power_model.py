@@ -225,10 +225,11 @@ def test_parse_composed_load_parts(simdef):
     assert errors == [], errors
     by_key = {load.state_field: load for load in cfg.loads}
     adcs = by_key["PWR_ADCS_STATE"]
-    assert adcs.base_a == 0.3 and adcs.wheels and adcs.by_field is None
+    assert adcs.base_a == 0.3 and adcs.wheels and adcs.by_parts == ()
     imager = by_key["PWR_IMAGER_STATE"]
-    assert imager.by_field == "IMG_STATE"
-    assert dict(imager.by_amps) == {1: 0.2, 2: 0.8}  # IDLE=1, CAPTURING=2
+    (img_part,) = imager.by_parts
+    assert img_part.field == "IMG_STATE"
+    assert dict(img_part.amps) == {1: 0.2, 2: 0.8}  # IDLE=1, CAPTURING=2
     heater = by_key["PWR_HEATER_STATE"]
     assert heater.per_element_a == 0.4 and len(heater.elements) == 2
     elem = heater.elements[0]
@@ -246,6 +247,13 @@ def test_parse_rejects_bad_load_parts(simdef):
         "unknown key 'warp'": {"CDH": {"base": 0.3, "warp": 1}},
         "declares no draw part": {"CDH": {}},
         "by and amps must appear together": {"CDH": {"by": "IMG_STATE"}},
+        "amps requires by": {"CDH": {"amps": {"IDLE": 0.2}}},
+        "amps belongs inside the by table": {
+            "CDH": {"by": {"IMG_STATE": {"IDLE": 0.2}}, "amps": {"IDLE": 0.2}}
+        },
+        "by: must name at least one activity field": {"CDH": {"by": {}}},
+        "by: must be a field name or a table": {"CDH": {"by": 5}},
+        "by.IMG_STATE: must be a non-empty table": {"CDH": {"by": {"IMG_STATE": {}}}},
         "no field 'WARP_STATE'": {"CDH": {"by": "WARP_STATE", "amps": {"ON": 1.0}}},
         "is not an enumerated field": {"CDH": {"by": "PWR_BATTERY_VOLTAGE", "amps": {"ON": 1.0}}},
         "IMG_STATE has no label 'WARP'": {"CDH": {"by": "IMG_STATE", "amps": {"WARP": 1.0}}},
@@ -300,6 +308,33 @@ def test_activity_keyed_draw_follows_the_state_field(simdef):
     states.update({"IMG_STATE": 2, "PWR_IMAGER_STATE": 0})
     m.advance(1.0)
     assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(0.0)
+
+
+def test_multi_field_activity_draws_sum_independently(simdef):
+    # COMMS pays for the beacon and the downlink session separately: two
+    # activity fields under one LCL, each with its own amps table.
+    states = {"PWR_COMMS_STATE": 1, "COMM_BEACON_STATE": 1, "COMM_DOWNLINK_STATE": 0}
+    m = _model(
+        simdef,
+        _eclipsed_env(),
+        states=states,
+        loads={
+            "COMMS": {
+                "base": 0.1,
+                "by": {
+                    "COMM_BEACON_STATE": {"ENABLE": 0.25},
+                    "COMM_DOWNLINK_STATE": {"ACTIVE": 1.6},
+                },
+            }
+        },
+    )
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-0.35)
+    states["COMM_DOWNLINK_STATE"] = 1  # DOWNLINK_START: the big TX switch
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-1.95)
+    states["COMM_BEACON_STATE"] = 0  # beacon off mid-pass: only its share stops
+    m.advance(1.0)
+    assert m.outputs()["PWR_BATTERY_CURRENT"] == pytest.approx(-1.7)
 
 
 def test_wheel_currents_ride_the_adcs_load(simdef):

@@ -38,6 +38,12 @@ echo "== comms: beacon off then back on — telemetry goes quiet between the two
 send ENABLE_BEACON BeaconState=DISABLE
 send ENABLE_BEACON BeaconState=ENABLE
 
+echo "== comms: a downlink session — COMM_DOWNLINK_STATE flips, the X-band draw lands =="
+# Adjacent for the same reason: the sweep should not leave the 1.6 A
+# transmitter keyed while the rest of it runs.
+send DOWNLINK_START Priority=NORMAL
+send DOWNLINK_STOP
+
 echo "== power: switchable loads by name — the enum label picks the PWR_*_STATE field =="
 # Each load toggles away from its boot state and back, so every send is
 # visible on the monitor.

@@ -51,12 +51,15 @@ def _errors(tmp_path, simdef, text: str) -> str:
 def test_shipped_imaging_sidecar_validates(simdef):
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
     # 6 non-ADCS seeds (incl. the imager's dark boot) + 5 boot power states
-    # + the beacon state (the ADCS model owns its fields)
-    assert len(spec.initial) == 12
+    # + the beacon and downlink-session states (the ADCS model owns its
+    # fields)
+    assert len(spec.initial) == 13
     assert set(spec.commands) == {
         "SET_MODE",
         "SET_POWER",
         "ENABLE_BEACON",
+        "DOWNLINK_START",
+        "DOWNLINK_STOP",
         "HEATER_ON",
         "HEATER_OFF",
         "HEATER_AUTO",
@@ -622,6 +625,53 @@ def test_beacon_gate_ignores_malformed_state(simdef, caplog):
         server._set_beacon_enabled(cmd, {"BeaconState": 2})  # no label
     assert server.beacon_enabled
     assert sum("ignored" in r.getMessage() for r in caplog.records) == 4
+
+
+# ---- DOWNLINK_START/STOP: the downlink session ------------------------------
+
+
+def test_downlink_mirrors_emit_immediate_comms_status(engine, simdef):
+    # The sidecar mirrors put the session state in telemetry the moment the
+    # command lands; the power model's X-band draw keys on this field.
+    applied = engine.apply_command(_cmd(simdef, "DOWNLINK_START"), {"Priority": "HIGH"})
+    assert applied == ["COMM_DOWNLINK_STATE=1"]
+    assert simdef.packet_by_name("COMMS_STATUS").apid in engine.pop_immediate_apids()
+    applied = engine.apply_command(_cmd(simdef, "DOWNLINK_STOP"), {})
+    assert applied == ["COMM_DOWNLINK_STATE=0"]
+
+
+def test_downlink_session_is_real_server_state(simdef):
+    # The command NAME carries start-vs-stop; Priority is label-driven like
+    # every link convention and rides along for the playback unit.
+    from xtce_sim.server import SimServer
+
+    server = SimServer(simdef, port=0)
+    assert server.downlink_active is False
+    start = simdef.command_by_name("DOWNLINK_START")
+    stop = simdef.command_by_name("DOWNLINK_STOP")
+    server._set_downlink(start, {"Priority": "HIGH"})
+    assert server.downlink_active is True and server.downlink_priority == "HIGH"
+    server._set_downlink(start, {"Priority": 3})  # raw URGENT re-asserts
+    assert server.downlink_active is True and server.downlink_priority == "URGENT"
+    server._set_downlink(stop, {})
+    assert server.downlink_active is False
+
+
+def test_downlink_start_defaults_priority_rather_than_blocking(simdef, caplog):
+    # A pass with a malformed Priority still opens — the unambiguous half
+    # (start vs stop) is the command name; only the ordering hint degrades.
+    from xtce_sim.server import SimServer
+
+    server = SimServer(simdef, port=0)
+    start = simdef.command_by_name("DOWNLINK_START")
+    with caplog.at_level(logging.WARNING, logger="xtce_sim"):
+        server._set_downlink(start, {})
+    assert server.downlink_active is True and server.downlink_priority == "NORMAL"
+    assert any("using NORMAL" in r.getMessage() for r in caplog.records)
+    # STOP while idle is a harmless no-op.
+    server._set_downlink(simdef.command_by_name("DOWNLINK_STOP"), {})
+    server._set_downlink(simdef.command_by_name("DOWNLINK_STOP"), {})
+    assert server.downlink_active is False
 
 
 async def test_enable_beacon_gates_the_periodic_beacon(imaging_server, simdef):

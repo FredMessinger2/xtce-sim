@@ -193,6 +193,15 @@
         </xtce:EnumerationList>
       </xtce:EnumeratedParameterType>
 
+      <!-- Enumerated: Downlink Session State (DOWNLINK_START/STOP) -->
+      <xtce:EnumeratedParameterType name="DownlinkStateType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="IDLE" value="0" />
+          <xtce:Enumeration label="ACTIVE" value="1" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
       <!-- Enumerated: Heater State -->
       <xtce:EnumeratedParameterType name="HeaterStateType">
         <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
@@ -582,6 +591,7 @@
       <!-- COMMS_STATUS Parameters (APID 0x1C) -->
       <xtce:Parameter name="COMM_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Comms status timestamp" />
       <xtce:Parameter name="COMM_BEACON_STATE" parameterTypeRef="EnableStateParamType" shortDescription="Autonomous beacon mode (ENABLE_BEACON)" />
+      <xtce:Parameter name="COMM_DOWNLINK_STATE" parameterTypeRef="DownlinkStateType" shortDescription="Stored-data downlink session (DOWNLINK_START/STOP)" />
     </xtce:ParameterSet>
 
     <xtce:ContainerSet>
@@ -902,6 +912,7 @@
         <xtce:EntryList>
           <xtce:ParameterRefEntry parameterRef="COMM_TIMESTAMP" />
           <xtce:ParameterRefEntry parameterRef="COMM_BEACON_STATE" />
+          <xtce:ParameterRefEntry parameterRef="COMM_DOWNLINK_STATE" />
         </xtce:EntryList>
         <xtce:BaseContainer containerRef="CCSDSHeader">
           <xtce:RestrictionCriteria>

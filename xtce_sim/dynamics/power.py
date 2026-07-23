@@ -31,6 +31,7 @@ discharging.
     CDH = 0.3                    # the simple form: flat amps while ON
     ADCS = { base = 0.3, wheels = true }
     IMAGER = { by = "IMG_STATE", amps = { IDLE = 0.2, CAPTURING = 0.8 } }
+    COMMS = { base = 0.1, by = { COMM_BEACON_STATE = { ENABLE = 0.25 }, COMM_DOWNLINK_STATE = { ACTIVE = 1.6 } } }
     HEATER = { per_element = 0.4, elements = { THM_HEATER1_STATE = "THM_HEATER1_TEMP" } }
 
     [_models.power.outputs]      # model outputs -> XTCE fields
@@ -57,8 +58,9 @@ recorded here rather than hidden):
   the surplus, as real shunt regulators do).
 - A load's draw composes up to four physical parts, all gated by its LCL
   (PWR_<name>_STATE == ON; anything else draws nothing): a flat ``base``;
-  an activity-keyed part (``by`` names an enum field, ``amps`` gives the
-  draw per label, unlisted labels draw 0); the ADCS model's live wheel
+  activity-keyed parts (``by`` names an enum field with a sibling ``amps``
+  table of draw-per-label, or maps several fields to their own amps
+  tables; unlisted labels draw 0); the ADCS model's live wheel
   currents (``wheels = true`` — the same amps ADCS_WHEELS telemeters);
   and duty-cycled elements (``per_element`` amps each, ``elements`` maps
   a mode field to the field it regulates — the element draws while its
@@ -91,6 +93,14 @@ _SOURCE_KEYS = frozenset(
 
 
 @dataclass(frozen=True)
+class ActivityDraw:
+    """One activity-keyed draw: amps per label of an enum field."""
+
+    field: str  # e.g. IMG_STATE
+    amps: tuple[tuple[int, float], ...]  # (label raw value, amps) pairs
+
+
+@dataclass(frozen=True)
 class ElementParams:
     """One duty-cycled element: forced by its mode field, thermostat-driven
     in AUTO (the regulate loop on ``duty_field`` says whether it is heating
@@ -109,8 +119,7 @@ class LoadParams:
     state_field: str  # e.g. PWR_CDH_STATE — the LCL gate
     on_raw: int  # the gate field's raw value for the ON label
     base_a: float  # flat amps while the gate reads ON
-    by_field: Optional[str]  # activity enum field, e.g. IMG_STATE
-    by_amps: tuple[tuple[int, float], ...]  # (label raw value, amps) pairs
+    by_parts: tuple[ActivityDraw, ...]  # activity-keyed draws
     wheels: bool  # add the ADCS model's live wheel currents
     per_element_a: float  # amps per lit element
     elements: tuple[ElementParams, ...]
@@ -223,9 +232,9 @@ class PowerModel:
     def _one_load_current(self, load: LoadParams) -> float:
         """The composed draw of one switched-on load, part by part."""
         total = load.base_a
-        if load.by_field is not None:
-            raw = self._read_raw(load.by_field)
-            total += next((amps for value, amps in load.by_amps if raw == value), 0.0)
+        for part in load.by_parts:
+            raw = self._read_raw(part.field)
+            total += next((amps for value, amps in part.amps if raw == value), 0.0)
         if load.wheels and self._wheel_current is not None:
             total += self._wheel_current()
         for elem in load.elements:
@@ -391,7 +400,7 @@ def _parse_one_load(spec, fields, state_field, on_raw, where: str, err) -> Optio
         amps = _positive(spec, where, err)
         if amps is None:
             return None
-        return LoadParams(state_field, on_raw, amps, None, (), False, 0.0, ())
+        return LoadParams(state_field, on_raw, amps, (), False, 0.0, ())
     if not isinstance(spec, dict):
         err(f"{where}: must be amps or a table of draw parts")
         return None
@@ -403,47 +412,77 @@ def _parse_one_load(spec, fields, state_field, on_raw, where: str, err) -> Optio
     if not (spec.keys() & known):
         perr(f"{where}: declares no draw part")
     base = _positive(spec["base"], f"{where}.base", perr) if "base" in spec else 0.0
-    by_field, by_amps = _parse_by_part(spec, fields, where, perr)
+    by_parts = _parse_by_parts(spec, fields, where, perr)
     wheels = spec.get("wheels", False)
     if not isinstance(wheels, bool):
         perr(f"{where}.wheels: must be true or false")
     per_element, elements = _parse_element_part(spec, fields, where, perr)
     if problems.count:
         return None
-    return LoadParams(state_field, on_raw, base, by_field, by_amps, wheels, per_element, elements)
+    return LoadParams(state_field, on_raw, base, by_parts, wheels, per_element, elements)
 
 
-def _parse_by_part(spec, fields, where: str, err):
-    """The activity-keyed part: ``by`` names an enum field, ``amps`` maps
-    its labels to draws. Unlisted labels draw 0 at runtime."""
+def _parse_by_parts(spec, fields, where: str, err) -> tuple[ActivityDraw, ...]:
+    """The activity-keyed part, in two spellings: ``by = "FIELD"`` with a
+    sibling ``amps`` table (one activity field), or ``by`` as a table
+    mapping each activity field to its own amps table (several — e.g.
+    COMMS pays for the beacon and the downlink session independently).
+    Unlisted labels draw 0 at runtime."""
+    if "by" not in spec:
+        if "amps" in spec:
+            err(f"{where}: amps requires by")
+        return ()
+    by = spec["by"]
+    if isinstance(by, str):
+        if "amps" not in spec:
+            err(f"{where}: by and amps must appear together")
+            return ()
+        part = _one_by_part(by, spec["amps"], fields, f"{where}.amps", where, err)
+        return (part,) if part is not None else ()
+    if isinstance(by, dict):
+        return _parse_by_table(by, "amps" in spec, fields, where, err)
+    err(f"{where}.by: must be a field name or a table of field = amps tables")
+    return ()
+
+
+def _parse_by_table(by: dict, has_amps: bool, fields, where: str, err) -> tuple[ActivityDraw, ...]:
+    """The multi-field spelling: ``by`` maps activity fields to amps tables."""
+    if has_amps:
+        err(f"{where}: amps belongs inside the by table when by maps fields")
+        return ()
+    if not by:
+        err(f"{where}.by: must name at least one activity field")
+        return ()
+    parts = []
+    for fname, amps_table in by.items():
+        part = _one_by_part(fname, amps_table, fields, f"{where}.by.{fname}", where, err)
+        if part is not None:
+            parts.append(part)
+    return tuple(parts)
+
+
+def _one_by_part(by, amps_table, fields, amps_where: str, where: str, err) -> Optional[ActivityDraw]:
     from xtce_sim.dynamics.model import _positive
 
-    if ("by" in spec) != ("amps" in spec):
-        err(f"{where}: by and amps must appear together")
-        return None, ()
-    if "by" not in spec:
-        return None, ()
-    by = spec["by"]
     field = fields.get(by) if isinstance(by, str) else None
     if field is None:
         err(f"{where}.by: no field {by!r} in the definition")
-        return None, ()
+        return None
     if not field.enumerations:
         err(f"{where}.by: {by} is not an enumerated field")
-        return None, ()
-    amps_table = spec["amps"]
+        return None
     if not isinstance(amps_table, dict) or not amps_table:
-        err(f"{where}.amps: must be a non-empty table of label = amps")
-        return None, ()
+        err(f"{amps_where}: must be a non-empty table of label = amps")
+        return None
     pairs = []
     for label, amps in amps_table.items():
         if label not in field.enumerations:
-            err(f"{where}.amps: {by} has no label {label!r}")
+            err(f"{amps_where}: {by} has no label {label!r}")
             continue
-        value = _positive(amps, f"{where}.amps.{label}", err)
+        value = _positive(amps, f"{amps_where}.{label}", err)
         if value is not None:
             pairs.append((int(field.enumerations[label]), value))
-    return by, tuple(pairs)
+    return ActivityDraw(by, tuple(pairs))
 
 
 def _parse_element_part(spec, fields, where: str, err):
