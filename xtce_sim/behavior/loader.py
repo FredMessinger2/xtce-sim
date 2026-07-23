@@ -11,6 +11,7 @@ package docstring (``xtce_sim/behavior/__init__.py``).
 
 from __future__ import annotations
 
+import math
 import tomllib
 from pathlib import Path
 from typing import Optional
@@ -27,7 +28,7 @@ from xtce_sim.behavior.spec import (
 from xtce_sim.behavior.validate import _check_field_template, _check_scalar_for_field, _Context
 from xtce_sim.behavior.verbs import scalar_effect  # populates VERBS on import
 from xtce_sim.definition import CommandDef, SimDefinition
-from xtce_sim.dynamics.model import AdcsModelConfig, parse_model
+from xtce_sim.dynamics.model import AdcsModelConfig, parse_environment, parse_model
 
 _EMIT_VALUES = ("interval", "immediate")
 # Attributes every verb accepts, on top of its own (declared per Verb).
@@ -76,6 +77,7 @@ def load_behavior(source: Path, simdef: SimDefinition) -> BehaviorSpec:
     signals: list[Effect] = []
     commands: dict[str, list[Effect]] = {}
     models: list[AdcsModelConfig] = []
+    environments: list = []  # at most one — the shared world
     origins: dict[tuple, str] = {}  # (table, field template) -> file name
     for path in files:
         _load_one_file(
@@ -87,6 +89,7 @@ def load_behavior(source: Path, simdef: SimDefinition) -> BehaviorSpec:
             commands,
             origins,
             models,
+            environments,
             tag=len(files) > 1,
         )
 
@@ -94,7 +97,7 @@ def load_behavior(source: Path, simdef: SimDefinition) -> BehaviorSpec:
     if ctx.errors:
         problems = "\n  - ".join(ctx.errors)
         raise BehaviorError(f"{source}: {len(ctx.errors)} problem(s):\n  - {problems}")
-    return BehaviorSpec(
+    spec = BehaviorSpec(
         path=source,
         initial=initial,
         commands=commands,
@@ -102,6 +105,9 @@ def load_behavior(source: Path, simdef: SimDefinition) -> BehaviorSpec:
         files=files,
         models=models,
     )
+    if environments:
+        spec.environment = environments[0]
+    return spec
 
 
 def _check_model_ownership(
@@ -161,6 +167,7 @@ def _load_one_file(
     commands: dict,
     origins: dict,
     models: list,
+    environments: list,
     *,
     tag: bool,
 ) -> None:
@@ -185,6 +192,8 @@ def _load_one_file(
             _merge_signals(body, ctx, signals, merge)
         elif table == "_models":
             _merge_models(body, simdef, ctx, models, merge)
+        elif table == "_environment":
+            _merge_environment(body, ctx, environments, merge)
         else:
             _merge_command_table(table, body, simdef, ctx, commands, merge)
 
@@ -203,6 +212,20 @@ def _merge_signals(body, ctx: _Context, signals: list, merge: "_Merger") -> None
     for eff in _load_signals(body, ctx):
         if merge.claim("_signals", eff.field):
             signals.append(eff)
+
+
+def _merge_environment(body, ctx: _Context, environments: list, merge: "_Merger") -> None:
+    """The [_environment] table: the ONE shared world (orbit, sun).
+
+    Exactly one file may declare it — a second declaration anywhere is a
+    conflict, same rule as any duplicated field, because two solar
+    systems that could disagree is precisely what this table forbids.
+    """
+    if not merge.claim("_environment", "world"):
+        return
+    env = parse_environment(body, ctx.error)
+    if env is not None:
+        environments.append(env)
 
 
 def _merge_models(
@@ -254,6 +277,14 @@ def _merge_command_table(
 def describe(spec: BehaviorSpec) -> list[str]:
     """Human-readable narration of a behavior spec, one line per fact."""
     lines = []
+    if spec.models:
+        # The world only matters when something lives in it.
+        env = spec.environment
+        lines.append(
+            f"environment: orbit {env.orbit.altitude / 1e3:.0f} km @ "
+            f"{math.degrees(env.orbit.inclination):.1f} deg, "
+            f"sun {list(env.sun_direction)} (shared by all models)"
+        )
     if spec.initial:
         lines.append(f"initial values: {len(spec.initial)} field(s)")
         for fname, value in spec.initial.items():

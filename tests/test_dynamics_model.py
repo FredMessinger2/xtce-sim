@@ -9,6 +9,8 @@ import pytest
 from xtce_sim.definition import SimDefinition
 from xtce_sim.dynamics.model import (
     AdcsModel,
+    default_environment,
+    parse_environment,
     parse_model,
 )
 from xtce_sim.dynamics.modes import AdcsMode
@@ -31,7 +33,6 @@ def _minimal_table(**overrides):
             {"axis": [0.0, 0.6, 0.8], "inertia": 0.02, "max_torque": 0.05, "max_speed": 600.0},
             {"axis": [0.0, -0.6, 0.8], "inertia": 0.02, "max_torque": 0.05, "max_speed": 600.0},
         ],
-        "orbit": {"altitude_km": 500.0},
         "outputs": {"ADCS_MODE": "mode", "ADCS_WHEEL1_SPEED": "wheel1_speed_rpm"},
     }
     table.update(overrides)
@@ -44,12 +45,17 @@ def _parse(simdef, table):
     return cfg, errors
 
 
+def _parse_env(table):
+    errors = []
+    env = parse_environment(table, errors.append)
+    return env, errors
+
+
 def test_minimal_model_parses(simdef):
     cfg, errors = _parse(simdef, _minimal_table())
     assert errors == []
     assert cfg is not None
     assert len(cfg.wheels) == 4
-    assert cfg.orbit.altitude == pytest.approx(500e3)
     # Conventional command names resolve without a [commands] table.
     assert cfg.commands["set_mode"] == "ADCS_SET_MODE"
     assert len(cfg.commands) == 11
@@ -136,10 +142,6 @@ def test_parse_rejects_malformed_tables(simdef):
     assert cfg is None and errors == ["[_models.adcs]: must be a table"]
     cfg, errors = _parse(simdef, _minimal_table(body={"inertia": "wrong"}))
     assert any("must be [Ixx, Iyy, Izz]" in e for e in errors)
-    cfg, errors = _parse(simdef, _minimal_table(orbit="wrong"))
-    assert any("orbit: must be a table" in e for e in errors)
-    cfg, errors = _parse(simdef, _minimal_table(orbit={"altitude_km": -1.0}))
-    assert any("altitude_km: must be a positive number" in e for e in errors)
     cfg, errors = _parse(simdef, _minimal_table(outputs={}))
     assert any("at least one field binding" in e for e in errors)
     cfg, errors = _parse(simdef, _minimal_table(commands="wrong"))
@@ -156,23 +158,66 @@ def test_parse_rejects_malformed_tables(simdef):
 def test_parse_reports_non_table_subtables_instead_of_crashing(simdef):
     # A user writing `sun = 5` must get the courteous error, not a traceback.
     cfg, errors = _parse(
-        simdef, _minimal_table(sun=5, controller="x", mtq=[1], sensors=3.5, body="oops")
+        simdef, _minimal_table(controller="x", mtq=[1], sensors=3.5, body="oops")
     )
     assert cfg is None
     text = "\n".join(errors)
-    for key in ("sun", "controller", "mtq", "sensors", "body"):
+    for key in ("controller", "mtq", "sensors", "body"):
         assert f"{key}: must be a table" in text
 
 
-def test_parse_reports_non_numeric_orbit_angles_instead_of_crashing(simdef):
+def test_environment_parses_and_validates():
+    # The happy path: the world built from the vehicle-level table.
+    env, errors = _parse_env({"orbit": {"altitude_km": 500.0, "inclination_deg": 51.6}})
+    assert errors == [] and env is not None
+    assert env.orbit.altitude == pytest.approx(500e3)
+    # Absent table -> the documented default world.
+    default = default_environment()
+    assert default.orbit.altitude == pytest.approx(500e3)
+    assert default.sun_direction == (1.0, 0.0, 0.0)
+
+
+def test_environment_rejects_malformed_tables():
+    env, errors = _parse_env("not a table")
+    assert env is None and errors == ["[_environment]: must be a table"]
+    env, errors = _parse_env({"orbit": "wrong"})
+    assert any("orbit: must be a table" in e for e in errors)
+    env, errors = _parse_env({"orbit": {"altitude_km": -1.0}})
+    assert any("altitude_km: must be a positive number" in e for e in errors)
+    env, errors = _parse_env({"orbit": {"altitud_km": 400.0}})
+    assert any("orbit: unknown key 'altitud_km'" in e for e in errors)
+    env, errors = _parse_env({"weather": {}})
+    assert any("unknown key 'weather'" in e for e in errors)
+
+
+def test_environment_reports_non_numeric_orbit_angles_instead_of_crashing():
     # TOML makes `inclination_deg = "51.6"` a one-keystroke mistake.
-    table = _minimal_table(
-        orbit={"altitude_km": 500.0, "inclination_deg": "51.6", "raan_deg": True}
+    env, errors = _parse_env(
+        {"orbit": {"altitude_km": 500.0, "inclination_deg": "51.6", "raan_deg": True}}
     )
-    cfg, errors = _parse(simdef, table)
-    assert cfg is None
+    assert env is None
     assert any("inclination_deg: must be a finite number" in e for e in errors)
     assert any("raan_deg: must be a finite number" in e for e in errors)
+
+
+def test_environment_rejects_non_finite_values():
+    env, errors = _parse_env({"orbit": {"altitude_km": 500.0, "inclination_deg": math.inf}})
+    assert env is None
+    assert any("inclination_deg: must be a finite number" in e for e in errors)
+    env, errors = _parse_env({"sun_direction": [math.inf, 0.0, 0.0]})
+    assert env is None
+    assert any("3-element number array" in e for e in errors)
+
+
+def test_model_orbit_and_sun_are_migration_errors(simdef):
+    # The world moved out of the model; the old keys get a pointed message,
+    # not a generic unknown-key shrug.
+    cfg, errors = _parse(simdef, _minimal_table(orbit={"altitude_km": 500.0}))
+    assert cfg is None
+    assert any("declare it under [_environment] (orbit)" in e for e in errors)
+    cfg, errors = _parse(simdef, _minimal_table(sun={"direction": [1.0, 0.0, 0.0]}))
+    assert cfg is None
+    assert any("declare it under [_environment] (sun_direction)" in e for e in errors)
 
 
 def test_parse_rejects_non_finite_numbers(simdef):
@@ -182,10 +227,6 @@ def test_parse_rejects_non_finite_numbers(simdef):
     cfg, errors = _parse(simdef, _minimal_table(controller={"response_time": math.inf}))
     assert cfg is None
     assert any("response_time: must be a positive number" in e for e in errors)
-    table = _minimal_table(orbit={"altitude_km": 500.0, "inclination_deg": math.inf})
-    cfg, errors = _parse(simdef, table)
-    assert cfg is None
-    assert any("inclination_deg: must be a finite number" in e for e in errors)
     wheels = _minimal_table()["wheels"]
     wheels[0] = dict(wheels[0], max_torque=math.nan)
     cfg, errors = _parse(simdef, _minimal_table(wheels=wheels))
@@ -198,9 +239,6 @@ def test_parse_rejects_non_finite_numbers(simdef):
     cfg, errors = _parse(simdef, _minimal_table(body={"inertia": [math.nan, 14.0, 9.0]}))
     assert cfg is None
     assert any("moments must be positive" in e for e in errors)
-    cfg, errors = _parse(simdef, _minimal_table(sun={"direction": [math.inf, 0.0, 0.0]}))
-    assert cfg is None
-    assert any("3-element number array" in e for e in errors)
 
 
 def test_parse_rejects_bad_friction(simdef):
@@ -223,7 +261,6 @@ def test_parse_rejects_unknown_subtable_keys(simdef):
     table = _minimal_table(
         body={"inertia": [12.0, 14.0, 9.0], "intertia": 5},
         controller={"respons_time": 3.0},
-        orbit={"altitud_km": 400.0},
         mtq={"max_dipol": 2.0},
     )
     table["wheels"][0]["frction"] = 0.1
@@ -232,7 +269,6 @@ def test_parse_rejects_unknown_subtable_keys(simdef):
     text = "\n".join(errors)
     assert "body: unknown key 'intertia'" in text
     assert "controller: unknown key 'respons_time'" in text
-    assert "orbit: unknown key 'altitud_km'" in text
     assert "mtq: unknown key 'max_dipol'" in text
     assert "wheels[1]: unknown key 'frction'" in text
 
@@ -319,7 +355,7 @@ def test_output_binding_edge_field_types():
 def _model(simdef, **overrides):
     cfg, errors = _parse(simdef, _minimal_table(**overrides))
     assert errors == []
-    return AdcsModel(cfg)
+    return AdcsModel(cfg, default_environment())
 
 
 def test_advance_uses_fixed_substeps_without_drift(simdef):
@@ -357,7 +393,7 @@ def test_mag_field_reported_in_microtesla(simdef):
     table["outputs"]["ADCS_MAG_X"] = "mag_x_ut"
     cfg, errors = _parse(simdef, table)
     assert errors == []
-    model = AdcsModel(cfg)
+    model = AdcsModel(cfg, default_environment())
     model.advance(1.0)
     # LEO dipole magnitude is tens of µT; Tesla would be ~1e-5.
     mag = model.machine.mag_body[0] * 1e6
@@ -433,7 +469,7 @@ def test_pointing_error_telemetry_gates_on_attitude_hold(simdef):
     table["outputs"]["ADCS_POINTING_ERR"] = "pointing_err_deg"
     cfg, errors = _parse(simdef, table)
     assert errors == []
-    model = AdcsModel(cfg)
+    model = AdcsModel(cfg, default_environment())
     assert model.outputs()["ADCS_POINTING_ERR"] == 0.0  # STANDBY at boot
     model.apply_command(
         "ADCS_SLEW_TO_QUATERNION", {"Q1": 0.0, "Q2": 0.0, "Q3": 0.7071, "Q4": 0.7071}
@@ -450,7 +486,7 @@ def test_momentum_flag_trips_near_wheel_speed_limit(simdef):
     table["outputs"]["ADCS_MOMENTUM_FLAG"] = "momentum_flag"
     cfg, errors = _parse(simdef, table)
     assert errors == []
-    model = AdcsModel(cfg)
+    model = AdcsModel(cfg, default_environment())
     assert model.outputs()["ADCS_MOMENTUM_FLAG"] == "OK"
     for i in range(4):
         model.machine.plant.command_speed(i, 590.0)  # 98% of the 600 rail
@@ -464,7 +500,7 @@ def test_wheel_current_and_temp_reflect_torque_magnitude(simdef):
     table["outputs"]["ADCS_WHEEL1_TEMP"] = "wheel1_temp_c"
     cfg, errors = _parse(simdef, table)
     assert errors == []
-    model = AdcsModel(cfg)
+    model = AdcsModel(cfg, default_environment())
     # Spin DOWN so delivered torque is negative: current is |torque|-based
     # and must rise above idle, not fall below it.
     model.machine.plant.command_speed(0, -300.0)

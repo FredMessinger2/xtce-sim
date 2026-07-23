@@ -17,7 +17,8 @@ from dataclasses import field as dc_field
 from pathlib import Path
 from typing import Callable, ClassVar, Optional
 
-from xtce_sim.dynamics.model import AdcsModelConfig
+from xtce_sim.dynamics.environment import Environment
+from xtce_sim.dynamics.model import AdcsModelConfig, default_environment
 
 _TEMPLATE_RE = re.compile(r"\{(\w+)\}")
 
@@ -163,6 +164,9 @@ class BehaviorSpec:
     # Physics models declared under [_models]: each owns its output fields
     # (no other table may write them) and consumes its bound commands.
     models: list[AdcsModelConfig] = dc_field(default_factory=list)
+    # The shared world every model lives in — one orbit, one sun, one
+    # eclipse. Declared once at [_environment]; defaulted when absent.
+    environment: Environment = dc_field(default_factory=default_environment)
 
     @property
     def source_label(self) -> str:
