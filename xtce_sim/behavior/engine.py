@@ -20,7 +20,8 @@ from typing import Optional
 
 from xtce_sim.behavior.spec import _SKIP, _TEMPLATE_RE, ActiveBehavior, BehaviorSpec
 from xtce_sim.definition import SimDefinition, label_for
-from xtce_sim.dynamics.model import AdcsModel
+from xtce_sim.dynamics.model import AdcsModel, AdcsModelConfig
+from xtce_sim.dynamics.power import PowerModel, PowerModelConfig
 
 logger = logging.getLogger("xtce_sim.behavior")
 
@@ -79,8 +80,23 @@ class BehaviorEngine:
                     getattr(eff, "field", eff),
                 )
         # Physics models: instantiate, route their commands, seed outputs so
-        # the very first beacon already carries a live attitude.
-        self.models = [AdcsModel(cfg, spec.environment) for cfg in spec.models]
+        # the very first beacon already carries a live attitude and bus.
+        # Two passes: ADCS bodies first, then power models wired to the
+        # first body's TRUTH attitude (illumination follows where the
+        # vehicle really points, not where the estimator believes it does)
+        # and to the overlay for the LCL switch states.
+        self.models = [
+            AdcsModel(cfg, spec.environment)
+            for cfg in spec.models
+            if isinstance(cfg, AdcsModelConfig)
+        ]
+        adcs = self.models[0] if self.models else None
+        attitude = (lambda: adcs.machine.plant.state.quat) if adcs else None
+        self.models += [
+            PowerModel(cfg, spec.environment, self.state.get, attitude)
+            for cfg in spec.models
+            if isinstance(cfg, PowerModelConfig)
+        ]
         self._model_by_command = {
             name: model for model in self.models for name in model.config.commands.values()
         }
@@ -189,7 +205,7 @@ class BehaviorEngine:
             model.advance(dt)
             self._store_model_outputs(model)
 
-    def _store_model_outputs(self, model: AdcsModel) -> None:
+    def _store_model_outputs(self, model: AdcsModel | PowerModel) -> None:
         where = f"[_models.{model.config.name}]"
         for fname, value in model.outputs().items():
             self._store(where, fname, value)

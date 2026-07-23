@@ -128,6 +128,20 @@
         </xtce:IntegerDataEncoding>
       </xtce:FloatParameterType>
 
+      <!-- Battery current: SIGNED (positive charging, negative discharging;
+           an unsigned current cannot say "discharging"). Raw 16-bit
+           two's complement at 1 mA/count: +/-32.7 A range. -->
+      <xtce:FloatParameterType name="BatteryCurrentType">
+        <xtce:UnitSet><xtce:Unit>A</xtce:Unit></xtce:UnitSet>
+        <xtce:IntegerDataEncoding sizeInBits="16" encoding="twosComplement">
+          <xtce:DefaultCalibrator>
+            <xtce:PolynomialCalibrator>
+              <xtce:Term coefficient="0.001" exponent="1" />
+            </xtce:PolynomialCalibrator>
+          </xtce:DefaultCalibrator>
+        </xtce:IntegerDataEncoding>
+      </xtce:FloatParameterType>
+
       <!-- Temperature: raw 16-bit signed, scaled to degC -->
       <xtce:FloatParameterType name="TemperatureType">
         <xtce:UnitSet><xtce:Unit>degC</xtce:Unit></xtce:UnitSet>
@@ -457,7 +471,7 @@
       <xtce:Parameter name="PWR_SOLAR_VOLTAGE" parameterTypeRef="VoltageType" shortDescription="Solar array voltage" />
       <xtce:Parameter name="PWR_SOLAR_CURRENT" parameterTypeRef="CurrentType" shortDescription="Solar array current" />
       <xtce:Parameter name="PWR_BATTERY_VOLTAGE" parameterTypeRef="VoltageType" shortDescription="Battery voltage" />
-      <xtce:Parameter name="PWR_BATTERY_CURRENT" parameterTypeRef="CurrentType" shortDescription="Battery current" />
+      <xtce:Parameter name="PWR_BATTERY_CURRENT" parameterTypeRef="BatteryCurrentType" shortDescription="Battery current (+charge/-discharge)" />
       <xtce:Parameter name="PWR_BATTERY_TEMP" parameterTypeRef="TemperatureType" shortDescription="Battery temperature" />
       <xtce:Parameter name="PWR_CDH_STATE" parameterTypeRef="PowerStateParamType" shortDescription="CDH power state" />
       <xtce:Parameter name="PWR_COMMS_STATE" parameterTypeRef="PowerStateParamType" shortDescription="Comms power state" />

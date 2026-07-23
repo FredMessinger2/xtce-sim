@@ -19,6 +19,7 @@ from typing import Callable, ClassVar, Optional
 
 from xtce_sim.dynamics.environment import Environment
 from xtce_sim.dynamics.model import AdcsModelConfig, default_environment
+from xtce_sim.dynamics.power import PowerModelConfig
 
 _TEMPLATE_RE = re.compile(r"\{(\w+)\}")
 
@@ -163,7 +164,7 @@ class BehaviorSpec:
     files: list[Path] = dc_field(default_factory=list)  # the merged .toml files
     # Physics models declared under [_models]: each owns its output fields
     # (no other table may write them) and consumes its bound commands.
-    models: list[AdcsModelConfig] = dc_field(default_factory=list)
+    models: list[AdcsModelConfig | PowerModelConfig] = dc_field(default_factory=list)
     # The shared world every model lives in — one orbit, one sun, one
     # eclipse. Declared once at [_environment]; defaulted when absent.
     environment: Environment = dc_field(default_factory=default_environment)

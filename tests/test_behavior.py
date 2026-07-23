@@ -75,16 +75,21 @@ def test_shipped_imaging_sidecar_validates(simdef):
     reg = next(e for e in spec.commands["HEATER_AUTO"] if isinstance(e, RegulateEffect))
     assert reg.center == "@THM_HEATER{HeaterId}_SETPOINT" and reg.band == 2.0
     assert (reg.heats_to, reg.tau_heat, reg.cools_to, reg.tau_cool) == (60.0, 30.0, 20.0, 45.0)
-    # Eight boot signals, and only continuous kinds: waves and holds.
+    # Six boot signals (the fake solar/battery voltages became the power
+    # model), and only continuous kinds: waves and holds.
     from xtce_sim.behavior import HoldEffect, OscillateEffect
 
-    assert len(spec.signals) == 8
+    assert len(spec.signals) == 6
     assert {type(e) for e in spec.signals} == {OscillateEffect, HoldEffect}
-    # The ADCS is a model now: one, owning 41 fields and 11 commands.
-    assert len(spec.models) == 1
-    assert spec.models[0].name == "adcs"
-    assert len(spec.models[0].outputs) == 41
-    assert len(spec.models[0].commands) == 11
+    # Two physics models: the ADCS (41 fields, 11 commands) and the EPS
+    # (4 analog fields, no commands — SET_POWER stays ordinary behavior).
+    by_name = {cfg.name: cfg for cfg in spec.models}
+    assert set(by_name) == {"adcs", "power"}
+    assert len(by_name["adcs"].outputs) == 41
+    assert len(by_name["adcs"].commands) == 11
+    assert len(by_name["power"].outputs) == 4
+    assert by_name["power"].commands == {}
+    assert len(by_name["power"].loads) == 5
 
 
 def test_sidecar_discovery(tmp_path):

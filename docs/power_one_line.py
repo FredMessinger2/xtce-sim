@@ -4,8 +4,9 @@ circuit.
 
 Color legend (also drawn on the diagram):
   black  — physical element, no telemetry in the ICD
-  blue   — XTCE parameter, telemetered AND driven by the sim today
-  orange — XTCE parameter, declared in the ICD but not yet driven
+  blue   — XTCE parameter, driven by the sim (since power-model bank
+           one, that is every colored sense on this card)
+  orange — XTCE parameter declared but not yet driven (none remain)
 
 Generates power-one-line.svg. Requires schemdraw (not a project
 dependency — install it anywhere and rerun this script when the diagram
@@ -44,8 +45,8 @@ for y, wing in ((6.5, "+Y"), (2.5, "-Y")):
         d.add(
             elm.CurrentLabelInline(direction="in", ofst=0.9)
             .at(lnout)
-            .color(UNDRIVEN)
-            .label("PWR_SOLAR_CURRENT", fontsize=8, color=UNDRIVEN)
+            .color(DRIVEN)
+            .label("PWR_SOLAR_CURRENT", fontsize=8, color=DRIVEN)
         )
         vstub = d.add(elm.Line().at(ln2.center).up(0.9).color(DRIVEN).linestyle("--"))
         d.add(
@@ -79,8 +80,8 @@ bcr = d.add(
 d.add(
     elm.CurrentLabelInline(direction="in", ofst=0.9)
     .at(lnb)
-    .color(UNDRIVEN)
-    .label("PWR_BATTERY_CURRENT (+/-)", fontsize=8, color=UNDRIVEN)
+    .color(DRIVEN)
+    .label("PWR_BATTERY_CURRENT (+/-)", fontsize=8, color=DRIVEN)
 )
 lnb2 = d.add(
     elm.Line()
@@ -138,7 +139,7 @@ lx, ly = 0.0, -3.2
 d.add(flow.Box(w=6.4, h=2.6).at((lx + 3.2, ly - 1.3)).anchor("center").linewidth(1))
 d.add(elm.Label().at((lx + 0.3, ly - 0.5)).label("black: physical element, no telemetry", fontsize=8, halign="left"))
 d.add(elm.Label().at((lx + 0.3, ly - 1.2)).label("blue: XTCE parameter, driven by the sim today", fontsize=8, color=DRIVEN, halign="left"))
-d.add(elm.Label().at((lx + 0.3, ly - 1.9)).label("orange: declared in the XTCE, not yet driven", fontsize=8, color=UNDRIVEN, halign="left"))
+d.add(elm.Label().at((lx + 0.3, ly - 1.9)).label("(orange = declared but undriven: none remain on this card)", fontsize=8, color=UNDRIVEN, halign="left"))
 
 d.save("power-one-line.svg")
 print("wrote power-one-line.svg")

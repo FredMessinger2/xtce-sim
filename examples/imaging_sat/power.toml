@@ -26,8 +26,46 @@ PWR_HEATER_STATE = "OFF"
 [SET_POWER]
 "PWR_{SubsystemId}_STATE" = { set = "@arg:PowerState", emit = "immediate" }
 
-# The solar bus rides the orbit; the battery breathes with seeded noise.
+# Battery temperature stays a behavioral hold until thermal coupling
+# becomes real; everything else electrical is the model's now.
 [_signals]
-PWR_SOLAR_VOLTAGE = { oscillate = 16.0, amplitude = 12.0, period = 5400, noise = 0.3 }
-PWR_BATTERY_VOLTAGE = { hold = 24.0, noise = 0.3 }
 PWR_BATTERY_TEMP = { hold = 15.0, noise = 0.4 }
+
+# ---------------------------------------------------------------------------
+# The EPS as physics: generation follows the shared [_environment] sun and
+# eclipse plus the vehicle's real attitude (perfect single-axis SADA
+# tracking — the only off-pointing that costs power is the sun component
+# along the wing axis); the battery integrates charge and its voltage
+# follows charge and sags under load; each load below draws its nominal
+# current while its PWR_<name>_STATE reads ON (per-activity draws are the
+# next bank). PWR_BATTERY_CURRENT is signed: positive charging, negative
+# discharging. Numbers from docs/power-wiring-model.md.
+[_models.power]
+kind = "power"
+
+[_models.power.array]
+wing_power_w = 60.0          # Pmp per wing, BOL, sun-normal
+wings = 2
+vmp = 28.0                   # array max-power voltage
+mppt_efficiency = 0.95
+sada_axis = [0.0, 1.0, 0.0]  # wings rotate about body Y
+
+[_models.power.battery]
+capacity_ah = 10.0
+cells = 6                    # Li-ion in series, 22.2 V nominal
+internal_resistance = 0.15   # ohm, whole string
+charge_current_max = 2.0     # A, tapers over the top 10% of charge
+initial_soc = 0.75           # boots at 24.0 V open-circuit
+
+[_models.power.loads]        # amps while PWR_<name>_STATE is ON
+CDH = 0.3
+ADCS = 0.5
+COMMS = 0.1
+IMAGER = 0.2
+HEATER = 0.6
+
+[_models.power.outputs]
+PWR_SOLAR_VOLTAGE = "solar_voltage"
+PWR_SOLAR_CURRENT = "solar_current"
+PWR_BATTERY_VOLTAGE = "battery_voltage"
+PWR_BATTERY_CURRENT = "battery_current"
