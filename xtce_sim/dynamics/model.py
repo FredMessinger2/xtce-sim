@@ -147,6 +147,18 @@ def default_environment() -> Environment:
     return Environment(orbit=CircularOrbit(altitude=500.0e3))
 
 
+def _reject_moved_world_keys(body: dict, where: str, err: Callable[[str], None]) -> None:
+    """The world moved out of the model: one solar system per vehicle,
+    declared once at [_environment]. The old keys get a pointed message,
+    not a generic unknown-key shrug."""
+    for moved, home in (("orbit", "orbit"), ("sun", "sun_direction")):
+        if moved in body:
+            err(
+                f"{where}.{moved}: the world is shared, not model-owned — "
+                f"declare it under [_environment] ({home})"
+            )
+
+
 def _source_keys(wheel_count: int) -> set[str]:
     """Every output key the runtime can produce."""
     keys = {
@@ -211,15 +223,7 @@ def parse_model(name: str, body, simdef, error: Callable[[str], None]) -> AdcsMo
         "outputs",
         "commands",
     }
-    # The world moved out of the model: one solar system per vehicle,
-    # declared once at [_environment], shared by every model.
-    for moved in ("orbit", "sun"):
-        if moved in body:
-            err(
-                f"{where}.{moved}: the world is shared, not model-owned — "
-                f"declare it under [_environment] "
-                f"({'orbit' if moved == 'orbit' else 'sun_direction'})"
-            )
+    _reject_moved_world_keys(body, where, err)
     for key in set(body) - known - {"orbit", "sun"}:
         err(f"{where}: unknown key {key!r}")
 
