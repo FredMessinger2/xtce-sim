@@ -197,21 +197,36 @@ def _source_keys(wheel_count: int) -> set[str]:
     return keys
 
 
-def parse_model(name: str, body, simdef, error: Callable[[str], None]) -> AdcsModelConfig | None:
-    """Validate one [_models.<name>] table; report every problem via
-    `error` (behavior-engine style: total, not fail-fast) and return None
-    if anything is wrong."""
+def parse_model(name: str, body, simdef, error: Callable[[str], None]):
+    """Validate one [_models.<name>] table, dispatching on its ``kind``.
+
+    Every kind reports problems via `error` (behavior-engine style: total,
+    not fail-fast) and returns None if anything is wrong. The registry of
+    kinds is this dispatch — a new model family adds a branch here.
+    """
     where = f"[_models.{name}]"
     if not isinstance(body, dict):
         error(f"{where}: must be a table")
         return None
+    kind = body.get("kind", "adcs")
+    if kind == "power":
+        # Local import: power.py reuses this module's validation helpers,
+        # so the top level must not import it back.
+        from xtce_sim.dynamics.power import parse_power_model
+
+        return parse_power_model(name, body, simdef, error)
+    if kind != "adcs":
+        error(f"{where}: unknown model kind {kind!r} (one of 'adcs', 'power')")
+        return None
+    return _parse_adcs_model(name, body, simdef, error)
+
+
+def _parse_adcs_model(
+    name: str, body: dict, simdef, error: Callable[[str], None]
+) -> AdcsModelConfig | None:
+    where = f"[_models.{name}]"
     problems_before = _ErrorCounter(error)
     err = problems_before.error
-
-    kind = body.get("kind", "adcs")
-    if kind != "adcs":
-        err(f"{where}: unknown model kind {kind!r} (only 'adcs')")
-        return None
     known = {
         "kind",
         "substep",

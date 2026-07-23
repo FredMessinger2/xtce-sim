@@ -144,11 +144,14 @@ significance: 11 command(s) declare non-normal criticality (2 vital, 9 critical)
 built ImagingSat: 41 dispatchable command(s), 13 telemetry packet(s)
 
 Behavior (examples/imaging_sat):
-  initial values: 5 field(s)
+  environment: orbit 500 km @ 51.6 deg, sun [1.0, 0.0, 0.0] (shared by all models)
+  initial values: 11 field(s)
     ...
-  boot signals: 8
+  boot signals: 6
     THM_PANEL_PLUS_X oscillates (sine) around 10.0 amplitude 25.0, period 5400.0s ±noise(0.5)
     ...
+  model adcs: rigid-body ADCS (4 wheels) driving 41 field(s), 11 command(s)
+  model power: EPS (2x60 W wings, 10 Ah battery, 5 switched load(s)) driving 4 field(s)
   HEATER_AUTO:
     THM_HEATER{HeaterId}_STATE = 'AUTO'  [emit: immediate]
     THM_HEATER{HeaterId}_TEMP regulates around @THM_HEATER{HeaterId}_SETPOINT band 2.0 (heats to 60.0 tau=30.0s, cools to 20.0 tau=45.0s)
@@ -970,6 +973,20 @@ momentum through the magnetorquers while the hold loop keeps pointing —
 `ADCS_MOMENTUM_TOTAL` drains on live telemetry. Wheel currents follow
 delivered motor torque; speeds read back in RPM, rates in deg/s, the field in
 µT — the XTCE's units, converted from the model's SI internals.
+
+The second model is the electrical power system (`power.toml`,
+`kind = "power"`), and it exists to make the vehicle's subsystems
+*interconnected*: solar generation follows the same sun and eclipse the ADCS
+flies in, scaled by how squarely the wings can face the sun given the body's
+**real attitude** (perfect single-axis SADA tracking — slew the imager at a
+target and generation drops by the cosine of what the wings can no longer
+reach). The battery is a state, not a signal: charge integrates every tick,
+terminal voltage follows charge and sags under load, and the charge
+controller tapers near full and shunts the surplus. Each switched load draws
+its configured current while its `PWR_*_STATE` reads ON — so `SET_POWER
+SubsystemId=IMAGER PowerState=ON` genuinely moves `PWR_BATTERY_CURRENT`
+(signed: positive charging, negative discharging). Fly an orbit and the
+battery breathes: discharge through eclipse, recharge in the sun.
 
 Nothing about the model is specific to this satellite. A second vehicle —
 kept as a test fixture rather than an example

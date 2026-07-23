@@ -14,11 +14,11 @@ Two things anchor the model to the simulator as it exists today:
   `PWR_IMAGER_STATE`, `PWR_HEATER_STATE` — declared in the XTCE (XML
   Telemetric and Command Exchange) interface definition and driven
   by `examples/imaging_sat/power.toml`.
-- The XTCE already telemeters `PWR_SOLAR_VOLTAGE`, `PWR_SOLAR_CURRENT`,
-  `PWR_BATTERY_VOLTAGE`, and `PWR_BATTERY_CURRENT`. Today only the voltages
-  are driven by declared signals; the two **current** parameters are
-  undriven. This model is the physics that would let the sim compute them
-  honestly (see "Status in the sim" below).
+- All four analog senses — `PWR_SOLAR_VOLTAGE`, `PWR_SOLAR_CURRENT`,
+  `PWR_BATTERY_VOLTAGE`, `PWR_BATTERY_CURRENT` — are now DRIVEN by the
+  `[_models.power]` physics model this document specified (see "Status in
+  the sim" below for exactly what is implemented and what waits for the
+  next bank).
 
 ## Architecture
 
@@ -29,7 +29,8 @@ telemetry pass through). Raw array power enters maximum-power-point-tracking
 (MPPT) regulators inside a Power Conditioning and Distribution Unit (PCDU).
 The PCDU maintains an unregulated battery bus — a 6-cell lithium-ion
 (Li-ion) string, 22.2 V nominal, which reads near 24 V through most of the charge range
-(matching the example's `PWR_BATTERY_VOLTAGE = { hold = 24.0 }`) — and
+(the example boots at exactly that: `initial_soc = 0.75` is 24.0 V
+open-circuit) — and
 distributes power through switched, current-limited outputs (latching
 current limiters, LCLs), one per load. The `PWR_*_STATE` switches in the
 example are exactly those LCLs.
@@ -77,7 +78,7 @@ flowchart LR
         ADCS["ADCS: 4 wheels, star tracker,<br/>IMU, magnetorquers<br/>0.5 A pointing / 1.7–2.5 A slewing"]
         COMMS["COMMS: S-band RX 0.1 A always<br/>X-band TX 1.5–1.9 A in a pass"]
         IMAGER["IMAGER: focal plane + electronics<br/>0.2 A standby / 0.6–1.0 A imaging"]
-        HTR["Heaters: battery + propulsion lines<br/>0.4–0.8 A duty-cycled in eclipse"]
+        HTR["Heaters: battery + survival<br/>0.4–0.8 A duty-cycled in eclipse"]
     end
 
     PY -->|"≤2.1 A at ~28 V<br/>(array side, sun-normal)"| S1 --> M1 -->|"~2.4 A at 24 V<br/>(bus side)"| BUS
@@ -102,10 +103,9 @@ behind its charge/discharge control, and the array chains through the
 slip rings and MPPT stages onto the bus bar — with the **logical layer
 overlaid in color** on the physical circuit, mapping each XTCE parameter
 onto the element that would physically produce it. Blue marks parameters
-the sim drives today (the voltmeter sense points, the five switch-state
-enums, the battery temperature); orange marks parameters declared in the
-XTCE but not yet driven (the two current senses — exactly the gap this
-model exists to close). Black elements with no colored tag have no
+the sim drives — since power-model bank one that is all of them: both
+voltmeter sense points, both current senses, the five switch-state enums,
+and the battery temperature. Black elements with no colored tag have no
 telemetry in the ICD at all: the charge controller and the SADA motor
 branch are honest blind spots, visible as such.
 
@@ -143,11 +143,11 @@ off-sun angle (voltage holds near Vmp until the angle gets extreme), so
 `PWR_SOLAR_CURRENT` is ~`2 × Imp × cos(θ)` at the array, and the bus
 contribution follows.
 
-These figures also make the sim's existing telemetry read correctly: the
-declared `PWR_SOLAR_VOLTAGE` orbit oscillation (4–28 V over 5400 s) is the
-array riding from eclipse (collapsed toward zero) up to Vmp ≈ 28 V in full
-sun; `PWR_SOLAR_CURRENT`, once driven, is the Imp-and-cosine curve above,
-ceilinged by Isc.
+These figures are now the sim's actual configuration: `[_models.power]`
+in `power.toml` carries them, `PWR_SOLAR_VOLTAGE` reads Vmp in sunlight
+and ~0 in eclipse, and `PWR_SOLAR_CURRENT` is the cosine curve above,
+computed from the vehicle's real attitude against the shared
+`[_environment]` sun.
 
 ## Typical current draws (at the 24 V bus)
 
@@ -188,21 +188,26 @@ function of what the vehicle is *doing*.
 
 ## Status in the sim
 
-None of this model is implemented yet; this document is the reference for
-implementing it. What exists today:
+Bank one of this model is IMPLEMENTED (`[_models.power]` in
+`examples/imaging_sat/power.toml`, physics in `xtce_sim/dynamics/power.py`):
 
-- The five LCL switches (`PWR_*_STATE`) are real, driven by `SET_POWER`.
-- `PWR_SOLAR_VOLTAGE` rides a declared orbit-period oscillation;
-  `PWR_BATTERY_VOLTAGE` holds at 24 V with noise. Neither couples to
-  attitude or to load state.
-- `PWR_SOLAR_CURRENT` and `PWR_BATTERY_CURRENT` are declared in the XTCE
-  but undriven.
+- Solar current follows the shared `[_environment]` sun and eclipse plus
+  the vehicle's real attitude — the cosine law above, with perfect
+  single-axis SADA tracking as the documented simplification. Solar
+  voltage reads Vmp in sunlight, ~0 in shadow.
+- The battery is real state: charge integrates every tick, terminal
+  voltage follows charge (linear open-circuit curve, a documented
+  approximation) and sags under load through the string resistance; the
+  charge controller tapers over the top 10% of charge and shunts surplus.
+  `PWR_BATTERY_CURRENT` is signed: positive charging, negative
+  discharging.
+- Each load draws its flat nominal current from this document's table
+  while its `PWR_*_STATE` reads ON (STANDBY draws nothing yet).
 
-The honest implementation would derive solar current from the ADCS
-attitude (cosine of the off-sun angle), sum load currents from the LCL
-states and per-load activity (slewing, transmitting, imaging, heating),
-and compute battery current as the difference — making the repointing
-transient above emerge from the wiring rather than being scripted.
+Still ahead (bank two): per-activity draws — the thermostat element's
+duty sawtooth for the heaters, `IMG_STATE` for the imager, the wheel
+currents the ADCS model already computes, beacon state for COMMS — and,
+with the downlink arc, the big transmit draw.
 
 ## Sources
 
