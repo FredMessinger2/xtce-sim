@@ -57,8 +57,8 @@ internal_resistance = 0.15   # ohm, whole string
 charge_current_max = 2.0     # A, tapers over the top 10% of charge
 initial_soc = 0.75           # boots at 24.0 V open-circuit
 
-# Each load gates on its PWR_<name>_STATE LCL; behind the gate the draw
-# follows activity:
+# Each load gates on its PWR_<name>_STATE LCL (latching current limiter —
+# the PCDU's per-load switch); behind the gate the draw follows activity:
 #   CDH    — flat: the computer never idles down.
 #   ADCS   — 0.3 A of electronics (star tracker, IMU, MTQ drivers) plus
 #            the LIVE wheel currents the dynamics model computes — the
