@@ -727,7 +727,7 @@ class AdcsModel:
         }
         plant = m.plant
         for i in range(len(self.config.wheels)):
-            current = _IDLE_CURRENT + abs(plant.wheel_torque(i)) / _TORQUE_CONSTANT
+            current = self._wheel_current(i)
             max_current = _IDLE_CURRENT + (self.config.wheels[i].max_torque / _TORQUE_CONSTANT)
             values[f"wheel{i + 1}_speed_rpm"] = plant.wheel_speed(i) * RAD_S_TO_RPM
             values[f"wheel{i + 1}_current_a"] = current
@@ -736,3 +736,11 @@ class AdcsModel:
                 _AMBIENT_C + _TEMP_RISE_C * (current / max_current) ** 2
             )
         return values
+
+    def _wheel_current(self, i: int) -> float:
+        return _IDLE_CURRENT + abs(self.machine.plant.wheel_torque(i)) / _TORQUE_CONSTANT
+
+    def wheel_current_total(self) -> float:
+        """The wheels' summed motor current — the same amps ADCS_WHEELS
+        telemeters, offered to the power model as one bus draw."""
+        return sum(self._wheel_current(i) for i in range(len(self.config.wheels)))

@@ -93,7 +93,14 @@ class BehaviorEngine:
         adcs = self.models[0] if self.models else None
         attitude = (lambda: adcs.machine.plant.state.quat) if adcs else None
         self.models += [
-            PowerModel(cfg, spec.environment, self.state.get, attitude)
+            PowerModel(
+                cfg,
+                spec.environment,
+                self.state.get,
+                attitude,
+                self._regulate_element_on,
+                adcs.wheel_current_total if adcs else None,
+            )
             for cfg in spec.models
             if isinstance(cfg, PowerModelConfig)
         ]
@@ -184,6 +191,11 @@ class BehaviorEngine:
         rng = self._rngs.setdefault(fname, _field_rng(fname)) if eff.noise else None
         self._behaviors[fname] = eff.make_active(fname, ref, rng)
         return f"{fname} {eff.describe_active(ref)}"
+
+    def _regulate_element_on(self, fname: str) -> bool:
+        """Whether the regulate loop on *fname* has its element on right now
+        (False when nothing regulates there) — the power model's duty probe."""
+        return getattr(self._behaviors.get(fname), "element", False)
 
     def tick(self, dt: float) -> None:
         """Advance every active behavior by *dt* seconds.

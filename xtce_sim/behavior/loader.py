@@ -29,6 +29,7 @@ from xtce_sim.behavior.validate import _check_field_template, _check_scalar_for_
 from xtce_sim.behavior.verbs import scalar_effect  # populates VERBS on import
 from xtce_sim.definition import CommandDef, SimDefinition
 from xtce_sim.dynamics.model import AdcsModelConfig, parse_environment, parse_model
+from xtce_sim.dynamics.power import PowerModelConfig
 
 _EMIT_VALUES = ("interval", "immediate")
 # Attributes every verb accepts, on top of its own (declared per Verb).
@@ -94,6 +95,7 @@ def load_behavior(source: Path, simdef: SimDefinition) -> BehaviorSpec:
         )
 
     _check_model_ownership(models, initial, signals, commands, ctx)
+    _check_model_links(models, ctx)
     if ctx.errors:
         problems = "\n  - ".join(ctx.errors)
         raise BehaviorError(f"{source}: {len(ctx.errors)} problem(s):\n  - {problems}")
@@ -146,6 +148,22 @@ def _check_model_ownership(
     for where, fname in writers:
         if fname in owned:
             ctx.error(f"{where}: owned by model {owned[fname]!r}")
+
+
+def _check_model_links(models: list, ctx: _Context) -> None:
+    """Cross-model references, checkable only once every file is merged:
+    a power load with ``wheels = true`` draws the ADCS model's wheel
+    currents, so the vehicle must actually have an ADCS model."""
+    has_adcs = any(isinstance(cfg, AdcsModelConfig) for cfg in models)
+    for cfg in models:
+        if not isinstance(cfg, PowerModelConfig) or has_adcs:
+            continue
+        for load in cfg.loads:
+            if load.wheels:
+                ctx.error(
+                    f"[_models.{cfg.name}] loads: wheels = true needs an ADCS "
+                    "model in this vehicle, and none is declared"
+                )
 
 
 def _claim_unique(pairs, conflict: str, ctx: _Context) -> dict[str, str]:

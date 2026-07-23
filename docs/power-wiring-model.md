@@ -18,7 +18,7 @@ Two things anchor the model to the simulator as it exists today:
   `PWR_BATTERY_VOLTAGE`, `PWR_BATTERY_CURRENT` — are now DRIVEN by the
   `[_models.power]` physics model this document specified (see "Status in
   the sim" below for exactly what is implemented and what waits for the
-  next bank).
+  downlink arc).
 
 ## Architecture
 
@@ -155,7 +155,7 @@ computed from the vehicle's real attitude against the shared
 |---|---|---|---|---|
 | CDH (OBC + GPS) | — (always on) | 0.3 A (~8 W) | 0.4 A | Small OBCs run ~1.3 W; microsat-class units with GPS sit near 8 W. Rides the essential bus in real designs. |
 | ADCS suite | 0.15 A | 0.5 A (~12 W) pointing | 1.7–2.5 A slewing | Wheels dominate: ~2 W quiescent each, but tens of watts at torque (e.g. Honeywell HR04: 2 W quiescent, 48 W peak). Star tracker ~1 W. |
-| COMMS | 0.1 A (S-band RX, ~2 W) | 0.1 A listening | 1.5–1.9 A (X-band TX) | The receiver never turns off. A downlink with 5–10 W of radio-frequency (RF) output costs 35–45 W of direct-current (DC) input at realistic amplifier efficiency, for the ~10 minutes of a ground pass. |
+| COMMS | 0.1 A (S-band RX, ~2 W) | 0.35 A (RX + S-band beacon TX ~0.25 A, ~6 W) | 1.5–1.9 A (X-band TX) | The receiver never turns off. The low-rate S-band beacon (≤2 W RF) transmits whenever beacon mode is enabled. A downlink with 5–10 W of radio-frequency (RF) output costs 35–45 W of direct-current (DC) input at realistic amplifier efficiency, for the ~10 minutes of a ground pass. |
 | IMAGER | 0.2 A standby | 0.6–1.0 A imaging | 1.0 A | Focal-plane electronics plus thermal stabilization during a capture window. |
 | HEATER circuit | 0 | 0.4–0.8 A duty-cycled | 0.8 A (~20 W) | Battery heater ~8 W plus survival heaters; mostly an eclipse load, thermostatically switched. |
 | SADA motors (×2) | ~0 holding (<1 mW) | 0.02–0.04 A each, sun-tracking steps | 0.1–0.2 A each, repointing | Steppers barely sip while tracking (~0.5 W); continuous stepping during a large repoint costs a few watts per wing. |
@@ -201,13 +201,24 @@ Bank one of this model is IMPLEMENTED (`[_models.power]` in
   charge controller tapers over the top 10% of charge and shunts surplus.
   `PWR_BATTERY_CURRENT` is signed: positive charging, negative
   discharging.
-- Each load draws its flat nominal current from this document's table
-  while its `PWR_*_STATE` reads ON (STANDBY draws nothing yet).
+- Each load's draw follows what the vehicle is *doing* (bank two), gated
+  by its `PWR_*_STATE` LCL: CDH is flat; the ADCS load is its electronics
+  plus the live wheel currents the dynamics model computes (the same amps
+  `ADCS_WHEELS` telemeters, so a slew genuinely triples the draw); the
+  imager's draw is keyed on `IMG_STATE` (idle keep-alive, capture,
+  processing); COMMS is the always-on receiver plus beacon transmit while
+  `COMM_BEACON_STATE` reads ENABLE; and each heater element draws when
+  forced ON or, in AUTO, exactly while its thermostat's regulate loop has
+  the element lit — the thermostat's duty sawtooth appears directly in
+  `PWR_BATTERY_CURRENT`.
+- Two honest limits, recorded rather than hidden: pulling an LCL only
+  stops the *draw* — it does not halt the subsystem behind it (the ADCS
+  keeps flying with its power "off"; LCL feedback into the models is
+  future work), and the SADA motor draw remains unmodeled (a blind spot
+  the schematic shows in black).
 
-Still ahead (bank two): per-activity draws — the thermostat element's
-duty sawtooth for the heaters, `IMG_STATE` for the imager, the wheel
-currents the ADCS model already computes, beacon state for COMMS — and,
-with the downlink arc, the big transmit draw.
+Still ahead: the big X-band transmit draw arrives with the downlink arc,
+and thermal coupling (battery temperature is still a behavioral hold).
 
 ## Sources
 
