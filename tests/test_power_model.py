@@ -70,10 +70,10 @@ def test_kind_dispatch_builds_a_power_config(simdef):
     assert cfg.commands == {}
 
 
-def test_unknown_kind_names_both_kinds(simdef):
+def test_unknown_kind_names_every_kind(simdef):
     errors = []
     assert parse_model("x", {"kind": "warp"}, simdef, errors.append) is None
-    assert errors == ["[_models.x]: unknown model kind 'warp' (one of 'adcs', 'power')"]
+    assert errors == ["[_models.x]: unknown model kind 'warp' (one of 'adcs', 'nav', 'power')"]
 
 
 def test_parse_rejects_bad_tables(simdef):

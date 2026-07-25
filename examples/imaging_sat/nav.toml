@@ -1,0 +1,24 @@
+# Navigation behavior for the ImagingSat example.
+# Values are ENGINEERING UNITS; calibrated fields are converted to raw wire
+# counts by the engine. Full schema: README, section 'Behavior: making
+# commands change telemetry'.
+
+# The onboard GNSS receiver as a physics model: every tick it reads the
+# shared [_environment] orbit — the same world the ADCS flies in and the
+# power model draws sun from — and reports the state vector in ECI axes
+# (km, km/s). This is the packet the viewer bridge (xtce-sim bridge)
+# decodes and republishes to an external display; realism note: a
+# spacecraft downlinks its GNSS solution as telemetry, never a TLE (TLEs
+# are a ground product).
+[_models.nav]
+kind = "nav"
+
+[_models.nav.outputs]
+NAV_TIMESTAMP = "clock_s"
+NAV_POS_X = "pos_x_km"
+NAV_POS_Y = "pos_y_km"
+NAV_POS_Z = "pos_z_km"
+NAV_VEL_X = "vel_x_kms"
+NAV_VEL_Y = "vel_y_kms"
+NAV_VEL_Z = "vel_z_kms"
+NAV_GPS_VALID = "gps_valid"

@@ -38,7 +38,7 @@ def test_imaging_sat_example_builds_and_is_generic():
     d = SimDefinition.from_xtce(IMAGING_SAT_XTCE)
     assert d.space_system_name == "ImagingSat"
     assert len(d.commands) == 41
-    assert len(d.packets) == 13  # incl. COMMS_STATUS (APID 28, ENABLE_BEACON's card)
+    assert len(d.packets) == 14  # incl. NAV_STATUS (APID 29, the GNSS state vector)
     assert "VendorA" not in IMAGING_SAT_XTCE.read_text()
 
 
