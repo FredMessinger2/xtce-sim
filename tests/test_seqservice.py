@@ -5,9 +5,9 @@ status packets are sequencer-written, event-driven telemetry."""
 import asyncio
 import dataclasses
 import time
-from pathlib import Path
 
 import pytest
+from conftest import DATA
 
 from xtce_sim import ccsds, codec
 from xtce_sim.definition import SimDefinition
@@ -15,18 +15,10 @@ from xtce_sim.fileservice import FileStore
 from xtce_sim.seqservice import SequenceCommandError, SequenceService
 from xtce_sim.server import SimServer
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
-
 # The unit tests below run against pretend time anchored here
 # (2026-03-15T14:30:00Z); the integration tests at the bottom use the real
 # clock, because they exercise the server's real waiter task.
 T0 = 1773585000.0
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
 
 
 @pytest.fixture()

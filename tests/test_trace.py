@@ -11,13 +11,12 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import DATA, EXAMPLES
 
 from xtce_sim.cli import main
 from xtce_sim.generate import build_sim_definition
 from xtce_sim.parser import XTCEParser
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
 FIXTURE = Path(__file__).resolve().parent / "data" / "full_features.xml"
 NS = 'xmlns:xtce="http://www.omg.org/spec/XTCE/20250214"'
 

@@ -1,23 +1,14 @@
 """The power model: parsing, validation, and the electrical physics."""
 
 import math
-from pathlib import Path
 
 import pytest
+from conftest import EXAMPLES
 
-from xtce_sim.definition import SimDefinition
 from xtce_sim.dynamics import algebra as al
 from xtce_sim.dynamics.environment import CircularOrbit, Environment
 from xtce_sim.dynamics.model import parse_model
 from xtce_sim.dynamics.power import PowerModel, parse_power_model
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(IMAGING)
 
 
 def _minimal_table(**overrides):

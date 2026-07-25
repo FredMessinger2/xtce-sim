@@ -1,14 +1,12 @@
 """Tests for synthetic live telemetry."""
 
 import struct
-from pathlib import Path
+
+from conftest import DATA
 
 from xtce_sim import codec, synth
 from xtce_sim.definition import FieldInfo, SimDefinition
 from xtce_sim.generate import fields_to_struct_format
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
 
 
 def _simdef():

@@ -1,12 +1,11 @@
 """Sequence file parsing, validation, and ground-side time shifting."""
 
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import IMAGING
 
 from xtce_sim.cli import main
-from xtce_sim.definition import SimDefinition
 from xtce_sim.sequences import (
     SequenceError,
     format_utc,
@@ -15,9 +14,6 @@ from xtce_sim.sequences import (
     parse_rts,
     shift_ats,
 )
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
 
 ATS_TEXT = """\
 # burn plan, rev 3
@@ -31,11 +27,6 @@ RTS_TEXT = """\
 +0    ADCS_SET_MODE Mode=SUNSAFE
 +2.5  IMAGER_ON
 """
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(IMAGING)
 
 
 # ---------------------------------------------------------------------------

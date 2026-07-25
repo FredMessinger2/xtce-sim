@@ -7,6 +7,7 @@ from pathlib import Path
 
 import aiohttp
 import pytest
+from conftest import DATA, EXAMPLES, IMAGING
 
 from xtce_sim import ccsds, codec
 from xtce_sim.bridge import (
@@ -19,10 +20,6 @@ from xtce_sim.bridge import (
 )
 from xtce_sim.definition import SimDefinition
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
-IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
-
 _NAV_VALUES = {
     "NAV_TIMESTAMP": 600,
     "NAV_POS_X": 6871.0,
@@ -33,11 +30,6 @@ _NAV_VALUES = {
     "NAV_VEL_Z": 6.0,
     "NAV_GPS_VALID": 1,
 }
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(IMAGING)
 
 
 def _feed(simdef, **overrides) -> SatelliteFeed:

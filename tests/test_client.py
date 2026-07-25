@@ -2,10 +2,10 @@
 
 import asyncio
 import struct
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import DATA, EXAMPLES
 
 from xtce_sim import client, codec
 from xtce_sim.cli import main
@@ -13,8 +13,6 @@ from xtce_sim.definition import CommandDef, ParamInfo, SimDefinition
 from xtce_sim.generate import to_dict
 from xtce_sim.server import SimServer
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
 XTCE = [DATA / "my_vehicle/my_vehicle_commands.xml", DATA / "my_vehicle/my_vehicle_telemetry.xml"]
 
 
