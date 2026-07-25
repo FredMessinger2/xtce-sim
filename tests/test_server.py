@@ -4,18 +4,15 @@ import asyncio
 import contextlib
 import logging
 import zlib
-from pathlib import Path
 
 import pytest
+from conftest import DATA, EXAMPLES
 
 from xtce_sim import ccsds, codec
 from xtce_sim import client as sim_client
 from xtce_sim.definition import SimDefinition
 from xtce_sim.fileservice import FileService, FileStore
 from xtce_sim.server import SimServer, _ClientConn
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
 
 
 @pytest.fixture(scope="module")

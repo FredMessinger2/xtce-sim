@@ -8,14 +8,11 @@ name is real, and the values encode into a packet.
 
 import re
 import shlex
-from pathlib import Path
 
-import pytest
+from conftest import EXAMPLES
 
 from xtce_sim import codec
-from xtce_sim.definition import SimDefinition
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 SCRIPT = EXAMPLES / "imaging_sat/set_all_fields.sh"
 
 
@@ -30,11 +27,6 @@ def _script_sends() -> list[tuple[str, dict]]:
         args = dict(pair.split("=", 1) for pair in pairs)
         sends.append((name, args))
     return sends
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
 
 
 def test_script_has_a_meaningful_number_of_sends():

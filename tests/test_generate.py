@@ -4,17 +4,15 @@ import importlib.util
 import json
 import math
 import struct
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import DATA, EXAMPLES
 
 from xtce_sim.cli import main
 from xtce_sim.definition import SimDefinition
 from xtce_sim.generate import fields_to_struct_format, format_json, format_text
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
 CMD_XML = DATA / "my_vehicle/my_vehicle_commands.xml"
 TLM_XML = DATA / "my_vehicle/my_vehicle_telemetry.xml"
 COMBINED_XTCE = DATA / "my_vehicle/my_vehicle.xml"

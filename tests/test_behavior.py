@@ -5,10 +5,10 @@ resolved SimDefinition and all problems are reported in one BehaviorError.
 """
 
 import logging
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import DATA, EXAMPLES, IMAGING
 
 from xtce_sim import behavior
 from xtce_sim.behavior import (
@@ -22,15 +22,6 @@ from xtce_sim.behavior import (
 )
 from xtce_sim.cli import main
 from xtce_sim.definition import SimDefinition
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
-IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(IMAGING)
 
 
 def _load(tmp_path, simdef, text: str):

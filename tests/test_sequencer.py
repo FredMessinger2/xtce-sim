@@ -1,15 +1,12 @@
 """The onboard sequencer: state machine, injected time, and firing semantics."""
 
-from pathlib import Path
 
 import pytest
+from conftest import IMAGING
 
 from xtce_sim.definition import SimDefinition
 from xtce_sim.sequencer import CmdResult, SeqState, Sequencer
 from xtce_sim.sequences import parse_ats, parse_rts
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
 
 # All tests run against pretend time anchored here (2026-03-15T14:30:00Z).
 T0 = 1773585000.0

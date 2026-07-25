@@ -11,22 +11,14 @@ import asyncio
 import json
 import math
 import time
-from pathlib import Path
 
-import pytest
 from aiohttp import ClientSession, web
+from conftest import EXAMPLES
 
 from xtce_sim import ccsds, codec
 from xtce_sim.definition import CalibratorInfo, SimDefinition
 from xtce_sim.server import SimServer
 from xtce_sim.webui import Bridge, definition_message, telemetry_message
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
 
 
 def _tlm_packet(packet_def, values=None) -> bytes:

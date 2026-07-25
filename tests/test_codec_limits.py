@@ -7,17 +7,14 @@ with a once-per-field warning so the beacon keeps running.
 """
 
 import logging
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import DATA
 
 from xtce_sim import codec
 from xtce_sim.cli import main
 from xtce_sim.definition import CommandDef, FieldInfo, PacketDef, ParamInfo
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
 
 
 def _cmd(python_type: str, size_bits: int) -> CommandDef:

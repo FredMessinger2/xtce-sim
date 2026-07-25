@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import DATA, EXAMPLES
 
 from xtce_sim import ccsds
 from xtce_sim.cli import main
@@ -19,9 +20,6 @@ from xtce_sim.exercise import (
 )
 from xtce_sim.generate import format_json
 from xtce_sim.server import SimServer
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
 
 
 @pytest.fixture(scope="module")

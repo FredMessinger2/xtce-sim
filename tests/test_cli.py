@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from conftest import DATA, EXAMPLES
 
 from xtce_sim import ccsds, cli, codec
 from xtce_sim.cli import main
@@ -12,8 +13,6 @@ from xtce_sim.definition import SimDefinition
 from xtce_sim.generate import format_json
 from xtce_sim.server import SimServer
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
 CMD = str(DATA / "my_vehicle/my_vehicle_commands.xml")
 TLM = str(DATA / "my_vehicle/my_vehicle_telemetry.xml")
 

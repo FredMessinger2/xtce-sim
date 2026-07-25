@@ -5,21 +5,13 @@ returns the receipts it would downlink, exactly as the server feeds it.
 """
 
 import zlib
-from pathlib import Path
 
 import pytest
+from conftest import DATA
 
 from xtce_sim import ccsds, codec, fileservice
 from xtce_sim.definition import SimDefinition
 from xtce_sim.fileservice import FileService, FileStore, name_problem
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-DATA = Path(__file__).resolve().parent / "data"
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(EXAMPLES / "imaging_sat/imaging_sat.xml")
 
 
 @pytest.fixture()

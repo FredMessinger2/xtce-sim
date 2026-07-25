@@ -5,15 +5,14 @@ Exercises every parameter/argument type kind, encodings, calibrators, alarms
 data, restriction criteria, path-qualified refs, and nested SpaceSystems.
 """
 
-from pathlib import Path
 
 import pytest
+from conftest import DATA
 
 from xtce_sim import models
 from xtce_sim.generate import build_sim_definition
 from xtce_sim.parser import XTCEParser
 
-DATA = Path(__file__).resolve().parent / "data"
 FULL = DATA / "full_features.xml"
 NS = 'xmlns:xtce="http://www.omg.org/spec/XTCE/20250214"'
 

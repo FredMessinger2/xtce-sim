@@ -1,17 +1,13 @@
 """The nav model: parsing, the state-vector math, and engine integration."""
 
 import math
-from pathlib import Path
 
 import pytest
+from conftest import EXAMPLES
 
-from xtce_sim.definition import SimDefinition
 from xtce_sim.dynamics.environment import CircularOrbit, Environment
 from xtce_sim.dynamics.model import parse_model
 from xtce_sim.dynamics.nav import NavModel, parse_nav_model
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
 
 _FULL_OUTPUTS = {
     "NAV_TIMESTAMP": "clock_s",
@@ -23,11 +19,6 @@ _FULL_OUTPUTS = {
     "NAV_VEL_Z": "vel_z_kms",
     "NAV_GPS_VALID": "gps_valid",
 }
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(IMAGING)
 
 
 def _parse(simdef, table):

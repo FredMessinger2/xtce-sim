@@ -2,11 +2,9 @@
 
 import logging
 import math
-from pathlib import Path
 
 import pytest
 
-from xtce_sim.definition import SimDefinition
 from xtce_sim.dynamics.model import (
     AdcsModel,
     default_environment,
@@ -14,14 +12,6 @@ from xtce_sim.dynamics.model import (
     parse_model,
 )
 from xtce_sim.dynamics.modes import AdcsMode
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
-IMAGING = EXAMPLES / "imaging_sat/imaging_sat.xml"
-
-
-@pytest.fixture(scope="module")
-def simdef() -> SimDefinition:
-    return SimDefinition.from_xtce(IMAGING)
 
 
 def _minimal_table(**overrides):
