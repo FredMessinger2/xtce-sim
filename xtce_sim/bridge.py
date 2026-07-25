@@ -254,7 +254,7 @@ async def run_bridge(
     site = web.TCPSite(runner, sse_host, sse_port)
     await site.start()
     if on_ready is not None:
-        on_ready(site._server.sockets[0].getsockname()[1])
+        on_ready(runner.addresses[0][1])
     tasks = [asyncio.create_task(bridge.feed_loop(feed)) for feed in bridge.feeds]
     try:
         await asyncio.gather(*tasks)
@@ -344,7 +344,10 @@ def _parse_satellite(entry, n: int, err) -> SatelliteFeed | None:
         display["color"] = str(color)
     pixel_size = entry.get("pixel_size")
     if pixel_size is not None:
-        display["pixel_size"] = pixel_size
+        if isinstance(pixel_size, bool) or not isinstance(pixel_size, int) or pixel_size < 1:
+            err(f"{where}: pixel_size must be a positive integer")
+        else:
+            display["pixel_size"] = pixel_size
     return SatelliteFeed(
         sat_id=sat_id,
         name=str(entry.get("name", sat_id)),
