@@ -1057,6 +1057,96 @@ def ui(
         ) from exc
 
 
+@main.command()
+@click.option(
+    "--config",
+    "config_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Bridge TOML: one [[satellites]] entry per running sim (multi-sim mode).",
+)
+@click.option("--port", default=None, type=int, help="TCP port of one running sim (single-sim mode).")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Sim host to connect to.")
+@click.option("--id", "instance_id", default=None, help="Load def from runs/<id>/cmd_tlm.json.")
+@click.option(
+    "--def",
+    "def_path",
+    default=None,
+    type=click.Path(exists=True, path_type=Path),
+    help="Definition source: an XTCE .xml or a cmd_tlm.json.",
+)
+@click.option("--sat-id", default="90001", show_default=True, help="Viewer identity (NORAD-style).")
+@click.option("--name", default=None, help="Display name; defaults to the sat id.")
+@click.option("--color", default=None, help='Display color hint, e.g. "#ffcc00".')
+@click.option(
+    "--sse-port",
+    default=8600,
+    show_default=True,
+    type=click.IntRange(1, 65535),
+    help="Port to serve the SSE stream on.",
+)
+@click.option("--sse-host", default="127.0.0.1", show_default=True, help="SSE bind host.")
+def bridge(
+    config_path: Path | None,
+    port: int | None,
+    host: str,
+    instance_id: str | None,
+    def_path: Path | None,
+    sat_id: str,
+    name: str | None,
+    color: str | None,
+    sse_port: int,
+    sse_host: str,
+) -> None:
+    """Publish NAV telemetry to an orbit viewer as one SSE stream.
+
+    Plays the ground station for an external display (molniya-viewer):
+    connects to each running sim like `monitor` does, decodes the NAV
+    state-vector packet, and serves every satellite on a single
+    Server-Sent-Events stream at /telemetry/stream. Multi-sim: --config
+    with a [[satellites]] entry per sim. Single-sim: --port plus --def
+    or --id. The wire format is the molniya repo's
+    docs/telemetry-sse-contract.md.
+    """
+    from xtce_sim import bridge as bridge_mod
+
+    if (config_path is None) == (port is None):
+        raise click.ClickException("pass exactly one of --config (multi-sim) or --port (single-sim)")
+    if config_path is not None:
+        try:
+            feeds = bridge_mod.load_bridge_config(config_path)
+        except bridge_mod.BridgeConfigError as exc:
+            raise click.ClickException(str(exc)) from exc
+    else:
+        simdef = _load_definition(instance_id, def_path)
+        display = {"color": color} if color else {}
+        feed = bridge_mod.SatelliteFeed(
+            sat_id=sat_id,
+            name=name or sat_id,
+            host=host,
+            port=port,
+            simdef=simdef,
+            display=display,
+        )
+        problems = feed.validate()
+        if problems:
+            raise click.ClickException("; ".join(problems))
+        feeds = [feed]
+    roster = ", ".join(f"{f.name} ({f.host}:{f.port})" for f in feeds)
+    click.echo(
+        f"Bridge: http://{sse_host}:{sse_port}/telemetry/stream  "
+        f"[{roster}]  (Ctrl-C to stop)"
+    )
+    try:
+        asyncio.run(bridge_mod.run_bridge(feeds, sse_host, sse_port))
+    except KeyboardInterrupt:
+        click.echo("\nStopped.")
+    except OSError as exc:
+        raise click.ClickException(
+            f"could not serve the stream on {sse_host}:{sse_port} — {exc}"
+        ) from exc
+
+
 def _print_exercise_report(report, *, verify: bool) -> None:
     """Echo per-command failures and the telemetry-health summary."""
     for s in report.failures:

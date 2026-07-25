@@ -215,8 +215,12 @@ def parse_model(name: str, body, simdef, error: Callable[[str], None]):
         from xtce_sim.dynamics.power import parse_power_model
 
         return parse_power_model(name, body, simdef, error)
+    if kind == "nav":
+        from xtce_sim.dynamics.nav import parse_nav_model  # same local-import rule
+
+        return parse_nav_model(name, body, simdef, error)
     if kind != "adcs":
-        error(f"{where}: unknown model kind {kind!r} (one of 'adcs', 'power')")
+        error(f"{where}: unknown model kind {kind!r} (one of 'adcs', 'nav', 'power')")
         return None
     return _parse_adcs_model(name, body, simdef, error)
 

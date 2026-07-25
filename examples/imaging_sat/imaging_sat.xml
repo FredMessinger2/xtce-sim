@@ -202,6 +202,25 @@
         </xtce:EnumerationList>
       </xtce:EnumeratedParameterType>
 
+      <!-- NAV types: the onboard GNSS solution, ECI (J2000) axes.
+           Raw float encoding: a GPS receiver downlinks its solution as
+           floats, not scaled counts. -->
+      <xtce:FloatParameterType name="EciPositionType">
+        <xtce:UnitSet><xtce:Unit>km</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" />
+      </xtce:FloatParameterType>
+      <xtce:FloatParameterType name="EciVelocityType">
+        <xtce:UnitSet><xtce:Unit>km/s</xtce:Unit></xtce:UnitSet>
+        <xtce:FloatDataEncoding sizeInBits="32" />
+      </xtce:FloatParameterType>
+      <xtce:EnumeratedParameterType name="NavValidType">
+        <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
+        <xtce:EnumerationList>
+          <xtce:Enumeration label="INVALID" value="0" />
+          <xtce:Enumeration label="VALID" value="1" />
+        </xtce:EnumerationList>
+      </xtce:EnumeratedParameterType>
+
       <!-- Enumerated: Heater State -->
       <xtce:EnumeratedParameterType name="HeaterStateType">
         <xtce:IntegerDataEncoding sizeInBits="8" encoding="unsigned" />
@@ -592,6 +611,16 @@
       <xtce:Parameter name="COMM_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="Comms status timestamp" />
       <xtce:Parameter name="COMM_BEACON_STATE" parameterTypeRef="EnableStateParamType" shortDescription="Autonomous beacon mode (ENABLE_BEACON)" />
       <xtce:Parameter name="COMM_DOWNLINK_STATE" parameterTypeRef="DownlinkStateType" shortDescription="Stored-data downlink session (DOWNLINK_START/STOP)" />
+
+      <!-- NAV_STATUS Parameters (APID 0x1D) -->
+      <xtce:Parameter name="NAV_TIMESTAMP" parameterTypeRef="TimestampType" shortDescription="GNSS solution time (s since boot)" />
+      <xtce:Parameter name="NAV_POS_X" parameterTypeRef="EciPositionType" shortDescription="Position X, ECI (J2000)" />
+      <xtce:Parameter name="NAV_POS_Y" parameterTypeRef="EciPositionType" shortDescription="Position Y, ECI (J2000)" />
+      <xtce:Parameter name="NAV_POS_Z" parameterTypeRef="EciPositionType" shortDescription="Position Z, ECI (J2000)" />
+      <xtce:Parameter name="NAV_VEL_X" parameterTypeRef="EciVelocityType" shortDescription="Velocity X, ECI (J2000)" />
+      <xtce:Parameter name="NAV_VEL_Y" parameterTypeRef="EciVelocityType" shortDescription="Velocity Y, ECI (J2000)" />
+      <xtce:Parameter name="NAV_VEL_Z" parameterTypeRef="EciVelocityType" shortDescription="Velocity Z, ECI (J2000)" />
+      <xtce:Parameter name="NAV_GPS_VALID" parameterTypeRef="NavValidType" shortDescription="GNSS solution validity" />
     </xtce:ParameterSet>
 
     <xtce:ContainerSet>
@@ -922,6 +951,30 @@
           </xtce:RestrictionCriteria>
         </xtce:BaseContainer>
       </xtce:SequenceContainer>
+
+      <!-- NAV_STATUS Packet (APID 0x1D = 29): the onboard GNSS state
+           vector, the packet the viewer bridge reads -->
+      <xtce:SequenceContainer name="NAV_STATUS" shortDescription="Onboard GNSS navigation solution">
+        <!-- beacons every 1 s -->
+        <xtce:DefaultRateInStream basis="perSecond" minimumValue="1" />
+        <xtce:EntryList>
+          <xtce:ParameterRefEntry parameterRef="NAV_TIMESTAMP" />
+          <xtce:ParameterRefEntry parameterRef="NAV_POS_X" />
+          <xtce:ParameterRefEntry parameterRef="NAV_POS_Y" />
+          <xtce:ParameterRefEntry parameterRef="NAV_POS_Z" />
+          <xtce:ParameterRefEntry parameterRef="NAV_VEL_X" />
+          <xtce:ParameterRefEntry parameterRef="NAV_VEL_Y" />
+          <xtce:ParameterRefEntry parameterRef="NAV_VEL_Z" />
+          <xtce:ParameterRefEntry parameterRef="NAV_GPS_VALID" />
+        </xtce:EntryList>
+        <xtce:BaseContainer containerRef="CCSDSHeader">
+          <xtce:RestrictionCriteria>
+            <xtce:ComparisonList>
+              <xtce:Comparison parameterRef="APID" value="29" />
+            </xtce:ComparisonList>
+          </xtce:RestrictionCriteria>
+        </xtce:BaseContainer>
+      </xtce:SequenceContainer>
     </xtce:ContainerSet>
 
   </xtce:TelemetryMetaData>
@@ -1073,6 +1126,7 @@
           <xtce:Enumeration label="ADCS_WHEELS" value="26" />
           <xtce:Enumeration label="ADCS_SENSORS" value="27" />
           <xtce:Enumeration label="COMMS_STATUS" value="28" />
+          <xtce:Enumeration label="NAV_STATUS" value="29" />
         </xtce:EnumerationList>
       </xtce:EnumeratedArgumentType>
 

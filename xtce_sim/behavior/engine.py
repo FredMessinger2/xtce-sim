@@ -21,6 +21,7 @@ from typing import Optional
 from xtce_sim.behavior.spec import _SKIP, _TEMPLATE_RE, ActiveBehavior, BehaviorSpec
 from xtce_sim.definition import SimDefinition, label_for
 from xtce_sim.dynamics.model import AdcsModel, AdcsModelConfig
+from xtce_sim.dynamics.nav import NavModel, NavModelConfig
 from xtce_sim.dynamics.power import PowerModel, PowerModelConfig
 
 logger = logging.getLogger("xtce_sim.behavior")
@@ -103,6 +104,11 @@ class BehaviorEngine:
             )
             for cfg in spec.models
             if isinstance(cfg, PowerModelConfig)
+        ]
+        self.models += [
+            NavModel(cfg, spec.environment)
+            for cfg in spec.models
+            if isinstance(cfg, NavModelConfig)
         ]
         self._model_by_command = {
             name: model for model in self.models for name in model.config.commands.values()
@@ -217,7 +223,7 @@ class BehaviorEngine:
             model.advance(dt)
             self._store_model_outputs(model)
 
-    def _store_model_outputs(self, model: AdcsModel | PowerModel) -> None:
+    def _store_model_outputs(self, model: AdcsModel | NavModel | PowerModel) -> None:
         where = f"[_models.{model.config.name}]"
         for fname, value in model.outputs().items():
             self._store(where, fname, value)

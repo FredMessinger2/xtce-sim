@@ -84,15 +84,18 @@ def test_shipped_imaging_sidecar_validates(simdef):
 
     assert len(spec.signals) == 6
     assert {type(e) for e in spec.signals} == {OscillateEffect, HoldEffect}
-    # Two physics models: the ADCS (41 fields, 11 commands) and the EPS
-    # (4 analog fields, no commands — SET_POWER stays ordinary behavior).
+    # Three physics models: the ADCS (41 fields, 11 commands), the EPS
+    # (4 analog fields, no commands — SET_POWER stays ordinary behavior),
+    # and the GNSS nav model (the full NAV_STATUS card).
     by_name = {cfg.name: cfg for cfg in spec.models}
-    assert set(by_name) == {"adcs", "power"}
+    assert set(by_name) == {"adcs", "nav", "power"}
     assert len(by_name["adcs"].outputs) == 41
     assert len(by_name["adcs"].commands) == 11
     assert len(by_name["power"].outputs) == 4
     assert by_name["power"].commands == {}
     assert len(by_name["power"].loads) == 5
+    assert len(by_name["nav"].outputs) == 8
+    assert by_name["nav"].commands == {}
 
 
 def test_sidecar_discovery(tmp_path):
@@ -1904,11 +1907,11 @@ def test_effects_log_confirms_in_engineering_units(tmp_path, simdef):
 
 def test_directory_source_merges_files(simdef):
     # Content counts are pinned by test_shipped_imaging_sidecar_validates;
-    # this test pins the MERGE: all six files, commands from different files.
+    # this test pins the MERGE: all seven files, commands from different files.
     spec = load_behavior(EXAMPLES / "imaging_sat", simdef)
-    assert len(spec.files) == 6  # adcs, comms, imager, power, system, thermal
+    assert len(spec.files) == 7  # adcs, comms, imager, nav, power, system, thermal
     assert "HEATER_ON" in spec.commands and "TAKE_IMAGE" in spec.commands
-    assert "(6 file(s))" in spec.source_label
+    assert "(7 file(s))" in spec.source_label
 
 
 def test_cross_file_conflict_is_load_error(tmp_path, simdef):

@@ -87,6 +87,7 @@ xtce-sim generate <file.xml...>                    # build defs, write cmd/tlm t
 xtce-sim run      <file.xml...> --id ID --port N   # build, dump, and serve
 xtce-sim monitor  --id ID --port N                 # watch decoded live telemetry
 xtce-sim ui       --id ID --port N                 # live browser console (WebSocket push)
+xtce-sim bridge   --config bridge.toml             # publish NAV telemetry to an orbit viewer (SSE)
 xtce-sim send     --id ID --port N CMD K=V ...     # send a command
 xtce-sim upload   <file> --id ID --port N          # upload a file to the vehicle's store
 xtce-sim exercise --id ID --port N                 # send every command, check telemetry health
@@ -141,7 +142,7 @@ resolved inheritance: 42 command(s) with a base command (42 fixing inherited arg
 significance: 11 command(s) declare non-normal criticality (2 vital, 9 critical)
 ~ aggregate 'ADCS_ATT_QUAT' flattened to 4 field(s) (ADCS_ATT_QUAT_Q1...)
 ...
-built ImagingSat: 41 dispatchable command(s), 13 telemetry packet(s)
+built ImagingSat: 41 dispatchable command(s), 14 telemetry packet(s)
 
 Behavior (examples/imaging_sat):
   environment: orbit 500 km @ 51.6 deg, sun [1.0, 0.0, 0.0] (shared by all models)
@@ -151,12 +152,13 @@ Behavior (examples/imaging_sat):
     THM_PANEL_PLUS_X oscillates (sine) around 10.0 amplitude 25.0, period 5400.0s ±noise(0.5)
     ...
   model adcs: rigid-body ADCS (4 wheels) driving 41 field(s), 11 command(s)
+  model nav: GNSS state vector (ECI, from the shared orbit) driving 8 field(s)
   model power: EPS (2x60 W wings, 10 Ah battery, 5 switched load(s)) driving 4 field(s)
   HEATER_AUTO:
     THM_HEATER{HeaterId}_STATE = 'AUTO'  [emit: immediate]
     THM_HEATER{HeaterId}_TEMP regulates around @THM_HEATER{HeaterId}_SETPOINT band 2.0 (heats to 60.0 tau=30.0s, cools to 20.0 tau=45.0s)
   ...
-OK: ImagingSat — 41 command(s), 13 packet(s)
+OK: ImagingSat — 41 command(s), 14 packet(s)
 ```
 
 Lines marked `~` are **inferences and gaps** — places the parser filled a gap
@@ -524,6 +526,65 @@ Watch one instance's telemetry live, then stop the fleet:
 xtce-sim monitor --id sat-b --port 5002 --style dashboard
 kill $(jobs -p)          # or: pkill -f "xtce-sim run"
 ```
+
+### Flying in an orbit viewer
+
+A vehicle that declares `NAV_POS_X/Y/Z` and `NAV_VEL_X/Y/Z` in a telemetry
+packet — the example satellite's `NAV_STATUS` card, driven by its onboard
+GNSS nav model — can fly in an external 3D orbit display. The realism rule
+holds all the way down: the spacecraft downlinks its GNSS state vector as
+ordinary telemetry (never a TLE — that is a ground product), the sim speaks
+only CCSDS, and `xtce-sim bridge` plays the ground station: it connects to
+each running sim like `monitor` does, decodes the NAV packet, and serves
+every satellite on one Server-Sent-Events stream. If the vehicle declares
+`NAV_GPS_VALID`, only VALID fixes are forwarded — an invalid solution is
+not published as truth.
+
+```bash
+xtce-sim bridge --port 5001 --def examples/imaging_sat/imaging_sat.xml --sat-id 90001 --name IMAGING-SAT-1 --color "#ffcc00"
+```
+
+```text
+$ curl -N http://127.0.0.1:8600/telemetry/stream
+event: state
+id: 1
+data: {"sat_id": "90001", "name": "IMAGING-SAT-1", "epoch": "2026-07-25T19:57:54.971Z", "frame": "J2000", "position_km": {"x": 6870.848, "y": 28.392, "z": 35.822}, "velocity_kms": {"vx": -0.0506, "vy": 4.7309, "vz": 5.9689}, "display": {"color": "#ffcc00"}}
+```
+
+For a fleet, a config file replaces the flags — one `[[satellites]]` entry
+per running sim, all multiplexed onto the same stream (the display sorts
+them by `sat_id`); duplicate identities are refused at load:
+
+```toml
+# bridge.toml — do NOT place inside the satellite directory (any .toml
+# beside the XTCE is loaded as behavior)
+[[satellites]]
+sat_id = "90001"
+name = "IMAGING-SAT-1"
+port = 5001
+def = "examples/imaging_sat/imaging_sat.xml"
+color = "#ffcc00"
+
+[[satellites]]
+sat_id = "90002"
+name = "IMAGING-SAT-2"
+port = 5002
+def = "examples/imaging_sat/imaging_sat.xml"
+```
+
+```bash
+xtce-sim bridge --config bridge.toml
+```
+
+The wire format is the
+[molniya-viewer](https://github.com/FredMessinger2/molniya-viewer) project's
+`docs/telemetry-sse-contract.md` (the single source of truth both projects
+implement against): ISO-8601 UTC epochs stamped at decode (the sim's clock
+is seconds since boot), the frame reported as J2000 — the honest nearest
+label for the environment's simplified inertial frame — and an
+`event: bye` per satellite on clean shutdown so the display removes them
+promptly. A satellite whose sim goes down simply stops arriving and ages
+out of the display; restart the sim and the bridge reconnects on its own.
 
 ## Onboard sequences: ATS and RTS
 
