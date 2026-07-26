@@ -138,6 +138,20 @@ def test_orbit_describes_itself_like_an_operator():
     assert MOLNIYA.describe() == "600 x 39700 km"
 
 
+def test_nadir_frame_is_orthonormal_on_the_ellipse():
+    # On an ellipse the velocity is NOT perpendicular to the radius (the
+    # flight-path angle), so LVLH must come from r̂ and ĥ. A unit
+    # quaternion out of frame_to_quat is the orthonormality witness.
+    env = Environment(orbit=MOLNIYA)
+    for frac in (0.0, 0.15, 0.3, 0.5, 0.75):
+        t = frac * MOLNIYA.period
+        q = env.nadir_attitude(t)
+        assert al.v_norm((q[0], q[1], q[2])) ** 2 + q[3] ** 2 == pytest.approx(1.0)
+        # +Z body must still be exactly nadir after the rotation.
+        z_body = al.quat_rotate(al.quat_conjugate(q), al.v_unit(MOLNIYA.position(t)))
+        assert z_body == pytest.approx((0.0, 0.0, -1.0), abs=1e-9)
+
+
 def test_keplers_third_law():
     # T = 2*pi*sqrt(r^3/mu): 500 km above the MEAN radius takes ~5669 s.
     r = LEO.semi_major
