@@ -231,11 +231,15 @@ class Environment:
     # -- reference attitudes --------------------------------------------------
 
     def nadir_attitude(self, t: float) -> al.Quat:
-        """LVLH: body +Z at nadir, +X along-track, +Y = −orbit normal."""
+        """LVLH: body +Z at nadir, +Y = −orbit normal, +X completing the
+        triad (transverse — the along-track sense). Built from r̂ and ĥ,
+        which are perpendicular on ANY orbit; building from the velocity
+        would only be orthonormal on a circle, where the flight-path
+        angle is zero."""
         r = self.orbit.position(t)
         z = al.v_scale(al.v_unit(r), -1.0)
-        x = self.orbit.velocity_direction(t)
-        y = al.v_cross(z, x)
+        y = al.v_scale(self.orbit.normal(), -1.0)
+        x = al.v_cross(y, z)
         return al.frame_to_quat(x, y, z)
 
     def sun_attitude(self, sun_axis_body: al.Vec3) -> al.Quat:
