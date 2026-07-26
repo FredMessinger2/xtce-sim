@@ -2098,10 +2098,13 @@ def test_environment_table_builds_the_spec_world(tmp_path, simdef):
         simdef,
         "[_environment.orbit]\naltitude_km = 700.0\ninclination_deg = 98.0\n",
     )
-    assert spec.environment.orbit.altitude == pytest.approx(700e3)
+    from xtce_sim.dynamics.environment import R_EARTH
+
+    assert spec.environment.orbit.semi_major == pytest.approx(R_EARTH + 700e3)
+    assert spec.environment.orbit.eccentricity == 0.0
     # absent table -> the documented default world
     bare = _load(tmp_path, simdef, "[_initial]\nIMG_GAIN = 1\n")
-    assert bare.environment.orbit.altitude == pytest.approx(500e3)
+    assert bare.environment.orbit.semi_major == pytest.approx(R_EARTH + 500e3)
 
 
 def test_environment_declared_twice_is_a_conflict(tmp_path, simdef):

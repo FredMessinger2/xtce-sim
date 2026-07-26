@@ -7,7 +7,8 @@ rotation axis, X/Y equatorial). Honest simplifications, each chosen
 because its error is invisible from a ground console and each recorded
 here rather than hidden:
 
-- The orbit is CIRCULAR and unperturbed (no J2 drift, no drag decay).
+- The orbit is a closed two-body KEPLERIAN ellipse, unperturbed (no J2
+  drift, no drag decay; a circle is the e = 0 case).
 - The sun direction is FIXED in inertial space (it really moves ~1°/day;
   over a simulation session that is noise).
 - Eclipse is the CYLINDRICAL Earth shadow (no penumbra).
@@ -32,60 +33,137 @@ B_EQUATOR = 3.12e-5  # T, dipole field magnitude at the equatorial surface
 DIPOLE_TILT = math.radians(11.5)  # geomagnetic axis tilt from the spin axis
 
 
-@dataclass(frozen=True)
-class CircularOrbit:
-    """A circular orbit fixed by altitude, inclination, RAAN, and phase."""
+def _solve_kepler(mean_anomaly: float, e: float) -> float:
+    """Kepler's equation E − e·sinE = M, solved by Newton's method.
 
-    altitude: float  # m above R_EARTH
+    Converges in a handful of iterations for any closed orbit; the π seed
+    for high eccentricity is the standard guard against the flat slope
+    near perigee (Newton from M itself can overshoot when e → 1)."""
+    m = math.fmod(mean_anomaly, 2.0 * math.pi)
+    ecc_anomaly = m if e < 0.8 else math.pi
+    for _ in range(32):
+        f = ecc_anomaly - e * math.sin(ecc_anomaly) - m
+        ecc_anomaly -= f / (1.0 - e * math.cos(ecc_anomaly))
+        if abs(f) < 1e-12:
+            break
+    return ecc_anomaly
+
+
+@dataclass(frozen=True)
+class KeplerianOrbit:
+    """A closed two-body orbit fixed by its classical elements.
+
+    Angles in radians, lengths in meters. ``mean_anomaly0`` is the mean
+    anomaly at t = 0, measured from perigee; for a circular orbit
+    (e = 0, arg_perigee = 0) it reduces to the argument of latitude,
+    which is exactly what the ``circular_orbit`` factory exploits."""
+
+    semi_major: float  # a, m
+    eccentricity: float = 0.0  # e, in [0, 1) — closed orbits only
     inclination: float = math.radians(51.6)
     raan: float = 0.0  # right ascension of the ascending node, rad
-    phase0: float = 0.0  # argument of latitude at t = 0, rad
+    arg_perigee: float = 0.0  # ω, rad (irrelevant when e = 0)
+    mean_anomaly0: float = 0.0  # M at t = 0, rad
 
     def __post_init__(self) -> None:
-        if self.altitude <= 0.0:
-            raise ValueError("altitude must be positive")
+        if not 0.0 <= self.eccentricity < 1.0:
+            raise ValueError("eccentricity must be in [0, 1) — closed orbits only")
+        if self.perigee_radius <= R_EARTH:
+            raise ValueError("perigee is at or below the Earth's surface")
 
     @property
-    def radius(self) -> float:
-        return R_EARTH + self.altitude
+    def perigee_radius(self) -> float:
+        return self.semi_major * (1.0 - self.eccentricity)
 
     @property
-    def rate(self) -> float:
-        """Orbital angular rate n = sqrt(mu/r³), rad/s."""
-        return math.sqrt(MU_EARTH / self.radius**3)
+    def apogee_radius(self) -> float:
+        return self.semi_major * (1.0 + self.eccentricity)
+
+    @property
+    def mean_motion(self) -> float:
+        """Mean motion n = sqrt(mu/a³), rad/s — the average angular rate
+        (and the exact one when the orbit is circular)."""
+        return math.sqrt(MU_EARTH / self.semi_major**3)
 
     @property
     def period(self) -> float:
-        return 2.0 * math.pi / self.rate
+        return 2.0 * math.pi / self.mean_motion
+
+    def describe(self) -> str:
+        """The orbit the way operators say it: altitude for a circle,
+        perigee x apogee for an ellipse (circular = the apsides agree to
+        within a meter, dodging float-equality on e)."""
+        if self.apogee_radius - self.perigee_radius < 1.0:
+            return f"{(self.semi_major - R_EARTH) / 1e3:.0f} km"
+        return (
+            f"{(self.perigee_radius - R_EARTH) / 1e3:.0f} x "
+            f"{(self.apogee_radius - R_EARTH) / 1e3:.0f} km"
+        )
 
     def _basis(self) -> tuple[al.Vec3, al.Vec3, al.Vec3]:
-        """In-plane axes p̂ (toward the ascending node), q̂ (90° ahead),
-        and the orbit normal ĥ, all in ECI."""
+        """Perifocal axes in ECI: x̂ toward perigee, ŷ 90° ahead in the
+        direction of motion, and the orbit normal ĥ."""
         co, so = math.cos(self.raan), math.sin(self.raan)
         ci, si = math.cos(self.inclination), math.sin(self.inclination)
-        p = (co, so, 0.0)
-        q = (-so * ci, co * ci, si)
+        p = (co, so, 0.0)  # toward the ascending node
+        q = (-so * ci, co * ci, si)  # 90° ahead, in plane
         h = (so * si, -co * si, ci)
-        return p, q, h
+        cw, sw = math.cos(self.arg_perigee), math.sin(self.arg_perigee)
+        x = al.v_add(al.v_scale(p, cw), al.v_scale(q, sw))
+        y = al.v_add(al.v_scale(p, -sw), al.v_scale(q, cw))
+        return x, y, h
+
+    def _anomaly(self, t: float) -> float:
+        """Eccentric anomaly at time t."""
+        return _solve_kepler(self.mean_anomaly0 + self.mean_motion * t, self.eccentricity)
 
     def position(self, t: float) -> al.Vec3:
         """Spacecraft position in ECI, meters."""
-        p, q, _ = self._basis()
-        u = self.phase0 + self.rate * t
+        x, y, _ = self._basis()
+        ecc_anomaly = self._anomaly(t)
+        a, e = self.semi_major, self.eccentricity
         return al.v_add(
-            al.v_scale(p, self.radius * math.cos(u)),
-            al.v_scale(q, self.radius * math.sin(u)),
+            al.v_scale(x, a * (math.cos(ecc_anomaly) - e)),
+            al.v_scale(y, a * math.sqrt(1.0 - e * e) * math.sin(ecc_anomaly)),
+        )
+
+    def velocity(self, t: float) -> al.Vec3:
+        """Spacecraft velocity in ECI, m/s — fast at perigee, slow at
+        apogee, exactly as the ellipse demands (dE/dt = n / (1 − e·cosE))."""
+        x, y, _ = self._basis()
+        ecc_anomaly = self._anomaly(t)
+        a, e = self.semi_major, self.eccentricity
+        anomaly_rate = self.mean_motion / (1.0 - e * math.cos(ecc_anomaly))
+        return al.v_add(
+            al.v_scale(x, -a * math.sin(ecc_anomaly) * anomaly_rate),
+            al.v_scale(y, a * math.sqrt(1.0 - e * e) * math.cos(ecc_anomaly) * anomaly_rate),
         )
 
     def velocity_direction(self, t: float) -> al.Vec3:
-        """Unit along-track direction (exactly ⊥ position on a circle)."""
-        p, q, _ = self._basis()
-        u = self.phase0 + self.rate * t
-        return al.v_add(al.v_scale(p, -math.sin(u)), al.v_scale(q, math.cos(u)))
+        """Unit along-track direction (the velocity, normalized)."""
+        return al.v_unit(self.velocity(t))
 
     def normal(self) -> al.Vec3:
         """Orbit normal ĥ (constant for an unperturbed orbit)."""
         return self._basis()[2]
+
+
+def circular_orbit(
+    altitude: float,
+    inclination: float = math.radians(51.6),
+    raan: float = 0.0,
+    phase0: float = 0.0,
+) -> KeplerianOrbit:
+    """A circular orbit spelled the way operators speak: altitude above
+    the surface. With e = 0 the argument of latitude and the mean anomaly
+    from the node coincide, so phase0 maps straight onto mean_anomaly0."""
+    return KeplerianOrbit(
+        semi_major=R_EARTH + altitude,
+        eccentricity=0.0,
+        inclination=inclination,
+        raan=raan,
+        mean_anomaly0=phase0,
+    )
 
 
 def _complete_frame(z: al.Vec3) -> tuple[al.Vec3, al.Vec3]:
@@ -103,7 +181,7 @@ class Environment:
     """The world model: orbit, sun, magnetic field, and the reference
     attitudes the pointing modes track."""
 
-    orbit: CircularOrbit
+    orbit: KeplerianOrbit
     sun_direction: al.Vec3 = (1.0, 0.0, 0.0)  # ECI unit vector, fixed
     # Earth's dipole moment axis points roughly toward geographic SOUTH
     # (that is what makes the surface field point north); tilted 11.5°.

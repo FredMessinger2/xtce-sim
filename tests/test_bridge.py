@@ -229,7 +229,7 @@ async def test_stream_carries_live_state_vectors(simdef):
         assert frame["id"] == "1"
         state = json.loads(frame["data"])
         assert state["sat_id"] == "90001" and state["frame"] == "J2000"
-        radius_km = spec.environment.orbit.radius / 1000.0
+        radius_km = spec.environment.orbit.semi_major / 1000.0
         magnitude = (
             state["position_km"]["x"] ** 2
             + state["position_km"]["y"] ** 2

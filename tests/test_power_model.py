@@ -6,7 +6,7 @@ import pytest
 from conftest import EXAMPLES
 
 from xtce_sim.dynamics import algebra as al
-from xtce_sim.dynamics.environment import CircularOrbit, Environment
+from xtce_sim.dynamics.environment import Environment, circular_orbit
 from xtce_sim.dynamics.model import parse_model
 from xtce_sim.dynamics.power import PowerModel, parse_power_model
 
@@ -32,13 +32,13 @@ def _parse(simdef, table):
 
 def _sunlit_env() -> Environment:
     # phase0 = 0 puts the vehicle on the sunward side of the terminator.
-    return Environment(orbit=CircularOrbit(altitude=500e3), sun_direction=(1.0, 0.0, 0.0))
+    return Environment(orbit=circular_orbit(altitude=500e3), sun_direction=(1.0, 0.0, 0.0))
 
 
 def _eclipsed_env() -> Environment:
     # phase0 = pi puts the vehicle squarely inside the shadow cylinder.
     return Environment(
-        orbit=CircularOrbit(altitude=500e3, inclination=0.0, phase0=math.pi),
+        orbit=circular_orbit(altitude=500e3, inclination=0.0, phase0=math.pi),
         sun_direction=(1.0, 0.0, 0.0),
     )
 

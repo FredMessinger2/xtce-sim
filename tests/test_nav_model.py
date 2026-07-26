@@ -5,7 +5,7 @@ import math
 import pytest
 from conftest import EXAMPLES
 
-from xtce_sim.dynamics.environment import CircularOrbit, Environment
+from xtce_sim.dynamics.environment import Environment, circular_orbit
 from xtce_sim.dynamics.model import parse_model
 from xtce_sim.dynamics.nav import NavModel, parse_nav_model
 
@@ -30,7 +30,7 @@ def _parse(simdef, table):
 def _model(simdef, env=None, outputs=_FULL_OUTPUTS):
     cfg, errors = _parse(simdef, {"kind": "nav", "outputs": outputs})
     assert errors == [], errors
-    return NavModel(cfg, env or Environment(orbit=CircularOrbit(altitude=500e3)))
+    return NavModel(cfg, env or Environment(orbit=circular_orbit(altitude=500e3)))
 
 
 # ---- parsing ----------------------------------------------------------------
@@ -67,7 +67,7 @@ def test_parse_rejects_bad_tables(simdef):
 
 
 def test_state_vector_matches_the_shared_orbit(simdef):
-    orbit = CircularOrbit(altitude=500e3)
+    orbit = circular_orbit(altitude=500e3)
     m = _model(simdef, Environment(orbit=orbit))
     m.advance(600.0)
     out = m.outputs()
@@ -76,8 +76,8 @@ def test_state_vector_matches_the_shared_orbit(simdef):
     expected = orbit.position(600.0)
     assert pos == pytest.approx(tuple(c / 1000.0 for c in expected))
     # Circular-orbit invariants: |r| = radius, |v| = sqrt(mu/r), v ⊥ r.
-    assert math.hypot(*pos) == pytest.approx(orbit.radius / 1000.0)
-    assert math.hypot(*vel) == pytest.approx(orbit.rate * orbit.radius / 1000.0)
+    assert math.hypot(*pos) == pytest.approx(orbit.semi_major / 1000.0)
+    assert math.hypot(*vel) == pytest.approx(orbit.mean_motion * orbit.semi_major / 1000.0)
     dot = sum(p * v for p, v in zip(pos, vel))
     assert dot == pytest.approx(0.0, abs=1e-9)
     assert out["NAV_TIMESTAMP"] == 600.0
@@ -95,7 +95,7 @@ def test_position_actually_moves_along_the_orbit(simdef):
         second["NAV_POS_Z"] - first["NAV_POS_Z"],
     )
     # ~7.6 km/s for one minute is ~456 km of arc.
-    assert moved == pytest.approx(60.0 * m.environment.orbit.rate * m.environment.orbit.radius / 1000.0, rel=1e-3)
+    assert moved == pytest.approx(60.0 * m.environment.orbit.mean_motion * m.environment.orbit.semi_major / 1000.0, rel=1e-3)
 
 
 def test_engine_carries_a_live_state_vector_from_the_first_beacon(simdef):
@@ -106,7 +106,7 @@ def test_engine_carries_a_live_state_vector_from_the_first_beacon(simdef):
     engine = BehaviorEngine(spec, simdef)
     # Model outputs are seeded at construction: the first packet is real.
     pos = (engine.state["NAV_POS_X"], engine.state["NAV_POS_Y"], engine.state["NAV_POS_Z"])
-    assert math.hypot(*pos) == pytest.approx(spec.environment.orbit.radius / 1000.0, rel=1e-6)
+    assert math.hypot(*pos) == pytest.approx(spec.environment.orbit.semi_major / 1000.0, rel=1e-6)
     assert engine.state["NAV_GPS_VALID"] == 1  # the VALID label's raw value
     engine.tick(60.0)
     moved = (engine.state["NAV_POS_X"], engine.state["NAV_POS_Y"], engine.state["NAV_POS_Z"])
