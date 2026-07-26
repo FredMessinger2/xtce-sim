@@ -56,7 +56,7 @@ from typing import Callable
 
 from xtce_sim.dynamics import algebra as al
 from xtce_sim.dynamics.control import AttitudeController, ControlLaw, PDGains
-from xtce_sim.dynamics.environment import CircularOrbit, Environment
+from xtce_sim.dynamics.environment import R_EARTH, Environment, KeplerianOrbit, circular_orbit
 from xtce_sim.dynamics.modes import AdcsMode, Magnetorquer, ModeMachine
 from xtce_sim.dynamics.plant import Plant, WheelParams
 from xtce_sim.dynamics.sensors import (
@@ -144,7 +144,7 @@ def parse_environment(body, error: Callable[[str], None]) -> Environment | None:
 
 def default_environment() -> Environment:
     """The world used when no [_environment] table is declared."""
-    return Environment(orbit=CircularOrbit(altitude=500.0e3))
+    return Environment(orbit=circular_orbit(altitude=500.0e3))
 
 
 def _reject_moved_world_keys(body: dict, where: str, err: Callable[[str], None]) -> None:
@@ -423,25 +423,79 @@ def _parse_wheels(entries, where: str, err) -> tuple[WheelParams, ...] | None:
     return tuple(wheels)
 
 
-def _parse_orbit(table, where: str, err) -> CircularOrbit | None:
+def _parse_orbit(table, where: str, err) -> KeplerianOrbit | None:
+    """Two spellings, the way operators speak: ``altitude_km`` for a
+    circle, ``perigee_km``/``apogee_km`` (+ optional ``argp_deg``) for an
+    ellipse. ``phase_deg`` is the argument of latitude for a circle and
+    the mean anomaly from perigee for an ellipse."""
     if not isinstance(table, dict):
         err(f"{where}.orbit: must be a table")
         return None
-    for unknown in sorted(set(table) - {"altitude_km", "inclination_deg", "raan_deg", "phase_deg"}):
+    known = {"altitude_km", "perigee_km", "apogee_km", "argp_deg",
+             "inclination_deg", "raan_deg", "phase_deg"}
+    for unknown in sorted(set(table) - known):
         err(f"{where}.orbit: unknown key {unknown!r}")
-    altitude = _positive(table.get("altitude_km", 500.0), f"{where}.orbit.altitude_km", err)
     angles = {
         key: _number(table.get(key, default), f"{where}.orbit.{key}", err)
-        for key, default in (("inclination_deg", 51.6), ("raan_deg", 0.0), ("phase_deg", 0.0))
+        for key, default in (
+            ("inclination_deg", 51.6),
+            ("raan_deg", 0.0),
+            ("phase_deg", 0.0),
+            ("argp_deg", 0.0),
+        )
     }
-    if altitude is None or any(v is None for v in angles.values()):
+    shape = _parse_orbit_shape(table, where, err)
+    if shape is None or any(v is None for v in angles.values()):
         return None
-    return CircularOrbit(
-        altitude=altitude * 1e3,
-        inclination=math.radians(angles["inclination_deg"]),
-        raan=math.radians(angles["raan_deg"]),
-        phase0=math.radians(angles["phase_deg"]),
-    )
+    semi_major, eccentricity = shape
+    try:
+        return KeplerianOrbit(
+            semi_major=semi_major,
+            eccentricity=eccentricity,
+            inclination=math.radians(angles["inclination_deg"]),
+            raan=math.radians(angles["raan_deg"]),
+            arg_perigee=math.radians(angles["argp_deg"]),
+            mean_anomaly0=math.radians(angles["phase_deg"]),
+        )
+    except ValueError as exc:  # perigee below the surface
+        err(f"{where}.orbit: {exc}")
+        return None
+
+
+def _parse_orbit_shape(table, where: str, err) -> tuple[float, float] | None:
+    """The size and shape half of the elements: (semi-major m, e)."""
+    elliptical = {"perigee_km", "apogee_km"} & set(table)
+    if "altitude_km" in table and elliptical:
+        err(
+            f"{where}.orbit: altitude_km is the circular spelling — "
+            "it cannot mix with perigee_km/apogee_km"
+        )
+        return None
+    if not elliptical:
+        if "argp_deg" in table:
+            err(
+                f"{where}.orbit: argp_deg needs the elliptical spelling "
+                "(perigee_km/apogee_km) — a circle has no perigee"
+            )
+            return None
+        altitude = _positive(table.get("altitude_km", 500.0), f"{where}.orbit.altitude_km", err)
+        if altitude is None:
+            return None
+        return R_EARTH + altitude * 1e3, 0.0
+    if elliptical != {"perigee_km", "apogee_km"}:
+        err(f"{where}.orbit: perigee_km and apogee_km must appear together")
+        return None
+    perigee = _positive(table["perigee_km"], f"{where}.orbit.perigee_km", err)
+    apogee = _positive(table["apogee_km"], f"{where}.orbit.apogee_km", err)
+    if perigee is None or apogee is None:
+        return None
+    if apogee < perigee:
+        err(f"{where}.orbit: apogee_km must not be below perigee_km")
+        return None
+    r_perigee = R_EARTH + perigee * 1e3
+    r_apogee = R_EARTH + apogee * 1e3
+    semi_major = (r_perigee + r_apogee) / 2.0
+    return semi_major, (r_apogee - r_perigee) / (r_apogee + r_perigee)
 
 
 #: Label-emitting sources and every label they can produce, for load-time

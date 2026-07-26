@@ -14,7 +14,7 @@ import pytest
 
 from xtce_sim.dynamics import algebra as al
 from xtce_sim.dynamics.control import AttitudeController, ControlLaw, PDGains
-from xtce_sim.dynamics.environment import CircularOrbit, Environment
+from xtce_sim.dynamics.environment import Environment, circular_orbit
 from xtce_sim.dynamics.modes import AdcsMode, Magnetorquer, ModeMachine, latlon_degrees
 from xtce_sim.dynamics.plant import Plant, PlantState, WheelParams
 from xtce_sim.dynamics.sensors import EstimatorState
@@ -34,7 +34,7 @@ PYRAMID = tuple(
 def _machine(state=None, **kwargs):
     plant = Plant(inertia=INERTIA, wheels=PYRAMID, state=state or PlantState())
     controller = AttitudeController(plant=plant, gains=PDGains.critically_damped(INERTIA, 0.1))
-    env = Environment(orbit=CircularOrbit(altitude=500e3))
+    env = Environment(orbit=circular_orbit(altitude=500e3))
     return ModeMachine(plant=plant, controller=controller, environment=env, **kwargs)
 
 

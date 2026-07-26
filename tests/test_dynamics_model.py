@@ -160,10 +160,12 @@ def test_environment_parses_and_validates():
     # The happy path: the world built from the vehicle-level table.
     env, errors = _parse_env({"orbit": {"altitude_km": 500.0, "inclination_deg": 51.6}})
     assert errors == [] and env is not None
-    assert env.orbit.altitude == pytest.approx(500e3)
+    from xtce_sim.dynamics.environment import R_EARTH
+
+    assert env.orbit.semi_major == pytest.approx(R_EARTH + 500e3)
     # Absent table -> the documented default world.
     default = default_environment()
-    assert default.orbit.altitude == pytest.approx(500e3)
+    assert default.orbit.semi_major == pytest.approx(R_EARTH + 500e3)
     assert default.sun_direction == (1.0, 0.0, 0.0)
 
 
@@ -178,6 +180,42 @@ def test_environment_rejects_malformed_tables():
     assert any("orbit: unknown key 'altitud_km'" in e for e in errors)
     env, errors = _parse_env({"weather": {}})
     assert any("unknown key 'weather'" in e for e in errors)
+
+
+def test_environment_parses_the_elliptical_spelling():
+    from xtce_sim.dynamics.environment import R_EARTH
+
+    env, errors = _parse_env(
+        {
+            "orbit": {
+                "perigee_km": 600.0,
+                "apogee_km": 39700.0,
+                "inclination_deg": 63.4,
+                "argp_deg": 270.0,
+            }
+        }
+    )
+    assert errors == [] and env is not None
+    orbit = env.orbit
+    assert orbit.perigee_radius == pytest.approx(R_EARTH + 600e3)
+    assert orbit.apogee_radius == pytest.approx(R_EARTH + 39700e3)
+    assert orbit.arg_perigee == pytest.approx(math.radians(270.0))
+    assert orbit.describe() == "600 x 39700 km"
+    # ~11.8 hours: the half-sidereal-day Molniya period, from the elements alone.
+    assert orbit.period == pytest.approx(42600.0, rel=0.01)
+
+
+def test_environment_rejects_bad_orbit_shapes():
+    cases = {
+        "cannot mix with perigee_km/apogee_km": {"altitude_km": 500.0, "apogee_km": 39700.0},
+        "perigee_km and apogee_km must appear together": {"perigee_km": 600.0},
+        "apogee_km must not be below perigee_km": {"perigee_km": 39700.0, "apogee_km": 600.0},
+        "a circle has no perigee": {"altitude_km": 500.0, "argp_deg": 270.0},
+        "perigee_km: must be a positive number": {"perigee_km": -600.0, "apogee_km": 39700.0},
+    }
+    for expected, orbit in cases.items():
+        env, errors = _parse_env({"orbit": orbit})
+        assert env is None and any(expected in e for e in errors), (expected, errors)
 
 
 def test_environment_reports_non_numeric_orbit_angles_instead_of_crashing():

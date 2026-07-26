@@ -16,26 +16,131 @@ from xtce_sim.dynamics.environment import (
     MU_EARTH,
     OMEGA_EARTH,
     R_EARTH,
-    CircularOrbit,
     Environment,
+    KeplerianOrbit,
+    circular_orbit,
     reference_rate,
 )
 
-LEO = CircularOrbit(altitude=500e3, inclination=math.radians(51.6))
+LEO = circular_orbit(altitude=500e3, inclination=math.radians(51.6))
 
 
 # ---------------------------------------------------------------------------
 # Orbit geometry
 
 
-def test_orbit_rejects_non_positive_altitude():
-    with pytest.raises(ValueError, match="altitude"):
-        CircularOrbit(altitude=0.0)
+def test_orbit_rejects_a_perigee_below_the_surface():
+    with pytest.raises(ValueError, match="perigee"):
+        circular_orbit(altitude=0.0)
+    # The elliptical way to dig your perigee into the ground fails too.
+    with pytest.raises(ValueError, match="perigee"):
+        KeplerianOrbit(semi_major=R_EARTH + 20000e3, eccentricity=0.9)
+
+
+def test_orbit_rejects_open_trajectories():
+    for e in (1.0, 1.5, -0.1):
+        with pytest.raises(ValueError, match="eccentricity"):
+            KeplerianOrbit(semi_major=R_EARTH + 20000e3, eccentricity=e)
+
+
+# A real Molniya orbit: 600 x 39700 km, the critical 63.4° inclination,
+# perigee held in the southern hemisphere so apogee dwells in the north.
+MOLNIYA = KeplerianOrbit(
+    semi_major=(2 * R_EARTH + 600e3 + 39700e3) / 2.0,
+    eccentricity=(39700e3 - 600e3) / (2 * R_EARTH + 600e3 + 39700e3),
+    inclination=math.radians(63.4),
+    arg_perigee=math.radians(270.0),
+)
+
+
+def test_kepler_solver_satisfies_keplers_equation():
+    # High eccentricity is where naive Newton misbehaves; check the
+    # defining equation directly across the whole anomaly range.
+    from xtce_sim.dynamics.environment import _solve_kepler
+
+    for e in (0.0, 0.3, 0.74, 0.95):
+        for m_deg in range(0, 360, 15):
+            m = math.radians(m_deg)
+            ecc_anomaly = _solve_kepler(m, e)
+            residual = ecc_anomaly - e * math.sin(ecc_anomaly) - m
+            assert abs(math.remainder(residual, 2.0 * math.pi)) < 1e-9
+
+
+def test_ellipse_reaches_its_apsides():
+    # M = 0 is perigee, M = pi is apogee — by construction of the anomaly.
+    assert al.v_norm(MOLNIYA.position(0.0)) == pytest.approx(MOLNIYA.perigee_radius)
+    half = MOLNIYA.period / 2.0
+    assert al.v_norm(MOLNIYA.position(half)) == pytest.approx(MOLNIYA.apogee_radius)
+
+
+def test_vis_viva_holds_everywhere_on_the_ellipse():
+    # v² = mu (2/r − 1/a): the energy integral, checked around the orbit.
+    for frac in (0.0, 0.1, 0.25, 0.4, 0.5, 0.7, 0.9):
+        t = frac * MOLNIYA.period
+        r = al.v_norm(MOLNIYA.position(t))
+        v = al.v_norm(MOLNIYA.velocity(t))
+        expected = MU_EARTH * (2.0 / r - 1.0 / MOLNIYA.semi_major)
+        assert v * v == pytest.approx(expected, rel=1e-9)
+
+
+def test_angular_momentum_is_conserved():
+    # Compare the vector difference against |h|: per-component relative
+    # tolerance is meaningless where a component passes through zero.
+    h0 = al.v_cross(MOLNIYA.position(0.0), MOLNIYA.velocity(0.0))
+    for frac in (0.2, 0.5, 0.8):
+        t = frac * MOLNIYA.period
+        h = al.v_cross(MOLNIYA.position(t), MOLNIYA.velocity(t))
+        assert al.v_norm(al.v_sub(h, h0)) < 1e-9 * al.v_norm(h0)
+
+
+def test_apsis_speeds_trade_as_the_radii():
+    # Conservation of angular momentum at the apsides: v_p r_p = v_a r_a.
+    v_perigee = al.v_norm(MOLNIYA.velocity(0.0))
+    v_apogee = al.v_norm(MOLNIYA.velocity(MOLNIYA.period / 2.0))
+    assert v_perigee / v_apogee == pytest.approx(
+        MOLNIYA.apogee_radius / MOLNIYA.perigee_radius
+    )
+    # And the numbers an operator would quote: ~10.0 km/s past perigee,
+    # ~1.5 km/s hanging at apogee — the Molniya dwell.
+    assert v_perigee == pytest.approx(10.0e3, rel=0.01)
+    assert v_apogee == pytest.approx(1.5e3, rel=0.01)
+
+
+def test_orbit_closes_after_one_period():
+    t = 0.37 * MOLNIYA.period  # an arbitrary non-apsis point
+    assert MOLNIYA.position(t + MOLNIYA.period) == pytest.approx(
+        MOLNIYA.position(t), abs=1e-3
+    )
+
+
+def test_velocity_is_the_derivative_of_position():
+    h = 1e-3
+    for frac in (0.05, 0.5, 0.85):
+        t = frac * MOLNIYA.period
+        before, after = MOLNIYA.position(t - h), MOLNIYA.position(t + h)
+        numeric = al.v_scale(al.v_sub(after, before), 1.0 / (2.0 * h))
+        assert MOLNIYA.velocity(t) == pytest.approx(numeric, rel=1e-6)
+
+
+def test_circular_orbit_is_the_degenerate_ellipse():
+    # e = 0: constant radius, constant speed sqrt(mu/a), v ⊥ r.
+    for frac in (0.0, 0.3, 0.6):
+        t = frac * LEO.period
+        r = LEO.position(t)
+        v = LEO.velocity(t)
+        assert al.v_norm(r) == pytest.approx(LEO.semi_major)
+        assert al.v_norm(v) == pytest.approx(math.sqrt(MU_EARTH / LEO.semi_major))
+        assert al.v_dot(r, v) == pytest.approx(0.0, abs=1e-3)
+
+
+def test_orbit_describes_itself_like_an_operator():
+    assert LEO.describe() == "500 km"
+    assert MOLNIYA.describe() == "600 x 39700 km"
 
 
 def test_keplers_third_law():
     # T = 2*pi*sqrt(r^3/mu): 500 km above the MEAN radius takes ~5669 s.
-    r = LEO.radius
+    r = LEO.semi_major
     assert LEO.period == pytest.approx(2.0 * math.pi * math.sqrt(r**3 / MU_EARTH))
     assert LEO.period == pytest.approx(5669.0, abs=5.0)
 
@@ -44,7 +149,7 @@ def test_position_stays_on_the_circle_and_velocity_is_tangent():
     for t in (0.0, 137.0, 1500.0, 4321.0):
         r = LEO.position(t)
         v = LEO.velocity_direction(t)
-        assert al.v_norm(r) == pytest.approx(LEO.radius)
+        assert al.v_norm(r) == pytest.approx(LEO.semi_major)
         assert al.v_norm(v) == pytest.approx(1.0)
         assert abs(al.v_dot(r, v)) < 1e-3  # ⊥ to within rounding at 6.9e6 m
         assert abs(al.v_dot(r, LEO.normal())) < 1e-3
@@ -52,12 +157,12 @@ def test_position_stays_on_the_circle_and_velocity_is_tangent():
 
 def test_inclination_bounds_the_latitude_excursion():
     peak_z = max(abs(LEO.position(t)[2]) for t in range(0, int(LEO.period), 10))
-    assert peak_z == pytest.approx(LEO.radius * math.sin(LEO.inclination), rel=1e-3)
+    assert peak_z == pytest.approx(LEO.semi_major * math.sin(LEO.inclination), rel=1e-3)
 
 
 def test_equatorial_orbit_starts_at_the_node():
-    orbit = CircularOrbit(altitude=500e3, inclination=0.0)
-    assert orbit.position(0.0) == pytest.approx((orbit.radius, 0.0, 0.0))
+    orbit = circular_orbit(altitude=500e3, inclination=0.0)
+    assert orbit.position(0.0) == pytest.approx((orbit.semi_major, 0.0, 0.0))
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +170,7 @@ def test_equatorial_orbit_starts_at_the_node():
 
 
 def test_sun_visibility_and_shadow_arc():
-    env = Environment(orbit=CircularOrbit(altitude=500e3, inclination=0.0))
+    env = Environment(orbit=circular_orbit(altitude=500e3, inclination=0.0))
     # Subsolar point: lit. Antisolar point: dead center of the shadow.
     assert env.sun_visible(0.0)  # position (r, 0, 0), sun +x
     half_period = env.orbit.period / 2.0
@@ -73,7 +178,7 @@ def test_sun_visibility_and_shadow_arc():
     # For a sun in the orbit plane the shadow arc is 2*asin(R/r): count it.
     samples = 2000
     lit = sum(env.sun_visible(env.orbit.period * i / samples) for i in range(samples))
-    expected_lit = 1.0 - math.asin(R_EARTH / env.orbit.radius) / math.pi
+    expected_lit = 1.0 - math.asin(R_EARTH / env.orbit.semi_major) / math.pi
     assert lit / samples == pytest.approx(expected_lit, abs=0.01)
 
 
@@ -81,7 +186,7 @@ def test_polar_orbit_over_the_terminator_never_eclipses():
     # Orbit plane ⊥ sun line: the spacecraft rides the terminator in
     # permanent sunlight (the dawn-dusk sun-synchronous geometry).
     env = Environment(
-        orbit=CircularOrbit(
+        orbit=circular_orbit(
             altitude=500e3,
             inclination=math.radians(90.0),
             raan=math.radians(90.0),
@@ -99,20 +204,20 @@ def _untilted(orbit):
 
 
 def test_dipole_equator_points_north_at_textbook_strength():
-    env = _untilted(CircularOrbit(altitude=500e3, inclination=0.0))
+    env = _untilted(circular_orbit(altitude=500e3, inclination=0.0))
     b = env.magnetic_field(0.0)  # position (r, 0, 0), on the dipole equator
-    expected = B_EQUATOR * (R_EARTH / env.orbit.radius) ** 3
+    expected = B_EQUATOR * (R_EARTH / env.orbit.semi_major) ** 3
     assert b[0] == pytest.approx(0.0, abs=1e-12)
     assert b[1] == pytest.approx(0.0, abs=1e-12)
     assert b[2] == pytest.approx(expected)  # northward, ~2.4e-5 T at 500 km
 
 
 def test_dipole_pole_is_twice_the_equator_and_points_down():
-    orbit = CircularOrbit(altitude=500e3, inclination=math.radians(90.0))
+    orbit = circular_orbit(altitude=500e3, inclination=math.radians(90.0))
     env = _untilted(orbit)
     t_pole = orbit.period / 4.0  # position ~(0, 0, +r)
     b = env.magnetic_field(t_pole)
-    expected = 2.0 * B_EQUATOR * (R_EARTH / orbit.radius) ** 3
+    expected = 2.0 * B_EQUATOR * (R_EARTH / orbit.semi_major) ** 3
     assert b[2] == pytest.approx(-expected, rel=1e-6)  # into the north pole
     assert abs(b[0]) < 1e-9 * expected
     assert abs(b[1]) < 1e-9 * expected
@@ -148,7 +253,7 @@ def test_nadir_reference_rate_is_orbit_rate_about_minus_y():
     env = Environment(orbit=LEO)
     rate = reference_rate(env.nadir_attitude, 1234.0)
     assert rate[0] == pytest.approx(0.0, abs=1e-8)
-    assert rate[1] == pytest.approx(-env.orbit.rate, rel=1e-4)
+    assert rate[1] == pytest.approx(-env.orbit.mean_motion, rel=1e-4)
     assert rate[2] == pytest.approx(0.0, abs=1e-8)
 
 
@@ -189,15 +294,15 @@ def test_dipole_axis_rotates_eastward():
     # at that moment, the field there is -B0'*m_hat, whose y-component is
     # NEGATIVE for eastward rotation (a westward mutation flips its sign).
     quarter_day = (math.pi / 2.0) / OMEGA_EARTH
-    orbit = CircularOrbit(
+    orbit = circular_orbit(
         altitude=500e3,
         inclination=0.0,
-        phase0=-CircularOrbit(altitude=500e3).rate * quarter_day,
+        phase0=-circular_orbit(altitude=500e3).mean_motion * quarter_day,
     )
     env = Environment(orbit=orbit)  # default axis: tilted toward +X
-    assert env.orbit.position(quarter_day) == pytest.approx((orbit.radius, 0.0, 0.0), abs=1e-3)
+    assert env.orbit.position(quarter_day) == pytest.approx((orbit.semi_major, 0.0, 0.0), abs=1e-3)
     b = env.magnetic_field(quarter_day)
-    expected = B_EQUATOR * (R_EARTH / orbit.radius) ** 3
+    expected = B_EQUATOR * (R_EARTH / orbit.semi_major) ** 3
     tilt = math.radians(11.5)
     assert b[1] == pytest.approx(-expected * math.sin(tilt), rel=1e-6)
     assert b[2] == pytest.approx(expected * math.cos(tilt), rel=1e-6)
@@ -217,7 +322,7 @@ def test_target_near_the_horizon_still_builds_a_clean_frame():
     # the horizon, with the line of sight closest to the velocity vector.
     # The frame must stay well-formed (the inward radial component of the
     # line of sight guarantees it — documented in target_attitude).
-    env = Environment(orbit=CircularOrbit(altitude=500e3, inclination=0.0))
+    env = Environment(orbit=circular_orbit(altitude=500e3, inclination=0.0))
     for t in range(0, 600, 25):
         q = env.target_attitude(float(t), 0.0, math.radians(20.0))
         assert al.quat_norm(q) == pytest.approx(1.0)

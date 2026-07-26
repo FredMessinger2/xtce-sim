@@ -37,7 +37,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from xtce_sim.dynamics import algebra as al
 from xtce_sim.dynamics.environment import Environment
 
 #: Numeric output sources (all floats; clock_s rounds into integer fields).
@@ -66,10 +65,10 @@ class NavModelConfig:
 class NavModel:
     """The runtime: read the shared orbit, report the state vector.
 
-    Deliberately thin — the orbit does all the work. Position comes from
-    the environment in meters and converts to kilometers at the boundary;
-    velocity is the along-track unit direction scaled by the circular
-    speed sqrt(mu/r) (rate x radius).
+    Deliberately thin — the orbit does all the work. Position and
+    velocity come from the environment's Keplerian orbit in meters and
+    convert to kilometers at the boundary (fast at perigee, slow at
+    apogee, exactly as the ellipse demands).
     """
 
     def __init__(self, config: NavModelConfig, environment: Environment) -> None:
@@ -84,7 +83,7 @@ class NavModel:
         """Engineering-unit values for every bound field."""
         orbit = self.environment.orbit
         pos = orbit.position(self.t)
-        vel = al.v_scale(orbit.velocity_direction(self.t), orbit.rate * orbit.radius)
+        vel = orbit.velocity(self.t)
         values: dict[str, object] = {
             "clock_s": self.t,
             "pos_x_km": pos[0] / 1000.0,

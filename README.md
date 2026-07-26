@@ -1055,9 +1055,38 @@ inclination_deg = 51.6
 Declaring an orbit inside a model is a load error pointing here; two models
 can therefore never disagree about where the sun is.
 
+The orbit is a general two-body Keplerian ellipse, and the table speaks the
+two spellings operators actually use. `altitude_km` (above) is the circular
+one. The elliptical one gives the apsides — here a real Molniya orbit, with
+the critical 63.4° inclination and perigee held south so apogee dwells over
+the northern hemisphere:
+
+```toml
+[_environment.orbit]
+perigee_km = 600.0
+apogee_km = 39700.0
+inclination_deg = 63.4
+argp_deg = 270.0             # argument of perigee
+```
+
+The two spellings are mutually exclusive, `argp_deg` is refused with the
+circular one (a circle has no perigee), and a perigee at or below the
+surface fails at load. Everything downstream simply follows: eclipse
+timing, the dipole field, nadir pointing, solar power, and the NAV state
+vector all read the same ellipse — visible in `NAV_VEL_*`, in the viewer
+bridge's stream, and in an orbit display. From a live run of the example
+vehicle on the Molniya elements above, sampled at each apsis through the
+bridge:
+
+```text
+boot at perigee (phase 0):    radius  6,971 km  altitude    600 km  speed 9.97 km/s
+boot at apogee (phase 180):   radius 46,071 km  altitude 39,700 km  speed 1.51 km/s
+```
+
 Behind those bindings runs owned, dependency-free physics: Euler's rigid-body
 equation with wheel momentum exchange integrated by RK4, a quaternion-feedback
-PD controller, a circular orbit with sun, eclipse, and a rotating tilted-dipole
+PD controller, a Keplerian orbit (Newton-solved Kepler's equation) with sun,
+eclipse, and a rotating tilted-dipole
 magnetic field, and modeled sensors (star tracker with a sun-exclusion cone,
 gyro with bias, sun sensor, magnetometer) feeding an estimator. **The control
 loop closes on the estimates, and the telemetry reports them** — command a

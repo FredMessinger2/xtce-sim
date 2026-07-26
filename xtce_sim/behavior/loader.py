@@ -299,7 +299,7 @@ def describe(spec: BehaviorSpec) -> list[str]:
         # The world only matters when something lives in it.
         env = spec.environment
         lines.append(
-            f"environment: orbit {env.orbit.altitude / 1e3:.0f} km @ "
+            f"environment: orbit {env.orbit.describe()} @ "
             f"{math.degrees(env.orbit.inclination):.1f} deg, "
             f"sun {list(env.sun_direction)} (shared by all models)"
         )
