@@ -37,6 +37,9 @@ from xtce_sim.logs import enable_trace, setup_logging
 from xtce_sim.server import SimServer
 from xtce_sim.synth import LiveTelemetry
 
+#: The Ctrl-C goodbye every long-running verb prints (run/ui/bridge).
+_STOPPED = "\nStopped."
+
 _XTCE_ARG = click.argument(
     "xtce",
     nargs=-1,
@@ -371,7 +374,7 @@ def run(
         # serve_forever() binds, beacons, and cleans up (stop()) in its finally.
         asyncio.run(server.serve_forever())
     except KeyboardInterrupt:
-        click.echo("\nStopped.")
+        click.echo(_STOPPED)
     except OSError as exc:
         # Bind failure (port in use, bad host, ...) — a clean error, like send/monitor.
         raise click.ClickException(f"could not serve on {host}:{port} — {exc}") from exc
@@ -1050,7 +1053,7 @@ def ui(
     try:
         asyncio.run(webui.run_ui(simdef, host, port, http_host, http_port))
     except KeyboardInterrupt:
-        click.echo("\nStopped.")
+        click.echo(_STOPPED)
     except OSError as exc:
         raise click.ClickException(
             f"could not serve the console on {http_host}:{http_port} — {exc}"
@@ -1140,7 +1143,7 @@ def bridge(
     try:
         asyncio.run(bridge_mod.run_bridge(feeds, sse_host, sse_port))
     except KeyboardInterrupt:
-        click.echo("\nStopped.")
+        click.echo(_STOPPED)
     except OSError as exc:
         raise click.ClickException(
             f"could not serve the stream on {sse_host}:{sse_port} — {exc}"
