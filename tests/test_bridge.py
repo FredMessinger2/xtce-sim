@@ -129,6 +129,7 @@ port = 5001
 def = "{IMAGING}"
 color = "#ffcc00"
 pixel_size = 8
+fov_half_angle_deg = 7.95
 
 [[satellites]]
 sat_id = "90002"
@@ -138,9 +139,25 @@ def = "{IMAGING}"
     )
     feeds = load_bridge_config(path)
     assert [f.sat_id for f in feeds] == ["90001", "90002"]
-    assert feeds[0].display == {"color": "#ffcc00", "pixel_size": 8}
+    assert feeds[0].display == {"color": "#ffcc00", "pixel_size": 8, "fov_half_angle_deg": 7.95}
     assert feeds[1].name == "90002" and feeds[1].display == {}
     assert feeds[0].apid == feeds[1].apid == 29
+
+
+def test_config_rejects_a_bad_cone(tmp_path):
+    for bad in ("0.0", "91.0", "true", '"wide"'):
+        path = _write_config(
+            tmp_path,
+            f"""
+[[satellites]]
+sat_id = "90001"
+port = 5001
+def = "{IMAGING}"
+fov_half_angle_deg = {bad}
+""",
+        )
+        with pytest.raises(BridgeConfigError, match="fov_half_angle_deg"):
+            load_bridge_config(path)
 
 
 def test_config_reports_every_problem_at_once(tmp_path):

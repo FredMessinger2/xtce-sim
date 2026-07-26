@@ -318,7 +318,7 @@ def _parse_satellite(entry, n: int, err) -> SatelliteFeed | None:
     if not isinstance(entry, dict):
         err(f"{where}: must be a table")
         return None
-    known = {"sat_id", "name", "host", "port", "def", "color", "pixel_size"}
+    known = {"sat_id", "name", "host", "port", "def", "color", "pixel_size", "fov_half_angle_deg"}
     for key in sorted(set(entry) - known):
         err(f"{where}: unknown key {key!r}")
     sat_id = entry.get("sat_id")
@@ -348,6 +348,12 @@ def _parse_satellite(entry, n: int, err) -> SatelliteFeed | None:
             err(f"{where}: pixel_size must be a positive integer")
         else:
             display["pixel_size"] = pixel_size
+    fov = entry.get("fov_half_angle_deg")
+    if fov is not None:
+        if isinstance(fov, bool) or not isinstance(fov, (int, float)) or not 0.0 < fov <= 90.0:
+            err(f"{where}: fov_half_angle_deg must be a number in (0, 90]")
+        else:
+            display["fov_half_angle_deg"] = float(fov)
     return SatelliteFeed(
         sat_id=sat_id,
         name=str(entry.get("name", sat_id)),

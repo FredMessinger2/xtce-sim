@@ -564,6 +564,7 @@ name = "IMAGING-SAT-1"
 port = 5001
 def = "examples/imaging_sat/imaging_sat.xml"
 color = "#ffcc00"
+fov_half_angle_deg = 30.0    # sensor-cone hint for the viewer's footprint
 
 [[satellites]]
 sat_id = "90002"
@@ -571,6 +572,13 @@ name = "IMAGING-SAT-2"
 port = 5002
 def = "examples/imaging_sat/imaging_sat.xml"
 ```
+
+Presentation is roster config, never code or flags: `color`, `pixel_size`,
+and `fov_half_angle_deg` ride each state event's `display` hints, and the
+viewer falls back to its own defaults for anything omitted. (A worked
+cone: from a Molniya apogee at 39,700 km, `asin(6371 / 46071) ≈ 7.95°`
+is the half-angle tangent to the Earth's limb — the whole disk and
+nothing more.)
 
 ```bash
 xtce-sim bridge --config bridge.toml
