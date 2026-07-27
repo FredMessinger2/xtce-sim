@@ -338,6 +338,18 @@ def _parse_satellite(entry, n: int, err) -> SatelliteFeed | None:
     except Exception as exc:
         err(f"{where}: def {def_path!r}: {exc}")
         return None
+    return SatelliteFeed(
+        sat_id=sat_id,
+        name=str(entry.get("name", sat_id)),
+        host=str(entry.get("host", "127.0.0.1")),
+        port=port,
+        simdef=simdef,
+        display=_parse_display(entry, where, err),
+    )
+
+
+def _parse_display(entry: dict, where: str, err) -> dict:
+    """The presentation hints: color, pixel size, sensor-cone half-angle."""
     display = {}
     color = entry.get("color")
     if color is not None:
@@ -354,14 +366,7 @@ def _parse_satellite(entry, n: int, err) -> SatelliteFeed | None:
             err(f"{where}: fov_half_angle_deg must be a number in (0, 90]")
         else:
             display["fov_half_angle_deg"] = float(fov)
-    return SatelliteFeed(
-        sat_id=sat_id,
-        name=str(entry.get("name", sat_id)),
-        host=str(entry.get("host", "127.0.0.1")),
-        port=port,
-        simdef=simdef,
-        display=display,
-    )
+    return display
 
 
 def load_definition_file(path: Path) -> SimDefinition:
