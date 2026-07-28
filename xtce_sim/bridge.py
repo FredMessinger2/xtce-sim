@@ -460,7 +460,7 @@ def _parse_satellite(entry, n: int, err) -> SatelliteFeed | None:
         host=str(entry.get("host", "127.0.0.1")),
         port=port,
         simdef=simdef,
-        display=parse_display(entry, where, err, cone=True),
+        display=parse_display(entry, where, err),
     )
 
 
