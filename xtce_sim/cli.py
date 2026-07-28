@@ -1066,7 +1066,10 @@ def ui(
     "config_path",
     default=None,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Bridge TOML: one [[satellites]] entry per running sim (multi-sim mode).",
+    help=(
+        "Bridge roster TOML: one [[satellites]] entry per running sim, one "
+        "[[constellations]] entry per propagated population (multi-sim mode)."
+    ),
 )
 @click.option("--port", default=None, type=int, help="TCP port of one running sim (single-sim mode).")
 @click.option("--host", default="127.0.0.1", show_default=True, help="Sim host to connect to.")
@@ -1107,9 +1110,9 @@ def bridge(
     connects to each running sim like `monitor` does, decodes the NAV
     state-vector packet, and serves every satellite on a single
     Server-Sent-Events stream at /telemetry/stream. Multi-sim: --config
-    with a [[satellites]] entry per sim. Single-sim: --port plus --def
-    or --id. The wire format is the molniya repo's
-    docs/telemetry-sse-contract.md.
+    with a [[satellites]] entry per sim and a [[constellations]] entry
+    per propagated population. Single-sim: --port plus --def or --id.
+    The wire format is the molniya repo's docs/telemetry-sse-contract.md.
     """
     from xtce_sim import bridge as bridge_mod
 
@@ -1117,7 +1120,7 @@ def bridge(
         raise click.ClickException("pass exactly one of --config (multi-sim) or --port (single-sim)")
     if config_path is not None:
         try:
-            feeds = bridge_mod.load_bridge_config(config_path)
+            roster = bridge_mod.load_bridge_config(config_path)
         except bridge_mod.BridgeConfigError as exc:
             raise click.ClickException(str(exc)) from exc
     else:
@@ -1134,14 +1137,21 @@ def bridge(
         problems = feed.validate()
         if problems:
             raise click.ClickException("; ".join(problems))
-        feeds = [feed]
-    roster = ", ".join(f"{f.name} ({f.host}:{f.port})" for f in feeds)
+        roster = bridge_mod.BridgeRoster(feeds=[feed], constellations=[])
+    lineup = ", ".join(
+        [f"{f.name} ({f.host}:{f.port})" for f in roster.feeds]
+        + [c.describe() for c in roster.constellations]
+    )
     click.echo(
         f"Bridge: http://{sse_host}:{sse_port}/telemetry/stream  "
-        f"[{roster}]  (Ctrl-C to stop)"
+        f"[{lineup}]  (Ctrl-C to stop)"
     )
     try:
-        asyncio.run(bridge_mod.run_bridge(feeds, sse_host, sse_port))
+        asyncio.run(
+            bridge_mod.run_bridge(
+                roster.feeds, sse_host, sse_port, constellations=roster.constellations
+            )
+        )
     except KeyboardInterrupt:
         click.echo(_STOPPED)
     except OSError as exc:
