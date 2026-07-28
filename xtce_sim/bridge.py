@@ -319,10 +319,10 @@ async def run_bridge(
     await site.start()
     if on_ready is not None:
         on_ready(runner.addresses[0][1])
-    tasks = [asyncio.create_task(bridge.feed_loop(feed)) for feed in bridge.feeds]
-    tasks += [
-        asyncio.create_task(bridge.population_loop(c)) for c in bridge.constellations
+    loops = [bridge.feed_loop(feed) for feed in bridge.feeds] + [
+        bridge.population_loop(c) for c in bridge.constellations
     ]
+    tasks = [asyncio.create_task(loop) for loop in loops]
     try:
         await asyncio.gather(*tasks)
     finally:
