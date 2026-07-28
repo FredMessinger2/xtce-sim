@@ -133,7 +133,7 @@ def parse_environment(body, error: Callable[[str], None]) -> Environment | None:
     err = problems.error
     for key in sorted(set(body) - {"orbit", "sun_direction"}):
         err(f"{where}: unknown key {key!r}")
-    orbit = _parse_orbit(body.get("orbit", {}), where, err)
+    orbit = parse_orbit(body.get("orbit", {}), where, err)
     sun_direction = _unit_vec(
         body.get("sun_direction", [1.0, 0.0, 0.0]), f"{where}.sun_direction", err
     )
@@ -423,11 +423,15 @@ def _parse_wheels(entries, where: str, err) -> tuple[WheelParams, ...] | None:
     return tuple(wheels)
 
 
-def _parse_orbit(table, where: str, err) -> KeplerianOrbit | None:
+def parse_orbit(table, where: str, err) -> KeplerianOrbit | None:
     """Two spellings, the way operators speak: ``altitude_km`` for a
     circle, ``perigee_km``/``apogee_km`` (+ optional ``argp_deg``) for an
     ellipse. ``phase_deg`` is the argument of latitude for a circle and
-    the mean anomaly from perigee for an ellipse."""
+    the mean anomaly from perigee for an ellipse.
+
+    Public because it is the one orbit spelling everywhere an orbit is
+    configured: a model's ``[orbit]`` table and a bridge roster's
+    ``[[constellations]]`` entry parse through this same function."""
     if not isinstance(table, dict):
         err(f"{where}.orbit: must be a table")
         return None

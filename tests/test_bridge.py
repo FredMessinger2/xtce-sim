@@ -137,11 +137,13 @@ port = 5002
 def = "{IMAGING}"
 """,
     )
-    feeds = load_bridge_config(path)
+    roster = load_bridge_config(path)
+    feeds = roster.feeds
     assert [f.sat_id for f in feeds] == ["90001", "90002"]
     assert feeds[0].display == {"color": "#ffcc00", "pixel_size": 8, "fov_half_angle_deg": 7.95}
     assert feeds[1].name == "90002" and feeds[1].display == {}
     assert feeds[0].apid == feeds[1].apid == 29
+    assert roster.constellations == []
 
 
 def test_config_rejects_a_bad_cone(tmp_path):
@@ -190,7 +192,7 @@ def = "/no/such/definition.xml"
         load_bridge_config(path)
     message = str(excinfo.value)
     assert "unknown key 'warp'" in message
-    assert "already used by entry #1" in message
+    assert "already used by satellites #1" in message
     assert "port must be an integer between 1 and 65535" in message
     assert "/no/such/definition.xml" in message
 

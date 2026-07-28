@@ -594,6 +594,84 @@ label for the environment's simplified inertial frame — and an
 promptly. A satellite whose sim goes down simply stops arriving and ages
 out of the display; restart the sim and the bridge reconnects on its own.
 
+### Constellations: the population
+
+A full sim per satellite does not scale to thousands, and it does not
+need to: the satellites you *operate* are full sims (the "heroes"), while
+the satellites you merely *track* are a catalog — an orbit and a name,
+nothing more. A `[[constellations]]` entry in the same roster adds a
+whole family of these **population satellites**, propagated inside the
+bridge process itself on the shared Keplerian orbit model and published
+on the same stream. The viewer cannot tell the two kinds apart, which is
+honest: a tracked foreign satellite does not send you telemetry either.
+
+```toml
+# fleet.toml — heroes and populations side by side
+[[satellites]]
+sat_id = "90001"
+name = "IMAGING-SAT-1"
+port = 5001
+def = "examples/imaging_sat/imaging_sat.xml"
+color = "#ffcc00"
+
+[[constellations]]
+nation = "RU"
+name_prefix = "COSMOS"          # names COSMOS-001 ... COSMOS-008
+sat_id_prefix = "RU"            # sat_ids RU-001 ... RU-008
+count = 8
+planes = 4                      # 2 satellites in each of 4 planes
+perigee_km = 600.0              # the orbit, spelled exactly like a
+apogee_km = 39700.0             #   model's [orbit] table
+argp_deg = 270.0
+inclination_deg = 63.4
+color = "#cc3333"
+update_period_s = 2.0           # seconds between updates per satellite
+```
+
+The `count` satellites are divided evenly among `planes` orbital planes,
+the planes spaced evenly in right ascension around the Earth's axis and
+the satellites spaced evenly along each plane — the standard even-spacing
+(Walker-style) arrangement real constellations use. `raan_deg` and
+`phase_deg`, when given, rotate the whole pattern so two constellations
+interleave instead of overlapping. Identities must still be unique across
+everything the roster names, heroes included.
+
+Updates are deliberately *staggered*: each satellite is refreshed once
+per `update_period_s`, but the emissions are spread evenly across the
+period instead of bursting at its top — a real catalog refreshes object
+by object as observations arrive, and a burst of a thousand simultaneous
+events would overflow every client's queue at once (the per-client queue
+is also sized from the whole fleet). Keep the period comfortably inside
+the viewer's staleness window: molniya-viewer declares a satellite lost
+after 15 s of silence by default, so the default period here is 5 s.
+
+From a live run of the roster above (population only, no sims running):
+
+```text
+$ xtce-sim bridge --config population.toml --sse-port 8611
+Bridge: http://127.0.0.1:8611/telemetry/stream  [COSMOS x8 (600 x 39700 km)]  (Ctrl-C to stop)
+```
+
+```text
+$ curl -N http://127.0.0.1:8611/telemetry/stream
+event: state
+id: 1
+data: {"sat_id": "RU-002", "name": "COSMOS-002", "epoch": "2026-07-28T13:15:22.844Z", "frame": "J2000", "position_km": {"x": -3.404940449332949, "y": 20628.70872148124, "z": 41194.579417402}, "velocity_kms": {"vx": -1.5080219309284064, "vy": -0.00018985794202303047, "vz": -0.0003791375493390862}, "display": {"color": "#cc3333"}}
+
+event: state
+id: 2
+data: {"sat_id": "RU-003", "name": "COSMOS-003", "epoch": "2026-07-28T13:15:23.094Z", "frame": "J2000", "position_km": {"x": 3121.317042965997, "y": 25.003866579092247, "z": -6233.12610349953}, "velocity_kms": {"vx": -0.009214203265109541, "vy": 9.966406804005205, "vz": 0.01840033873653966}, "display": {"color": "#cc3333"}}
+```
+
+The physics is visible right in the paste: COSMOS-002 near apogee is
+crawling at 1.5 km/s while COSMOS-003 near perigee is tearing along at
+9.97 km/s, on the same 600 x 39,700 km ellipse. Population satellites
+are points, not cones — `fov_half_angle_deg` stays a per-hero setting —
+and they fly pure, unperturbed two-body orbits: nothing here maneuvers
+yet. When one population satellite becomes interesting, promote it: stand
+up a real sim with its orbit and identity, point a `[[satellites]]` entry
+at it, and it becomes a hero without the viewer noticing any change.
+
 ## Onboard sequences: ATS and RTS
 
 The vehicle carries an onboard sequencer with one **ATS** slot and one
