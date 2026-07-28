@@ -665,12 +665,16 @@ data: {"sat_id": "RU-003", "name": "COSMOS-003", "epoch": "2026-07-28T13:15:23.0
 
 The physics is visible right in the paste: COSMOS-002 near apogee is
 crawling at 1.5 km/s while COSMOS-003 near perigee is tearing along at
-9.97 km/s, on the same 600 x 39,700 km ellipse. Population satellites
-are points, not cones — `fov_half_angle_deg` stays a per-hero setting —
-and they fly pure, unperturbed two-body orbits: nothing here maneuvers
-yet. When one population satellite becomes interesting, promote it: stand
-up a real sim with its orbit and identity, point a `[[satellites]]` entry
-at it, and it becomes a hero without the viewer noticing any change.
+9.97 km/s, on the same 600 x 39,700 km ellipse. The display hints
+(`color`, `pixel_size`, `fov_half_angle_deg`) apply to every satellite
+in the family; note that omitting the cone hint does not remove the cone
+— the viewer draws its own default for any satellite that sends none, so
+set `fov_half_angle_deg` when the default is wrong for the orbit (7.95°
+is the limb-tangent cone from a Molniya apogee). Population satellites
+fly pure, unperturbed two-body orbits: nothing here maneuvers yet. When
+one becomes interesting, promote it: stand up a real sim with its orbit
+and identity, point a `[[satellites]]` entry at it, and it becomes a
+hero without the viewer noticing any change.
 
 ## Onboard sequences: ATS and RTS
 

@@ -46,7 +46,7 @@ _ORBIT_KEYS = {
 }
 _KNOWN_KEYS = _ORBIT_KEYS | {
     "nation", "name_prefix", "sat_id_prefix", "count", "planes",
-    "update_period_s", "color", "pixel_size",
+    "update_period_s", "color", "pixel_size", "fov_half_angle_deg",
 }
 
 
@@ -84,10 +84,12 @@ def state_km(sat: PopulationSat, t: float) -> tuple[dict, dict]:
     )
 
 
-def parse_display(entry: dict, where: str, err, *, cone: bool) -> dict:
-    """The presentation hints shared by both roster entry kinds: color and
-    dot size for everyone; the sensor cone only where ``cone`` allows it
-    (hero satellites — a thousand-sat catalog is points, not cones)."""
+def parse_display(entry: dict, where: str, err) -> dict:
+    """The presentation hints shared by both roster entry kinds: color,
+    dot size, and the sensor-cone half-angle. The viewer draws a default
+    cone for any satellite that sends no hint, so the roster must be able
+    to say what the cone is — omitting the key here surrenders the cone
+    width to the viewer's default, it does not remove the cone."""
     display = {}
     color = entry.get("color")
     if color is not None:
@@ -98,8 +100,6 @@ def parse_display(entry: dict, where: str, err, *, cone: bool) -> dict:
             err(f"{where}: pixel_size must be a positive integer")
         else:
             display["pixel_size"] = pixel_size
-    if not cone:
-        return display
     fov = entry.get("fov_half_angle_deg")
     if fov is not None:
         if isinstance(fov, bool) or not isinstance(fov, (int, float)) or not 0.0 < fov <= 90.0:
@@ -142,7 +142,7 @@ def parse_constellation(entry, n: int, err) -> Constellation | None:
         f"{where}: update_period_s",
         err,
     )
-    display = parse_display(entry, where, err, cone=False)
+    display = parse_display(entry, where, err)
     base = _parse_base_orbit(entry, where, err)
     if count is None or planes is None or period is None or base is None:
         return None
