@@ -111,14 +111,20 @@ def parse_display(entry: dict, where: str, err) -> dict:
             err(f"{where}: fov_half_angle_deg must be a number in (0, 90]")
         else:
             display["fov_half_angle_deg"] = float(fov)
+    _parse_display_switches(entry, where, err, display)
+    return display
+
+
+def _parse_display_switches(entry: dict, where: str, err, display: dict) -> None:
+    """The contract's boolean off switches, published verbatim."""
     for switch in ("cone_enabled", "label_enabled"):
         value = entry.get(switch)
-        if value is not None:
-            if not isinstance(value, bool):
-                err(f"{where}: {switch} must be true or false")
-            else:
-                display[switch] = value
-    return display
+        if value is None:
+            continue
+        if not isinstance(value, bool):
+            err(f"{where}: {switch} must be true or false")
+        else:
+            display[switch] = value
 
 
 def parse_constellation(entry, n: int, err) -> Constellation | None:
