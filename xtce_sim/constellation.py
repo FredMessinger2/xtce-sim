@@ -47,7 +47,7 @@ _ORBIT_KEYS = {
 _KNOWN_KEYS = _ORBIT_KEYS | {
     "nation", "name_prefix", "sat_id_prefix", "count", "planes",
     "update_period_s", "color", "pixel_size", "fov_half_angle_deg",
-    "cone_enabled",
+    "cone_enabled", "label_enabled",
 }
 
 
@@ -91,7 +91,8 @@ def parse_display(entry: dict, where: str, err) -> dict:
     cone for any satellite that sends no hint, so the roster must be able
     to say what the cone is — omitting the keys here surrenders the cone
     width to the viewer's default, it does not remove the cone.
-    ``cone_enabled = false`` is the contract's off switch, published
+    ``cone_enabled = false`` and ``label_enabled = false`` are the
+    contract's off switches (sensor cone, name text), published
     verbatim; the configured width stays in the file for an easy flip
     back to true."""
     display = {}
@@ -110,12 +111,13 @@ def parse_display(entry: dict, where: str, err) -> dict:
             err(f"{where}: fov_half_angle_deg must be a number in (0, 90]")
         else:
             display["fov_half_angle_deg"] = float(fov)
-    cone = entry.get("cone_enabled")
-    if cone is not None:
-        if not isinstance(cone, bool):
-            err(f"{where}: cone_enabled must be true or false")
-        else:
-            display["cone_enabled"] = cone
+    for switch in ("cone_enabled", "label_enabled"):
+        value = entry.get(switch)
+        if value is not None:
+            if not isinstance(value, bool):
+                err(f"{where}: {switch} must be true or false")
+            else:
+                display[switch] = value
     return display
 
 

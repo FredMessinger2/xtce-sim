@@ -90,6 +90,7 @@ def test_an_elliptical_constellation_carries_the_ellipse():
             "color": "#3366ff",
             "fov_half_angle_deg": 7.95,
             "cone_enabled": False,
+            "label_enabled": False,
         }
     )
     assert problems == []
@@ -105,6 +106,7 @@ def test_an_elliptical_constellation_carries_the_ellipse():
         "color": "#3366ff",
         "fov_half_angle_deg": 7.95,
         "cone_enabled": False,
+        "label_enabled": False,
     }
 
 
@@ -132,6 +134,7 @@ def test_state_km_is_the_orbit_in_contract_units():
         ({"warp": 9}, "unknown key 'warp'"),
         ({"fov_half_angle_deg": 91.0}, "fov_half_angle_deg must be a number in (0, 90]"),
         ({"cone_enabled": "off"}, "cone_enabled must be true or false"),
+        ({"label_enabled": 1}, "label_enabled must be true or false"),
         ({"update_period_s": 0}, "update_period_s must be a positive number"),
         ({"perigee_km": 600.0}, "altitude_km is the circular spelling"),
         ({"inclination_deg": "steep"}, "inclination_deg: must be a finite number"),

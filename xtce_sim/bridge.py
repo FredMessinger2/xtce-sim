@@ -436,7 +436,7 @@ def _parse_satellite(entry, n: int, err) -> SatelliteFeed | None:
         return None
     known = {
         "sat_id", "name", "host", "port", "def",
-        "color", "pixel_size", "fov_half_angle_deg", "cone_enabled",
+        "color", "pixel_size", "fov_half_angle_deg", "cone_enabled", "label_enabled",
     }
     for key in sorted(set(entry) - known):
         err(f"{where}: unknown key {key!r}")

@@ -574,14 +574,15 @@ def = "examples/imaging_sat/imaging_sat.xml"
 ```
 
 Presentation is roster config, never code or flags: `color`, `pixel_size`,
-`fov_half_angle_deg`, and `cone_enabled` ride each state event's `display`
-hints, and the viewer falls back to its own defaults for anything omitted.
-`cone_enabled = false` turns the sensor cone off entirely — omitting the
-cone keys does not, it just hands the width back to the viewer's default —
-and the width stays in the file for an easy flip back to `true`. (A worked
-cone: from a Molniya apogee at 39,700 km, `asin(6371 / 46071) ≈ 7.95°`
-is the half-angle tangent to the Earth's limb — the whole disk and
-nothing more.)
+`fov_half_angle_deg`, `cone_enabled`, and `label_enabled` ride each state
+event's `display` hints, and the viewer falls back to its own defaults for
+anything omitted. `cone_enabled = false` turns the sensor cone off
+entirely — omitting the cone keys does not, it just hands the width back
+to the viewer's default — and the width stays in the file for an easy flip
+back to `true`. `label_enabled = false` likewise suppresses the name text
+beside the dot. (A worked cone: from a Molniya apogee at 39,700 km,
+`asin(6371 / 46071) ≈ 7.95°` is the half-angle tangent to the Earth's
+limb — the whole disk and nothing more.)
 
 ```bash
 xtce-sim bridge --config bridge.toml
@@ -673,8 +674,9 @@ crawling at 1.5 km/s while COSMOS-003 near perigee is tearing along at
 in the family; note that omitting the cone hint does not remove the cone
 — the viewer draws its own default for any satellite that sends none, so
 set `fov_half_angle_deg` when the default is wrong for the orbit (7.95°
-is the limb-tangent cone from a Molniya apogee), or `cone_enabled = false`
-to draw no cones at all. Population satellites
+is the limb-tangent cone from a Molniya apogee), `cone_enabled = false`
+to draw no cones at all, or `label_enabled = false` to leave a large
+population as unlabeled dots. Population satellites
 fly pure, unperturbed two-body orbits: nothing here maneuvers yet. When
 one becomes interesting, promote it: stand up a real sim with its orbit
 and identity, point a `[[satellites]]` entry at it, and it becomes a
