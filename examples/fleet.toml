@@ -1,0 +1,25 @@
+# Fleet roster: one hero sim plus one propagated population.
+# Lives beside the satellite directory, not inside it — any .toml next
+# to the XTCE file would be loaded as vehicle behavior.
+[[satellites]]
+sat_id = "90001"
+name = "IMAGING-SAT-1"
+port = 5001
+def = "examples/imaging_sat/imaging_sat.xml"
+color = "#ffcc00"
+fov_half_angle_deg = 30.0
+
+[[constellations]]
+nation = "RU"
+name_prefix = "COSMOS"
+sat_id_prefix = "RU"
+count = 88
+planes = 11
+perigee_km = 600.0
+apogee_km = 39700.0
+argp_deg = 270.0
+cone_enabled = false
+inclination_deg = 63.4
+color = "#cc3333"
+fov_half_angle_deg = 7.95    # limb-tangent from a 39,700 km apogee: the whole disk, nothing more
+update_period_s = 2.0
