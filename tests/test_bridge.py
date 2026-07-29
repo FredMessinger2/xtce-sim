@@ -146,6 +146,39 @@ def = "{IMAGING}"
     assert roster.constellations == []
 
 
+def test_config_cone_enabled_rides_the_display_hints(tmp_path):
+    path = _write_config(
+        tmp_path,
+        f"""
+[[satellites]]
+sat_id = "90001"
+port = 5001
+def = "{IMAGING}"
+fov_half_angle_deg = 7.95
+cone_enabled = false
+""",
+    )
+    # The contract's off switch, published verbatim: the width stays
+    # configured for an easy flip back to true.
+    display = load_bridge_config(path).feeds[0].display
+    assert display == {"fov_half_angle_deg": 7.95, "cone_enabled": False}
+
+
+def test_config_rejects_a_bad_cone_switch(tmp_path):
+    path = _write_config(
+        tmp_path,
+        f"""
+[[satellites]]
+sat_id = "90001"
+port = 5001
+def = "{IMAGING}"
+cone_enabled = "off"
+""",
+    )
+    with pytest.raises(BridgeConfigError, match="cone_enabled must be true or false"):
+        load_bridge_config(path)
+
+
 def test_config_rejects_a_bad_cone(tmp_path):
     for bad in ("0.0", "91.0", "true", '"wide"'):
         path = _write_config(

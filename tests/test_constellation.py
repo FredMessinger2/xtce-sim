@@ -89,6 +89,7 @@ def test_an_elliptical_constellation_carries_the_ellipse():
             "inclination_deg": 63.4,
             "color": "#3366ff",
             "fov_half_angle_deg": 7.95,
+            "cone_enabled": False,
         }
     )
     assert problems == []
@@ -97,9 +98,14 @@ def test_an_elliptical_constellation_carries_the_ellipse():
     orbit = constellation.sats[0].orbit
     assert orbit.arg_perigee == pytest.approx(math.radians(270.0))
     assert orbit.perigee_radius == pytest.approx(R_EARTH + 600e3)
-    # The cone hint rides along: the viewer draws a default cone when no
-    # hint arrives, so the roster must be able to say what the cone is.
-    assert constellation.sats[0].display == {"color": "#3366ff", "fov_half_angle_deg": 7.95}
+    # The cone hints ride along: the viewer draws a default cone when no
+    # hint arrives, so the roster must be able to say what the cone is —
+    # including the contract's off switch, width kept for the flip back.
+    assert constellation.sats[0].display == {
+        "color": "#3366ff",
+        "fov_half_angle_deg": 7.95,
+        "cone_enabled": False,
+    }
 
 
 def test_state_km_is_the_orbit_in_contract_units():
@@ -125,6 +131,7 @@ def test_state_km_is_the_orbit_in_contract_units():
         ({"count": 10}, "count (10) must divide evenly among planes (4)"),
         ({"warp": 9}, "unknown key 'warp'"),
         ({"fov_half_angle_deg": 91.0}, "fov_half_angle_deg must be a number in (0, 90]"),
+        ({"cone_enabled": "off"}, "cone_enabled must be true or false"),
         ({"update_period_s": 0}, "update_period_s must be a positive number"),
         ({"perigee_km": 600.0}, "altitude_km is the circular spelling"),
         ({"inclination_deg": "steep"}, "inclination_deg: must be a finite number"),

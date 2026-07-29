@@ -434,7 +434,10 @@ def _parse_satellite(entry, n: int, err) -> SatelliteFeed | None:
     if not isinstance(entry, dict):
         err(f"{where}: must be a table")
         return None
-    known = {"sat_id", "name", "host", "port", "def", "color", "pixel_size", "fov_half_angle_deg"}
+    known = {
+        "sat_id", "name", "host", "port", "def",
+        "color", "pixel_size", "fov_half_angle_deg", "cone_enabled",
+    }
     for key in sorted(set(entry) - known):
         err(f"{where}: unknown key {key!r}")
     sat_id = entry.get("sat_id")
